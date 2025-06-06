@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 import { Client, GatewayIntentBits, Events, ChatInputCommandInteraction } from 'discord.js';
+import { Mutex } from 'async-mutex';
 import { GeminiService } from './services/gemini';
 import { logger } from './utils/logger';
 import { registerCommands } from './commands';
@@ -12,10 +13,18 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions,
   ],
 });
 
 let geminiService: GeminiService;
+
+// Race condition protection
+const messageMutex = new Mutex();
+const interactionMutex = new Mutex();
+const typingIntervals = new Map<string, NodeJS.Timeout>();
+const processedMessages = new Set<string>();
+const userProcessingLocks = new Map<string, Mutex>();
 
 client.once(Events.ClientReady, async (readyClient) => {
   logger.info(`Ready! Logged in as ${readyClient.user.tag}`);
@@ -40,7 +49,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName } = interaction;
-
+  const userKey = `${interaction.user.id}-${commandName}`;
+  
+  // Prevent concurrent command execution by same user
+  if (!userProcessingLocks.has(interaction.user.id)) {
+    userProcessingLocks.set(interaction.user.id, new Mutex());
+  }
+  
+  const userMutex = userProcessingLocks.get(interaction.user.id)!;
+  const release = await userMutex.acquire();
+  
   try {
     switch (commandName) {
       case 'chat':
@@ -89,6 +107,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } else {
       await interaction.reply({ content: errorMessage, ephemeral: true });
     }
+  } finally {
+    release();
   }
 });
 
@@ -112,6 +132,34 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   
   if (message.mentions.users.has(client.user!.id)) {
+    const messageKey = `${message.id}-${message.author.id}`;
+    const channelKey = message.channel.id;
+    const userKey = message.author.id;
+    
+    // Prevent duplicate processing
+    if (processedMessages.has(messageKey)) {
+      logger.debug(`Skipping duplicate message processing: ${messageKey}`);
+      return;
+    }
+    
+    processedMessages.add(messageKey);
+    
+    // Clean up old processed messages (keep last 1000)
+    if (processedMessages.size > 1000) {
+      const entries = Array.from(processedMessages);
+      for (let i = 0; i < 500; i++) {
+        processedMessages.delete(entries[i]);
+      }
+    }
+    
+    // Ensure user has processing mutex
+    if (!userProcessingLocks.has(userKey)) {
+      userProcessingLocks.set(userKey, new Mutex());
+    }
+    
+    const userMutex = userProcessingLocks.get(userKey)!;
+    const release = await userMutex.acquire();
+    
     try {
       const prompt = message.content.replace(`<@${client.user!.id}>`, '').trim();
       
@@ -120,20 +168,44 @@ client.on(Events.MessageCreate, async (message) => {
         return;
       }
 
-      let typingInterval: NodeJS.Timeout | null = null;
+      // Safe typing indicator management
+      const startTyping = () => {
+        // Clear any existing typing for this channel
+        const existingInterval = typingIntervals.get(channelKey);
+        if (existingInterval) {
+          clearInterval(existingInterval);
+        }
+        
+        // Start typing immediately
+        message.channel.sendTyping().catch(err => 
+          logger.debug('Failed to send initial typing indicator:', err)
+        );
+        
+        // Set up recurring typing
+        const interval = setInterval(() => {
+          message.channel.sendTyping().catch(err => 
+            logger.debug('Failed to send typing indicator:', err)
+          );
+        }, 5000);
+        
+        typingIntervals.set(channelKey, interval);
+        return interval;
+      };
+      
+      const stopTyping = () => {
+        const interval = typingIntervals.get(channelKey);
+        if (interval) {
+          clearInterval(interval);
+          typingIntervals.delete(channelKey);
+        }
+      };
       
       try {
-        typingInterval = setInterval(() => {
-          message.channel.sendTyping();
-        }, 5000);
-
-        await message.channel.sendTyping();
+        startTyping();
+        
         const response = await geminiService.generateResponse(prompt, message.author.id, message.guild?.id);
         
-        if (typingInterval) {
-          clearInterval(typingInterval);
-          typingInterval = null;
-        }
+        stopTyping();
         
         const chunks = splitMessage(response, 2000);
         
@@ -145,14 +217,19 @@ client.on(Events.MessageCreate, async (message) => {
           await message.channel.send(chunks[i]);
         }
       } catch (error) {
-        if (typingInterval) {
-          clearInterval(typingInterval);
-        }
+        stopTyping();
         logger.error('Error generating response for mention:', error);
-        await message.reply('Sorry, I encountered an error while generating a response. Please try again later.');
+        
+        try {
+          await message.reply('Sorry, I encountered an error while generating a response. Please try again later.');
+        } catch (replyError) {
+          logger.error('Failed to send error reply:', replyError);
+        }
       }
     } catch (error) {
       logger.error('Error handling mention:', error);
+    } finally {
+      release();
     }
   }
 });
@@ -188,6 +265,8 @@ async function handleChatCommand(interaction: ChatInputCommandInteraction) {
 async function handleStatusCommand(interaction: ChatInputCommandInteraction) {
   const quota = geminiService.getRemainingQuota();
   const conversationStats = geminiService.getConversationStats();
+  const cacheStats = geminiService.getCacheStats();
+  const cachePerformance = geminiService.getCachePerformance();
   
   // Calculate usage from remaining quotas
   const rpmLimit = Math.floor((parseInt(process.env.GEMINI_RATE_LIMIT_RPM || '10')) * 0.9);
@@ -211,6 +290,13 @@ async function handleStatusCommand(interaction: ChatInputCommandInteraction) {
     `  - Today: ${usedToday}/${dailyLimit} (${quota.dailyRemaining} remaining)\n` +
     `  - Minute resets: ${nextMinuteReset.toLocaleTimeString()}\n` +
     `  - Daily resets: ${nextDayReset.toLocaleString()}\n` +
+    `\n**Response Cache:**\n` +
+    `  - Hit rate: ${cacheStats.hitRate}% (${cachePerformance.reduction}% API reduction)\n` +
+    `  - Total hits: ${cacheStats.totalHits}\n` +
+    `  - Total misses: ${cacheStats.totalMisses}\n` +
+    `  - Cache size: ${cacheStats.cacheSize}/100 entries\n` +
+    `  - Memory usage: ${(cacheStats.memoryUsage / 1024).toFixed(1)} KB\n` +
+    `  - Avg lookup: ${cachePerformance.avgLookupTime}ms\n` +
     `\n**Conversation Memory:**\n` +
     `  - Active users: ${conversationStats.activeUsers}\n` +
     `  - Total messages: ${conversationStats.totalMessages}\n` +
@@ -224,14 +310,17 @@ async function handleStatusCommand(interaction: ChatInputCommandInteraction) {
 async function handleClearCommand(interaction: ChatInputCommandInteraction) {
   const cleared = geminiService.clearUserConversation(interaction.user.id);
   
+  // Also clear the cache when clearing conversation
+  geminiService.clearCache();
+  
   if (cleared) {
     await interaction.reply({ 
-      content: 'Your conversation history has been cleared. Starting fresh!', 
+      content: 'Your conversation history and cache have been cleared. Starting fresh!', 
       ephemeral: true 
     });
   } else {
     await interaction.reply({ 
-      content: 'You don\'t have any conversation history to clear.', 
+      content: 'You don\'t have any conversation history to clear. Cache has been cleared.', 
       ephemeral: true 
     });
   }
@@ -445,9 +534,28 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
+// Cleanup function for race condition resources
+function cleanupRaceConditionResources() {
+  // Clear all typing intervals
+  for (const [channelId, interval] of typingIntervals) {
+    clearInterval(interval);
+    logger.debug(`Cleared typing interval for channel: ${channelId}`);
+  }
+  typingIntervals.clear();
+  
+  // Clear processed messages cache
+  processedMessages.clear();
+  
+  // Clear user processing locks
+  userProcessingLocks.clear();
+  
+  logger.info('Race condition resources cleaned up');
+}
+
 // Graceful shutdown handler
 process.on('SIGINT', async () => {
   logger.info('Received SIGINT, shutting down gracefully...');
+  cleanupRaceConditionResources();
   if (geminiService) {
     geminiService.shutdown();
   }
@@ -457,6 +565,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   logger.info('Received SIGTERM, shutting down gracefully...');
+  cleanupRaceConditionResources();
   if (geminiService) {
     geminiService.shutdown();
   }

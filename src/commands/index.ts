@@ -68,7 +68,9 @@ const commands = [
     .addStringOption((option) =>
       option
         .setName('description')
-        .setDescription('Personality description (e.g., "loves coffee and coding")')
+        .setDescription(
+          'Personality description (e.g., "loves coffee and coding")',
+        )
         .setRequired(true),
     ),
 
@@ -78,7 +80,9 @@ const commands = [
     .addUserOption((option) =>
       option
         .setName('user')
-        .setDescription('The user to view personality for (optional, defaults to yourself)')
+        .setDescription(
+          'The user to view personality for (optional, defaults to yourself)',
+        )
         .setRequired(false),
     ),
 
@@ -94,7 +98,9 @@ const commands = [
     .addUserOption((option) =>
       option
         .setName('user')
-        .setDescription('The user to remove description from (optional, defaults to yourself)')
+        .setDescription(
+          'The user to remove description from (optional, defaults to yourself)',
+        )
         .setRequired(false),
     ),
 
@@ -104,7 +110,9 @@ const commands = [
     .addUserOption((option) =>
       option
         .setName('user')
-        .setDescription('The user to clear data for (optional, defaults to yourself)')
+        .setDescription(
+          'The user to clear data for (optional, defaults to yourself)',
+        )
         .setRequired(false),
     ),
 
@@ -117,7 +125,6 @@ const commands = [
         .setDescription('Python code to execute or math problem to solve')
         .setRequired(true),
     ),
-
 ];
 
 export async function registerCommands(_client: Client) {

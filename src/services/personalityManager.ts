@@ -62,26 +62,34 @@ export class PersonalityManager {
           lastUpdated: now,
           updatedBy,
           createdAt: now,
-          changeHistory: [{
-            timestamp: now,
-            updatedBy,
-            action: 'added',
-            description,
-          }],
+          changeHistory: [
+            {
+              timestamp: now,
+              updatedBy,
+              action: 'added',
+              description,
+            },
+          ],
         };
       } else {
         // Check if description already exists
         if (existingData.descriptions.includes(description)) {
-          return { success: false, message: 'This personality description already exists for this user' };
+          return {
+            success: false,
+            message:
+              'This personality description already exists for this user',
+          };
         }
 
         // Add new description
         existingData.descriptions.push(description);
-        
+
         // Trim if too many descriptions
         if (existingData.descriptions.length > this.MAX_DESCRIPTIONS_PER_USER) {
           const removed = existingData.descriptions.shift();
-          logger.info(`Auto-trimmed oldest personality description for ${targetUserId}: "${removed}"`);
+          logger.info(
+            `Auto-trimmed oldest personality description for ${targetUserId}: "${removed}"`,
+          );
         }
 
         existingData.lastUpdated = now;
@@ -100,7 +108,9 @@ export class PersonalityManager {
       }
 
       await this.savePersonalities();
-      logger.info(`Personality description added for ${targetUserId}: "${description}" (by ${updatedBy})`);
+      logger.info(
+        `Personality description added for ${targetUserId}: "${description}" (by ${updatedBy})`,
+      );
 
       return {
         success: true,
@@ -120,10 +130,15 @@ export class PersonalityManager {
     try {
       const existingData = this.personalities[targetUserId];
       if (!existingData || !existingData.descriptions.includes(description)) {
-        return { success: false, message: 'User does not have this personality description' };
+        return {
+          success: false,
+          message: 'User does not have this personality description',
+        };
       }
 
-      existingData.descriptions = existingData.descriptions.filter(d => d !== description);
+      existingData.descriptions = existingData.descriptions.filter(
+        (d) => d !== description,
+      );
       existingData.lastUpdated = new Date().toISOString();
       existingData.updatedBy = updatedBy;
 
@@ -135,7 +150,9 @@ export class PersonalityManager {
       });
 
       await this.savePersonalities();
-      logger.info(`Personality description removed for ${targetUserId}: "${description}" (by ${updatedBy})`);
+      logger.info(
+        `Personality description removed for ${targetUserId}: "${description}" (by ${updatedBy})`,
+      );
 
       return {
         success: true,
@@ -153,12 +170,17 @@ export class PersonalityManager {
     const release = await this.mutex.acquire();
     try {
       if (!this.personalities[targetUserId]) {
-        return { success: false, message: 'User has no personality data to clear' };
+        return {
+          success: false,
+          message: 'User has no personality data to clear',
+        };
       }
 
       delete this.personalities[targetUserId];
       await this.savePersonalities();
-      logger.info(`Personality cleared for user ${targetUserId} (by ${updatedBy})`);
+      logger.info(
+        `Personality cleared for user ${targetUserId} (by ${updatedBy})`,
+      );
 
       return {
         success: true,
@@ -180,12 +202,13 @@ export class PersonalityManager {
     }
 
     let context = '\n\nUSER PERSONALITY PROFILE:\n';
-    
+
     personality.descriptions.forEach((description) => {
       context += `- ${description}\n`;
     });
 
-    context += '\nAdapt your response style to match this user\'s personality and preferences.\n';
+    context +=
+      '\nAdapt your response style to match this user\'s personality and preferences.\n';
 
     return context;
   }
@@ -202,18 +225,22 @@ export class PersonalityManager {
     const totalUsers = Object.keys(this.personalities).length;
     let totalDescriptions = 0;
 
-    Object.values(this.personalities).forEach(personality => {
+    Object.values(this.personalities).forEach((personality) => {
       totalDescriptions += personality.descriptions.length;
     });
 
     return {
       totalUsers,
       totalDescriptions,
-      averageDescriptionsPerUser: totalUsers > 0 ? totalDescriptions / totalUsers : 0,
+      averageDescriptionsPerUser:
+        totalUsers > 0 ? totalDescriptions / totalUsers : 0,
     };
   }
 
-  private validateDescription(description: string): { valid: boolean; message: string } {
+  private validateDescription(description: string): {
+    valid: boolean;
+    message: string;
+  } {
     if (typeof description !== 'string') {
       return { valid: false, message: 'Description must be a string' };
     }
@@ -223,9 +250,9 @@ export class PersonalityManager {
     }
 
     if (description.length > this.MAX_DESCRIPTION_LENGTH) {
-      return { 
-        valid: false, 
-        message: `Description too long (max ${this.MAX_DESCRIPTION_LENGTH} characters)` 
+      return {
+        valid: false,
+        message: `Description too long (max ${this.MAX_DESCRIPTION_LENGTH} characters)`,
       };
     }
 
