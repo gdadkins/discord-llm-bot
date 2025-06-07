@@ -47,3 +47,4 @@ Thumbs.db
 # Data files (except .gitkeep)
 data/
 !data/.gitkeep
+claude-orchestrator/

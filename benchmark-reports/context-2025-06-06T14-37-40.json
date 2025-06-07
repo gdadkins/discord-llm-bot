@@ -1,0 +1,152 @@
+{
+  "suite": "context",
+  "timestamp": "2025-06-06T14:38:10.724Z",
+  "results": [
+    {
+      "name": "ContextManager - JSON.stringify small (10 items)",
+      "operations": 10000,
+      "duration": 608.3148689999998,
+      "opsPerSecond": 16438.855121918783,
+      "avgTimePerOp": 0.06083148689999998,
+      "minTime": 0.04703200000039942,
+      "maxTime": 1.6521999999995387,
+      "p50": 0.050029999999424035,
+      "p95": 0.07669800000076066,
+      "p99": 0.28460400000039954,
+      "memoryUsed": 0,
+      "heapUsed": 37048120,
+      "external": 7947150,
+      "gcRuns": 0
+    },
+    {
+      "name": "ContextManager - JSON.stringify medium (100 items)",
+      "operations": 5000,
+      "duration": 3049.365749999999,
+      "opsPerSecond": 1639.6852361839515,
+      "avgTimePerOp": 0.6098731499999998,
+      "minTime": 0.48464899999999034,
+      "maxTime": 29.312651999998707,
+      "p50": 0.5155799999993178,
+      "p95": 1.1832539999995788,
+      "p99": 1.5615940000006958,
+      "memoryUsed": 0,
+      "heapUsed": 150349784,
+      "external": 7930766,
+      "gcRuns": 0
+    },
+    {
+      "name": "ContextManager - JSON.stringify large (1000 items)",
+      "operations": 1000,
+      "duration": 12144.440770000001,
+      "opsPerSecond": 82.34220240673955,
+      "avgTimePerOp": 12.144440770000001,
+      "minTime": 10.204663000000437,
+      "maxTime": 18.03820199999973,
+      "p50": 11.977491999999984,
+      "p95": 14.050447999998141,
+      "p99": 15.346388000001753,
+      "memoryUsed": 0,
+      "heapUsed": 676494464,
+      "external": 7930766,
+      "gcRuns": 0
+    },
+    {
+      "name": "ContextManager - trimContext performance",
+      "operations": 5000,
+      "duration": 8421.248271,
+      "opsPerSecond": 593.7362062128426,
+      "avgTimePerOp": 1.6842496542,
+      "minTime": 1.1243759999997565,
+      "maxTime": 42.76308599999902,
+      "p50": 1.1884199999985867,
+      "p95": 4.430501999999251,
+      "p99": 5.186696000000666,
+      "memoryUsed": 0,
+      "heapUsed": 1074457496,
+      "external": 7930766,
+      "gcRuns": 0
+    },
+    {
+      "name": "ContextManager - buildSuperContext small",
+      "operations": 10000,
+      "duration": 578.8199099999983,
+      "opsPerSecond": 17276.530795217514,
+      "avgTimePerOp": 0.057881990999999834,
+      "minTime": 0.02571400000306312,
+      "maxTime": 4.271674000003259,
+      "p50": 0.02862499999901047,
+      "p95": 0.042971000002580695,
+      "p99": 0.11883899999884306,
+      "memoryUsed": 0,
+      "heapUsed": 50165344,
+      "external": 7930766,
+      "gcRuns": 0
+    },
+    {
+      "name": "ContextManager - buildSuperContext large",
+      "operations": 1000,
+      "duration": 550.2138090000008,
+      "opsPerSecond": 1817.4752862300456,
+      "avgTimePerOp": 0.5502138090000007,
+      "minTime": 0.30641599999944447,
+      "maxTime": 3.6730920000045444,
+      "p50": 0.319829000000027,
+      "p95": 2.3876450000025216,
+      "p99": 2.9115490000040154,
+      "memoryUsed": 0,
+      "heapUsed": 28880120,
+      "external": 7930766,
+      "gcRuns": 0
+    },
+    {
+      "name": "ContextManager - getMemoryStats",
+      "operations": 5000,
+      "duration": 2664.4397390000013,
+      "opsPerSecond": 1876.5671172118775,
+      "avgTimePerOp": 0.5328879478000003,
+      "minTime": 0.3095409999950789,
+      "maxTime": 7.243246000005456,
+      "p50": 0.33324700000230223,
+      "p95": 2.767199999994773,
+      "p99": 3.6608849999975064,
+      "memoryUsed": 0,
+      "heapUsed": 139311384,
+      "external": 7930766,
+      "gcRuns": 0
+    },
+    {
+      "name": "ContextManager - memory growth simulation",
+      "operations": 100,
+      "duration": 65.52852500000154,
+      "opsPerSecond": 1526.0529670093697,
+      "avgTimePerOp": 0.6552852500000154,
+      "minTime": 0.3849320000008447,
+      "maxTime": 3.9366750000044703,
+      "p50": 0.41329099999711616,
+      "p95": 3.595710000001418,
+      "p99": 3.783361000001605,
+      "memoryUsed": 0,
+      "heapUsed": 6125344,
+      "external": 7930766,
+      "gcRuns": 0
+    }
+  ],
+  "summary": {
+    "totalBenchmarks": 8,
+    "performance": {
+      "avgOpsPerSecond": 5156.40561654889,
+      "maxOpsPerSecond": 17276.530795217514,
+      "minOpsPerSecond": 82.34220240673955
+    },
+    "latency": {
+      "avgP95": 3.566803499999878,
+      "maxP95": 14.050447999998141,
+      "minP95": 0.042971000002580695
+    },
+    "memory": {
+      "totalHeapUsed": 2162832056,
+      "avgHeapUsed": 270354007,
+      "maxHeapUsed": 1074457496
+    }
+  }
+}

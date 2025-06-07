@@ -12,7 +12,17 @@
       "Bash(npm run format:*)",
       "Bash(npm run lint:*)",
       "WebFetch(domain:ai.google.dev)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm test:*)",
+      "Bash(node:*)",
+      "Bash(node:*)",
+      "Bash(rm:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npm audit:*)",
+      "Bash(npm outdated)"
     ],
     "deny": []
   }

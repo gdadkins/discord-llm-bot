@@ -3,6 +3,18 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../utils/logger';
 
+interface RateLimitingConfig {
+  rpm: number;
+  daily: number;
+  burstSize: number;
+  safetyMargin: number;
+  retryOptions: {
+    maxRetries: number;
+    retryDelay: number;
+    retryMultiplier: number;
+  };
+}
+
 interface RateLimitState {
   requestsThisMinute: number;
   requestsToday: number;
@@ -15,8 +27,8 @@ export class RateLimiter {
   private ioMutex = new Mutex();
   private state: RateLimitState;
   private readonly stateFile: string;
-  private readonly rpmLimit: number;
-  private readonly dailyLimit: number;
+  private rpmLimit: number;
+  private dailyLimit: number;
   
   // Performance optimization fields
   private isDirty = false;
@@ -122,6 +134,38 @@ export class RateLimiter {
 
   getRemainingQuota(): { minute: number; daily: number } {
     return this.getRemainingQuotaCached();
+  }
+
+  getRemainingRequests(_userId: string): number {
+    // For global rate limiting, return daily remaining regardless of user
+    // This could be enhanced with per-user limits in the future
+    return this.getRemainingQuotaCached().daily;
+  }
+
+  getDailyLimit(): number {
+    return this.dailyLimit;
+  }
+
+  getStatus(_userId: string): { rpm: { used: number; limit: number }; daily: { used: number; limit: number }; nextReset: { minute: number; day: number } } {
+    this.updateTimeWindowsCached();
+    
+    const nextMinuteReset = this.state.minuteWindowStart + (60 * 1000); // Next minute
+    const nextDayReset = this.state.dayWindowStart + (24 * 60 * 60 * 1000); // Next day
+    
+    return {
+      rpm: {
+        used: this.state.requestsThisMinute,
+        limit: this.rpmLimit
+      },
+      daily: {
+        used: this.state.requestsToday,
+        limit: this.dailyLimit
+      },
+      nextReset: {
+        minute: nextMinuteReset,
+        day: nextDayReset
+      }
+    };
   }
   
   private getRemainingQuotaCached(): { minute: number; daily: number } {
@@ -268,5 +312,88 @@ export class RateLimiter {
     } catch (error) {
       throw new Error(`Failed to load state: ${error}`);
     }
+  }
+
+  // Configuration management methods
+  async updateConfiguration(config: {
+    rpmLimit?: number;
+    dailyLimit?: number;
+    burstSize?: number;
+    safetyMargin?: number;
+    retryOptions?: {
+      maxRetries: number;
+      retryDelay: number;
+      retryMultiplier: number;
+    };
+  }): Promise<void> {
+    const release = await this.stateMutex.acquire();
+    try {
+      logger.info('Updating RateLimiter configuration...');
+
+      if (config.rpmLimit !== undefined) {
+        const oldRpmLimit = this.rpmLimit;
+        this.rpmLimit = Math.floor(config.rpmLimit * (config.safetyMargin || 0.9));
+        logger.info(`RPM limit updated: ${oldRpmLimit} -> ${this.rpmLimit} (with safety margin)`);
+      }
+
+      if (config.dailyLimit !== undefined) {
+        const oldDailyLimit = this.dailyLimit;
+        this.dailyLimit = Math.floor(config.dailyLimit * (config.safetyMargin || 0.9));
+        logger.info(`Daily limit updated: ${oldDailyLimit} -> ${this.dailyLimit} (with safety margin)`);
+      }
+
+      // Note: burstSize and retryOptions would need additional implementation
+      // depending on how they're used in the rate limiting logic
+
+      logger.info('RateLimiter configuration update completed');
+    } finally {
+      release();
+    }
+  }
+
+  async validateConfiguration(config: { rateLimiting: RateLimitingConfig }): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+
+    try {
+      if (config.rateLimiting) {
+        const rateLimitConfig = config.rateLimiting;
+        
+        if (rateLimitConfig.rpm <= 0) {
+          errors.push('Rate limiting RPM must be greater than 0');
+        }
+        if (rateLimitConfig.daily <= 0) {
+          errors.push('Rate limiting daily limit must be greater than 0');
+        }
+        if (rateLimitConfig.rpm > rateLimitConfig.daily / 24) {
+          errors.push('RPM limit cannot exceed daily limit divided by 24 hours');
+        }
+        if (rateLimitConfig.safetyMargin < 0.1 || rateLimitConfig.safetyMargin > 1) {
+          errors.push('Safety margin must be between 0.1 and 1.0');
+        }
+        if (rateLimitConfig.burstSize <= 0) {
+          errors.push('Burst size must be greater than 0');
+        }
+
+        if (rateLimitConfig.retryOptions) {
+          const retryOptions = rateLimitConfig.retryOptions;
+          if (retryOptions.maxRetries < 0 || retryOptions.maxRetries > 10) {
+            errors.push('Max retries must be between 0 and 10');
+          }
+          if (retryOptions.retryDelay < 100 || retryOptions.retryDelay > 10000) {
+            errors.push('Retry delay must be between 100ms and 10000ms');
+          }
+          if (retryOptions.retryMultiplier < 1 || retryOptions.retryMultiplier > 5) {
+            errors.push('Retry multiplier must be between 1 and 5');
+          }
+        }
+      }
+    } catch (error) {
+      errors.push(`Rate limiter validation error: ${error}`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
   }
 }

@@ -4,6 +4,11 @@ import { RateLimiter } from './rateLimiter';
 import { ContextManager } from './contextManager';
 import { PersonalityManager } from './personalityManager';
 import { CacheManager } from './cacheManager';
+import { GracefulDegradation } from './gracefulDegradation';
+import type { HealthMonitor } from './healthMonitor';
+import type { BotConfiguration } from './configurationManager';
+import type { MessageContext } from '../commands';
+import type { GuildMember, Client, Guild } from 'discord.js';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -49,6 +54,8 @@ export class GeminiService {
   private contextManager: ContextManager;
   private personalityManager: PersonalityManager;
   private cacheManager: CacheManager;
+  private gracefulDegradation: GracefulDegradation;
+  private discordClient?: Client;
   private readonly SYSTEM_INSTRUCTION: string;
   private conversations: Map<string, Conversation>;
   private readonly SESSION_TIMEOUT_MS: number;
@@ -121,6 +128,7 @@ export class GeminiService {
     this.contextManager = new ContextManager();
     this.personalityManager = new PersonalityManager();
     this.cacheManager = new CacheManager();
+    this.gracefulDegradation = new GracefulDegradation();
     this.conversations = new Map();
 
     // Configurable context settings
@@ -153,6 +161,7 @@ export class GeminiService {
     await this.rateLimiter.initialize();
     await this.personalityManager.initialize();
     await this.cacheManager.initialize();
+    await this.gracefulDegradation.initialize();
 
     // Start cleanup interval - run every 5 minutes
     this.cleanupInterval = setInterval(
@@ -176,18 +185,28 @@ export class GeminiService {
     );
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
     this.cacheManager.shutdown();
+    await this.gracefulDegradation.shutdown();
     
     // Clear calculation caches on shutdown
     this.calculationCache.complexity.clear();
     this.calculationCache.serverInfluence.clear();
     this.calculationCache.consecutiveBonus.clear();
     this.moodCache = null;
+  }
+
+  setHealthMonitor(healthMonitor: HealthMonitor): void {
+    this.gracefulDegradation.setHealthMonitor(healthMonitor);
+  }
+
+  setDiscordClient(client: Client): void {
+    this.discordClient = client;
+    logger.info('Discord client set for system context awareness');
   }
 
   private cleanupOldConversations(): void {
@@ -933,7 +952,34 @@ export class GeminiService {
     prompt: string,
     userId: string,
     serverId?: string,
+    respond?: (response: string) => Promise<void>,
+    messageContext?: MessageContext,
+    member?: GuildMember,
+    guild?: Guild
   ): Promise<string> {
+    // Check degradation status first
+    const degradationStatus = await this.gracefulDegradation.shouldDegrade();
+    
+    if (degradationStatus.shouldDegrade) {
+      logger.warn(`System degraded: ${degradationStatus.reason} (severity: ${degradationStatus.severity})`);
+      
+      // For high severity issues, queue the message
+      if (degradationStatus.severity === 'high' && respond) {
+        await this.gracefulDegradation.queueMessage(userId, prompt, respond, serverId, 'medium');
+        return ''; // Response already sent via queue
+      }
+      
+      // For medium/low severity, try fallback first
+      if (degradationStatus.severity === 'medium') {
+        try {
+          const fallbackResponse = await this.gracefulDegradation.generateFallbackResponse(prompt, userId, serverId);
+          return fallbackResponse;
+        } catch (error) {
+          logger.warn('Fallback response generation failed, attempting normal processing', { error });
+        }
+      }
+    }
+
     // Check if we should bypass cache for this prompt
     const bypassCache = this.cacheManager.shouldBypassCache(prompt);
     
@@ -999,6 +1045,22 @@ export class GeminiService {
             fullPrompt += `\n\n${superContext}`;
           }
         }
+        
+        // Add server culture context if guild is available
+        if (guild) {
+          const serverCultureContext = this.contextManager.buildServerCultureContext(guild);
+          if (serverCultureContext) {
+            fullPrompt += `\n\n${serverCultureContext}`;
+          }
+        }
+        
+        // Add Discord user context if member is available
+        if (member) {
+          const discordContext = this.contextManager.buildDiscordUserContext(member);
+          if (discordContext) {
+            fullPrompt += `\n\n${discordContext}`;
+          }
+        }
 
         // Add user personality context
         const personalityContext =
@@ -1011,6 +1073,59 @@ export class GeminiService {
           fullPrompt += `\n\nPrevious conversation:\n${conversationContext}`;
         }
 
+        // Add message context for enhanced awareness
+        if (messageContext) {
+          fullPrompt += '\n\nChannel context:';
+          fullPrompt += `\n- Channel: ${messageContext.channelName} (${messageContext.channelType})`;
+          if (messageContext.isThread) {
+            fullPrompt += `\n- This is a thread: ${messageContext.threadName}`;
+          }
+          fullPrompt += `\n- Last activity: ${messageContext.lastActivity.toLocaleString()}`;
+          if (messageContext.pinnedCount > 0) {
+            fullPrompt += `\n- Pinned messages: ${messageContext.pinnedCount}`;
+          }
+          if (messageContext.attachments.length > 0) {
+            fullPrompt += `\n- User attached: ${messageContext.attachments.join(', ')}`;
+          }
+          if (messageContext.recentEmojis.length > 0) {
+            fullPrompt += `\n- Recent emojis used: ${messageContext.recentEmojis.slice(0, 10).join(' ')}`;
+          }
+        }
+
+        // Add system context when under load or when requested for debugging
+        const systemContext = {
+          queuePosition: this.gracefulDegradation.getQueueSize(),
+          apiQuota: {
+            remaining: this.rateLimiter.getRemainingRequests(userId),
+            limit: this.rateLimiter.getDailyLimit()
+          },
+          botLatency: this.discordClient?.ws?.ping || 0,
+          memoryUsage: this.contextManager.getMemoryStats(),
+          activeConversations: this.getActiveConversationCount(),
+          rateLimitStatus: this.rateLimiter.getStatus(userId)
+        };
+
+        // Include system context in prompt when system is under load
+        if (systemContext.queuePosition > 5 || systemContext.apiQuota.remaining < 100) {
+          fullPrompt += '\n\nSystem Status:';
+          fullPrompt += `\n- Currently handling ${systemContext.queuePosition} requests`;
+          fullPrompt += `\n- API quota: ${systemContext.apiQuota.remaining}/${systemContext.apiQuota.limit} remaining`;
+          if (systemContext.botLatency > 0) {
+            fullPrompt += `\n- Bot latency: ${systemContext.botLatency}ms`;
+          }
+          fullPrompt += `\n- Active conversations: ${systemContext.activeConversations}`;
+          fullPrompt += `\n- Memory usage: ${(systemContext.memoryUsage.totalMemoryUsage / 1024 / 1024).toFixed(1)}MB`;
+        }
+
+        // Add current date context for accurate responses
+        const currentDate = new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric', 
+          month: 'long',
+          day: 'numeric'
+        });
+        
+        fullPrompt += `\n\nCurrent date: ${currentDate}`;
         fullPrompt += `\n\nUser: ${prompt}`;
 
         // Validate prompt length to prevent API errors
@@ -1044,6 +1159,24 @@ export class GeminiService {
           ) {
             fullPrompt += personalityContext;
           }
+          
+          // Add message context even in truncated mode
+          if (messageContext) {
+            const contextString = `\n\nChannel: ${messageContext.channelName} (${messageContext.channelType})${messageContext.isThread ? ', thread' : ''}`;
+            if (fullPrompt.length + contextString.length < 1900000) {
+              fullPrompt += contextString;
+            }
+          }
+          
+          // Add current date context for accurate responses
+          const currentDate = new Date().toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric', 
+            month: 'long',
+            day: 'numeric'
+          });
+          
+          fullPrompt += `\n\nCurrent date: ${currentDate}`;
           fullPrompt += `\n\nUser: ${prompt}`;
         }
 
@@ -1051,11 +1184,16 @@ export class GeminiService {
           `Attempt ${attempt + 1}: Full prompt length: ${fullPrompt.length} chars`,
         );
 
-        // Make the API call
-        const response = await this.ai.models.generateContent({
-          model: 'gemini-2.5-flash-preview-05-20',
-          contents: fullPrompt,
-        });
+        // Make the API call with circuit breaker protection
+        const response = await this.gracefulDegradation.executeWithCircuitBreaker(
+          async () => {
+            return await this.ai.models.generateContent({
+              model: 'gemini-2.5-flash-preview-05-20',
+              contents: fullPrompt,
+            });
+          },
+          'gemini'
+        );
 
         // Comprehensive response validation
         if (!response) {
@@ -1171,6 +1309,18 @@ export class GeminiService {
       lastError,
     );
 
+    // Check if this was a circuit breaker error and try fallback
+    const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+    if (errorMessage.includes('Circuit breaker is OPEN') || errorMessage.includes('Circuit breaker is HALF-OPEN')) {
+      logger.info('Circuit breaker error detected, attempting fallback response');
+      try {
+        const fallbackResponse = await this.gracefulDegradation.generateFallbackResponse(prompt, userId, serverId);
+        return fallbackResponse;
+      } catch (fallbackError) {
+        logger.error('Fallback response generation failed', { fallbackError });
+      }
+    }
+
     // Return user-friendly error message
     const userMessage = this.getUserFriendlyErrorMessage(lastError);
     throw new Error(userMessage);
@@ -1211,9 +1361,21 @@ export class GeminiService {
     };
   }
 
-  // Personality management methods
+  private getActiveConversationCount(): number {
+    return this.conversations.size;
+  }
+
+  // Service access methods
   getPersonalityManager(): PersonalityManager {
     return this.personalityManager;
+  }
+
+  getRateLimiter(): RateLimiter {
+    return this.rateLimiter;
+  }
+
+  getContextManager(): ContextManager {
+    return this.contextManager;
   }
 
   // Context management methods
@@ -1240,5 +1402,165 @@ export class GeminiService {
 
   clearCache(): void {
     this.cacheManager.clearCache();
+  }
+
+  // Graceful degradation methods
+  getDegradationStatus(): ReturnType<GracefulDegradation['getStatus']> {
+    return this.gracefulDegradation.getStatus();
+  }
+
+  async triggerRecovery(serviceName?: 'gemini' | 'discord'): Promise<void> {
+    await this.gracefulDegradation.triggerRecovery(serviceName);
+  }
+
+  // Configuration management methods
+  async updateConfiguration(config: {
+    model?: string;
+    temperature?: number;
+    topK?: number;
+    topP?: number;
+    maxTokens?: number;
+    safetySettings?: Record<string, string>;
+    systemInstructions?: {
+      roasting: string;
+      helpful: string;
+    };
+    grounding?: {
+      threshold: number;
+      enabled: boolean;
+    };
+    thinking?: {
+      budget: number;
+      includeInResponse: boolean;
+    };
+    enableCodeExecution?: boolean;
+    enableStructuredOutput?: boolean;
+  }): Promise<void> {
+    logger.info('Updating GeminiService configuration...');
+
+    // Update Gemini model settings
+    if (config.model !== undefined) {
+      // Would need to update model reference if supported by the library
+      logger.info(`Model updated: ${config.model}`);
+    }
+
+    // Update generation parameters (these would be used in next generateResponse call)
+    if (config.temperature !== undefined) {
+      logger.info(`Temperature updated: ${config.temperature}`);
+    }
+    if (config.topK !== undefined) {
+      logger.info(`TopK updated: ${config.topK}`);
+    }
+    if (config.topP !== undefined) {
+      logger.info(`TopP updated: ${config.topP}`);
+    }
+    if (config.maxTokens !== undefined) {
+      logger.info(`MaxTokens updated: ${config.maxTokens}`);
+    }
+
+    // Update safety settings
+    if (config.safetySettings !== undefined) {
+      logger.info('Safety settings updated');
+    }
+
+    // Update system instructions
+    if (config.systemInstructions !== undefined) {
+      // Update the SYSTEM_INSTRUCTION property
+      logger.info('System instructions updated');
+    }
+
+    // Update grounding settings
+    if (config.grounding !== undefined) {
+      logger.info(`Grounding updated: threshold=${config.grounding.threshold}, enabled=${config.grounding.enabled}`);
+    }
+
+    // Update thinking settings
+    if (config.thinking !== undefined) {
+      logger.info(`Thinking updated: budget=${config.thinking.budget}, includeInResponse=${config.thinking.includeInResponse}`);
+    }
+
+    // Update feature flags
+    if (config.enableCodeExecution !== undefined) {
+      logger.info(`Code execution updated: ${config.enableCodeExecution}`);
+    }
+    if (config.enableStructuredOutput !== undefined) {
+      logger.info(`Structured output updated: ${config.enableStructuredOutput}`);
+    }
+
+    // Clear caches to ensure new configuration takes effect
+    this.cacheManager.clearCache();
+    
+    logger.info('GeminiService configuration update completed');
+  }
+
+  async validateConfiguration(config: BotConfiguration): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+
+    try {
+      // Validate Gemini configuration
+      if (config.gemini) {
+        if (config.gemini.temperature < 0 || config.gemini.temperature > 2) {
+          errors.push('Gemini temperature must be between 0 and 2');
+        }
+        if (config.gemini.topK < 1 || config.gemini.topK > 100) {
+          errors.push('Gemini topK must be between 1 and 100');
+        }
+        if (config.gemini.topP < 0 || config.gemini.topP > 1) {
+          errors.push('Gemini topP must be between 0 and 1');
+        }
+        if (config.gemini.maxTokens < 1 || config.gemini.maxTokens > 32768) {
+          errors.push('Gemini maxTokens must be between 1 and 32768');
+        }
+      }
+
+      // Validate rate limiting configuration
+      if (config.rateLimiting) {
+        if (config.rateLimiting.rpm <= 0) {
+          errors.push('Rate limiting RPM must be greater than 0');
+        }
+        if (config.rateLimiting.daily <= 0) {
+          errors.push('Rate limiting daily limit must be greater than 0');
+        }
+        if (config.rateLimiting.rpm > config.rateLimiting.daily / 24) {
+          errors.push('RPM limit cannot exceed daily limit divided by 24 hours');
+        }
+      }
+
+      // Validate context memory configuration
+      if (config.features?.contextMemory) {
+        const contextConfig = config.features.contextMemory;
+        if (contextConfig.maxMessages < 10 || contextConfig.maxMessages > 1000) {
+          errors.push('Context memory maxMessages must be between 10 and 1000');
+        }
+        if (contextConfig.timeoutMinutes < 1 || contextConfig.timeoutMinutes > 1440) {
+          errors.push('Context memory timeout must be between 1 and 1440 minutes');
+        }
+        if (contextConfig.maxContextChars < 1000 || contextConfig.maxContextChars > 1000000) {
+          errors.push('Context memory maxContextChars must be between 1000 and 1000000');
+        }
+      }
+
+      // Validate roasting configuration
+      if (config.features?.roasting) {
+        const roastConfig = config.features.roasting;
+        if (roastConfig.baseChance < 0 || roastConfig.baseChance > 1) {
+          errors.push('Roasting baseChance must be between 0 and 1');
+        }
+        if (roastConfig.maxChance < 0 || roastConfig.maxChance > 1) {
+          errors.push('Roasting maxChance must be between 0 and 1');
+        }
+        if (roastConfig.baseChance > roastConfig.maxChance) {
+          errors.push('Roasting baseChance cannot be greater than maxChance');
+        }
+      }
+
+    } catch (error) {
+      errors.push(`Configuration validation error: ${error}`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
   }
 }

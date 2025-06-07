@@ -68,3 +68,26 @@ The most critical risk (exceeding API quotas and incurring charges) has been add
 - Proper time window alignment
 
 These changes ensure the bot will properly respect the 10 RPM and 500 daily request limits.
+
+## Recent Feature Additions
+
+### ASCII Art Generation Feature
+- **Feature**: New `/ascii` command for AI-generated ASCII art
+- **Implementation**: Leverages existing Gemini AI integration for contextual art creation
+- **Usage**: `/ascii <prompt>` generates ASCII art based on user input (e.g., "starfish", "dragon")
+- **Output**: Properly formatted ASCII art wrapped in Discord code blocks for clarity
+- **Integration**: Seamlessly integrates with existing command structure and rate limiting
+
+#### Files Modified:
+- `src/commands/index.ts`: Added ASCII command definition and autocomplete support
+- `src/index.ts`: Added `handleAsciiCommand` function and command routing
+- `docs/API_REFERENCE.md`: Added ASCII command documentation
+- `README.md`: Updated with ASCII command examples and features
+- `QUICK_START.md`: Added ASCII command to test examples
+- `docs/ARCHITECTURE.md`: Updated command list to include ASCII art
+
+#### Benefits:
+- Enhances user engagement with creative mIRC-inspired functionality
+- Demonstrates AI capabilities beyond text conversation
+- Maintains proper Discord formatting for ASCII art display
+- Zero impact on existing functionality or performance
