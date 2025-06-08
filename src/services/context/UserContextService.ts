@@ -5,12 +5,54 @@
 
 import { GuildMember } from 'discord.js';
 import { logger } from '../../utils/logger';
+import { DataStore, DataValidator } from '../../utils/DataStore';
 import { DiscordUserContext } from './types';
+
+interface UserCacheData {
+  contexts: Array<{
+    key: string;
+    context: DiscordUserContext;
+    addedAt: number;
+  }>;
+  lastUpdated: number;
+  version: number;
+}
 
 export class UserContextService {
   private discordUserContextCache: Map<string, DiscordUserContext> = new Map();
   private readonly DISCORD_CONTEXT_TTL = 365 * 24 * 60 * 60 * 1000; // 1 year
-  private readonly MAX_DISCORD_CACHE_ENTRIES = 10000;
+  private readonly MAX_DISCORD_CACHE_ENTRIES = 100; // Reduced to match task spec
+  private cacheDataStore: DataStore<UserCacheData>;
+  private cacheStats = {
+    hits: 0,
+    misses: 0,
+    evictions: 0,
+    persistenceLoads: 0,
+    persistenceSaves: 0,
+  };
+
+  constructor() {
+    // Initialize DataStore for cache persistence
+    const validator: DataValidator<UserCacheData> = (data: unknown): data is UserCacheData => {
+      if (!data || typeof data !== 'object') return false;
+      const d = data as any;
+      return Array.isArray(d.contexts) &&
+             typeof d.lastUpdated === 'number' &&
+             typeof d.version === 'number';
+    };
+    
+    this.cacheDataStore = new DataStore<UserCacheData>('./data/user-cache.json', {
+      validator,
+      compressionEnabled: false, // User data is typically small
+      ttl: this.DISCORD_CONTEXT_TTL,
+      autoCleanup: true,
+      maxBackups: 3,
+      enableDebugLogging: false
+    });
+    
+    // Load cache on initialization
+    this.loadCacheFromDisk();
+  }
 
   /**
    * Build Discord user context from a GuildMember
@@ -22,8 +64,11 @@ export class UserContextService {
     // Check cache first
     const cached = this.discordUserContextCache.get(cacheKey);
     if (cached && (Date.now() - cached.cachedAt) < this.DISCORD_CONTEXT_TTL) {
+      this.cacheStats.hits++;
       return this.formatDiscordContextAsString(cached, includeServerData);
     }
+    
+    this.cacheStats.misses++;
     
     // Build new context
     const context: DiscordUserContext = {
@@ -57,9 +102,12 @@ export class UserContextService {
     this.discordUserContextCache.set(cacheKey, context);
     
     // Clean up old cache entries periodically
-    if (this.discordUserContextCache.size > 100) {
+    if (this.discordUserContextCache.size > this.MAX_DISCORD_CACHE_ENTRIES) {
       this.cleanupDiscordContextCache();
     }
+    
+    // Save cache to disk periodically
+    this.scheduleCachePersistence();
     
     return this.formatDiscordContextAsString(context, includeServerData);
   }
@@ -112,22 +160,37 @@ export class UserContextService {
   }
 
   /**
-   * Clean up old Discord context cache entries
+   * Clean up old Discord context cache entries with LRU eviction
    */
   private cleanupDiscordContextCache(): void {
     const now = Date.now();
     const entriesToDelete: string[] = [];
     
+    // First, remove expired entries
     for (const [key, context] of this.discordUserContextCache.entries()) {
       if (now - context.cachedAt > this.DISCORD_CONTEXT_TTL) {
         entriesToDelete.push(key);
       }
     }
     
-    entriesToDelete.forEach(key => this.discordUserContextCache.delete(key));
+    // If still over limit, use LRU eviction
+    if (this.discordUserContextCache.size - entriesToDelete.length > this.MAX_DISCORD_CACHE_ENTRIES) {
+      const sortedEntries = Array.from(this.discordUserContextCache.entries())
+        .sort((a, b) => a[1].cachedAt - b[1].cachedAt);
+      
+      const toRemove = sortedEntries.length - this.MAX_DISCORD_CACHE_ENTRIES + entriesToDelete.length;
+      for (let i = 0; i < toRemove; i++) {
+        entriesToDelete.push(sortedEntries[i][0]);
+      }
+    }
+    
+    entriesToDelete.forEach(key => {
+      this.discordUserContextCache.delete(key);
+      this.cacheStats.evictions++;
+    });
     
     if (entriesToDelete.length > 0) {
-      logger.info(`Cleaned up ${entriesToDelete.length} expired Discord context cache entries`);
+      logger.info(`Cleaned up ${entriesToDelete.length} Discord context cache entries (LRU eviction)`);
     }
   }
 
@@ -213,5 +276,149 @@ export class UserContextService {
   public cleanup(): void {
     this.discordUserContextCache.clear();
     logger.info('UserContextService cleanup completed');
+  }
+
+  /**
+   * Load cache from disk
+   */
+  private async loadCacheFromDisk(): Promise<void> {
+    try {
+      const data = await this.cacheDataStore.load();
+      if (data && data.contexts) {
+        const now = Date.now();
+        let loadedCount = 0;
+        let expiredCount = 0;
+        
+        for (const entry of data.contexts) {
+          if (now - entry.context.cachedAt < this.DISCORD_CONTEXT_TTL) {
+            this.discordUserContextCache.set(entry.key, entry.context);
+            loadedCount++;
+          } else {
+            expiredCount++;
+          }
+        }
+        
+        this.cacheStats.persistenceLoads++;
+        logger.info(`Loaded ${loadedCount} user context entries from cache (${expiredCount} expired)`);
+      }
+    } catch (error) {
+      logger.error('Failed to load user cache from disk:', error);
+    }
+  }
+
+  /**
+   * Save cache to disk
+   */
+  private async saveCacheToDisk(): Promise<void> {
+    try {
+      const contexts = Array.from(this.discordUserContextCache.entries()).map(([key, context]) => ({
+        key,
+        context,
+        addedAt: context.cachedAt,
+      }));
+      
+      const data: UserCacheData = {
+        contexts,
+        lastUpdated: Date.now(),
+        version: 1,
+      };
+      
+      await this.cacheDataStore.save(data);
+      this.cacheStats.persistenceSaves++;
+      
+      logger.debug(`Saved ${contexts.length} user context entries to cache`);
+    } catch (error) {
+      logger.error('Failed to save user cache to disk:', error);
+    }
+  }
+
+  private saveCacheTimer: NodeJS.Timeout | null = null;
+  
+  /**
+   * Schedule cache persistence with debouncing
+   */
+  private scheduleCachePersistence(): void {
+    // Clear existing timer
+    if (this.saveCacheTimer) {
+      clearTimeout(this.saveCacheTimer);
+    }
+    
+    // Schedule save after 5 seconds of inactivity
+    this.saveCacheTimer = setTimeout(() => {
+      this.saveCacheToDisk();
+    }, 5000);
+  }
+
+  /**
+   * Get cache statistics
+   */
+  public getCacheStatistics(): {
+    hits: number;
+    misses: number;
+    hitRate: number;
+    evictions: number;
+    persistenceLoads: number;
+    persistenceSaves: number;
+    cacheSize: number;
+    memorySizeMB: number;
+  } {
+    const totalRequests = this.cacheStats.hits + this.cacheStats.misses;
+    const hitRate = totalRequests > 0 ? (this.cacheStats.hits / totalRequests) * 100 : 0;
+    const storageStats = this.getDiscordDataStorageStats();
+    
+    return {
+      hits: this.cacheStats.hits,
+      misses: this.cacheStats.misses,
+      hitRate,
+      evictions: this.cacheStats.evictions,
+      persistenceLoads: this.cacheStats.persistenceLoads,
+      persistenceSaves: this.cacheStats.persistenceSaves,
+      cacheSize: this.discordUserContextCache.size,
+      memorySizeMB: storageStats.estimatedSizeMB,
+    };
+  }
+
+  /**
+   * Export cache for backup
+   */
+  public async exportCache(): Promise<UserCacheData> {
+    const contexts = Array.from(this.discordUserContextCache.entries()).map(([key, context]) => ({
+      key,
+      context,
+      addedAt: context.cachedAt,
+    }));
+    
+    return {
+      contexts,
+      lastUpdated: Date.now(),
+      version: 1,
+    };
+  }
+
+  /**
+   * Import cache from backup
+   */
+  public async importCache(data: UserCacheData): Promise<void> {
+    if (!data || !Array.isArray(data.contexts)) {
+      throw new Error('Invalid cache data format');
+    }
+    
+    const now = Date.now();
+    let importedCount = 0;
+    let skippedCount = 0;
+    
+    for (const entry of data.contexts) {
+      if (now - entry.context.cachedAt < this.DISCORD_CONTEXT_TTL) {
+        this.discordUserContextCache.set(entry.key, entry.context);
+        importedCount++;
+      } else {
+        skippedCount++;
+      }
+    }
+    
+    logger.info(`Imported ${importedCount} user context entries (${skippedCount} expired)`);
+    
+    // Save to disk after import
+    this.scheduleCachePersistence();
   }
 }

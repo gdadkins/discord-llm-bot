@@ -1,7 +1,6 @@
 import { Mutex } from 'async-mutex';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { logger } from '../utils/logger';
+import { DataStore } from '../utils/DataStore';
 import { BaseService } from './base/BaseService';
 import type { IService } from './interfaces';
 
@@ -25,13 +24,13 @@ interface PersonalityStorage {
 export class PersonalityManager extends BaseService implements IService {
   private mutex = new Mutex();
   private personalities: PersonalityStorage = {};
-  private readonly storageFile: string;
+  private readonly dataStore: DataStore<PersonalityStorage>;
   private readonly MAX_DESCRIPTIONS_PER_USER = 20;
   private readonly MAX_DESCRIPTION_LENGTH = 200;
 
   constructor(storageFile = './data/user-personalities.json') {
     super();
-    this.storageFile = storageFile;
+    this.dataStore = new DataStore<PersonalityStorage>(storageFile, {});
   }
 
   protected getServiceName(): string {
@@ -40,11 +39,12 @@ export class PersonalityManager extends BaseService implements IService {
 
   protected async performInitialization(): Promise<void> {
     try {
-      await this.loadPersonalities();
+      const loadedData = await this.dataStore.load();
+      this.personalities = loadedData || {};
       logger.info('Initialized with existing personality data');
     } catch (error) {
       logger.info('No existing personality data found, starting fresh');
-      await this.ensureDataDirectory();
+      this.personalities = {};
     }
   }
 
@@ -114,7 +114,7 @@ export class PersonalityManager extends BaseService implements IService {
         }
       }
 
-      await this.savePersonalities();
+      await this.dataStore.save(this.personalities);
       logger.info(
         `Personality description added for ${targetUserId}: "${description}" (by ${updatedBy})`,
       );
@@ -156,7 +156,7 @@ export class PersonalityManager extends BaseService implements IService {
         description,
       });
 
-      await this.savePersonalities();
+      await this.dataStore.save(this.personalities);
       logger.info(
         `Personality description removed for ${targetUserId}: "${description}" (by ${updatedBy})`,
       );
@@ -184,7 +184,7 @@ export class PersonalityManager extends BaseService implements IService {
       }
 
       delete this.personalities[targetUserId];
-      await this.savePersonalities();
+      await this.dataStore.save(this.personalities);
       logger.info(
         `Personality cleared for user ${targetUserId} (by ${updatedBy})`,
       );
@@ -266,41 +266,10 @@ export class PersonalityManager extends BaseService implements IService {
     return { valid: true, message: '' };
   }
 
-  private async ensureDataDirectory(): Promise<void> {
-    const dir = path.dirname(this.storageFile);
-    try {
-      await fs.mkdir(dir, { recursive: true });
-    } catch (error) {
-      logger.error('Failed to create personality data directory:', error);
-    }
-  }
-
-  private async savePersonalities(): Promise<void> {
-    try {
-      await fs.writeFile(
-        this.storageFile,
-        JSON.stringify(this.personalities, null, 2),
-      );
-    } catch (error) {
-      logger.error('Failed to save personality data:', error);
-    }
-  }
-
-  private async loadPersonalities(): Promise<void> {
-    try {
-      const data = await fs.readFile(this.storageFile, 'utf8');
-      const loadedData = JSON.parse(data) as PersonalityStorage;
-
-      if (typeof loadedData === 'object' && loadedData !== null) {
-        this.personalities = loadedData;
-      }
-    } catch (error) {
-      throw new Error(`Failed to load personality data: ${error}`);
-    }
-  }
 
   protected async performShutdown(): Promise<void> {
-    await this.savePersonalities();
+    // Save current state through DataStore before shutdown
+    await this.dataStore.save(this.personalities);
     this.personalities = {};
   }
 
@@ -308,7 +277,7 @@ export class PersonalityManager extends BaseService implements IService {
     const stats = this.getPersonalityStats();
     return {
       ...stats,
-      storageFile: this.storageFile
+      dataStoreInitialized: this.dataStore !== undefined
     };
   }
 }

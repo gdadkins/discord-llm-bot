@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import Database from 'better-sqlite3';
 import * as crypto from 'crypto-js';
 import { logger } from '../utils/logger';
+import { dataStoreFactory } from '../utils/DataStoreFactory';
 
 // Database query result interfaces
 interface CommandUsageRow {
@@ -565,6 +566,43 @@ export class AnalyticsManager {
     }
   }
 
+  // DataStore Analytics Tracking
+  async trackDataStoreOperation(operation: 'save' | 'load' | 'error', storeType: string, latency: number, bytesProcessed?: number): Promise<void> {
+    if (!this.config.enabled || !this.database) return;
+
+    const release = await this.mutex.acquire();
+    try {
+      // Track as performance metric
+      const metric = operation === 'save' ? 'datastore_save_latency' : 
+        operation === 'load' ? 'datastore_load_latency' : 
+          'datastore_error_rate';
+      
+      const stmt = this.database.prepare(`
+        INSERT INTO performance_events (timestamp, metric, value, context)
+        VALUES (?, ?, ?, ?)
+      `);
+
+      const context = JSON.stringify({ 
+        storeType, 
+        operation,
+        bytesProcessed: bytesProcessed || 0 
+      });
+      
+      stmt.run(Date.now(), metric, latency, context);
+      
+      // Also track aggregate metrics
+      if (operation !== 'error') {
+        await this.trackPerformance(
+          operation === 'save' ? 'datastore_save_time' as any : 'datastore_load_time' as any,
+          latency,
+          storeType
+        );
+      }
+    } finally {
+      release();
+    }
+  }
+
   // Analytics Queries
   async getUsageStatistics(startDate: Date, endDate: Date, serverId?: string): Promise<UsageStatistics | null> {
     if (!this.config.enabled || !this.database) return null;
@@ -738,6 +776,96 @@ export class AnalyticsManager {
     }
 
     return recommendations;
+  }
+
+  // DataStore Analytics Dashboard
+  async getDataStoreDashboard(startDate: Date, endDate: Date): Promise<any> {
+    if (!this.config.enabled || !this.database) return null;
+
+    const release = await this.mutex.acquire();
+    try {
+      // Get DataStore performance metrics
+      const perfQuery = `
+        SELECT 
+          metric,
+          AVG(value) as avg_latency,
+          MIN(value) as min_latency,
+          MAX(value) as max_latency,
+          COUNT(*) as operation_count
+        FROM performance_events
+        WHERE timestamp BETWEEN ? AND ?
+          AND metric IN ('datastore_save_latency', 'datastore_load_latency')
+        GROUP BY metric
+      `;
+      
+      const perfResults = this.database.prepare(perfQuery).all(
+        startDate.getTime(), 
+        endDate.getTime()
+      ) as PerformanceRow[];
+      
+      // Get error metrics
+      const errorQuery = `
+        SELECT 
+          COUNT(*) as error_count
+        FROM performance_events
+        WHERE timestamp BETWEEN ? AND ?
+          AND metric = 'datastore_error_rate'
+      `;
+      
+      const errorResult = this.database.prepare(errorQuery).get(
+        startDate.getTime(), 
+        endDate.getTime()
+      ) as { error_count: number };
+      
+      // Get DataStore metrics from factory
+      const factoryMetrics = dataStoreFactory.getAggregatedMetrics();
+      
+      // Calculate trends
+      const hourlyQuery = `
+        SELECT 
+          strftime('%Y-%m-%d %H:00:00', timestamp/1000, 'unixepoch') as hour,
+          metric,
+          AVG(value) as avg_value,
+          COUNT(*) as count
+        FROM performance_events
+        WHERE timestamp BETWEEN ? AND ?
+          AND metric LIKE 'datastore_%'
+        GROUP BY hour, metric
+        ORDER BY hour
+      `;
+      
+      const hourlyTrends = this.database.prepare(hourlyQuery).all(
+        startDate.getTime(), 
+        endDate.getTime()
+      );
+      
+      return {
+        summary: {
+          totalStores: factoryMetrics.totalStores,
+          storesByType: factoryMetrics.storesByType,
+          totalOperations: factoryMetrics.totalSaveOperations + factoryMetrics.totalLoadOperations,
+          errorRate: errorResult?.error_count || 0,
+          performance: {
+            save: perfResults.find(r => r.metric === 'datastore_save_latency') || {
+              avg_latency: 0,
+              min_latency: 0,
+              max_latency: 0,
+              operation_count: 0
+            },
+            load: perfResults.find(r => r.metric === 'datastore_load_latency') || {
+              avg_latency: 0,
+              min_latency: 0,
+              max_latency: 0,
+              operation_count: 0
+            }
+          }
+        },
+        trends: hourlyTrends,
+        currentMetrics: factoryMetrics
+      };
+    } finally {
+      release();
+    }
   }
 
   // Utility Methods

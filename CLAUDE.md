@@ -41,8 +41,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Never use emojis in any code as it will cause unicode errors/problems. If you come across any emoji in existing codebase outside of .md files, remove it.
 - If you create any temporary new files, scripts, or helper files for iteration, clean up these files by removing them at the end of the task unless specifically by an agent or sub-agent. Any agent* created files can be placed in /agents/ folder in an organized manner.
 - When removing any code, make sure to verify if any methods/etc related to it can also be safely removed. The less tech debt, the better health our codebase will be.
-- Frontend CSS/themes/etc base off of desktop or laptop utilization and not mobile
-- Summarize completed work sessions and suggest improvements at the end of each task being concise but precise
+- Documentation must adhere to the requirement "concise but precise"
 
 ## Code Refactoring Guidelines
 

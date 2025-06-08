@@ -22,7 +22,10 @@
       "Bash(rm:*)",
       "Bash(npx eslint:*)",
       "Bash(npm audit:*)",
-      "Bash(npm outdated)"
+      "Bash(npm outdated)",
+      "Bash(touch:*)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"fs\\.(writeFile|readFile|writeJSON|readJSON|outputJSON|readJson|writeJson|remove)\" /mnt/c/github/discord/discord-llm-bot/src/services/configurationManager.ts -n)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"fs\\.(writeFile|readFile|writeJSON|readJSON|outputJSON|readJson|writeJson|remove)\" /mnt/c/github/discord/discord-llm-bot/src/services/configurationManager.ts -n -A2 -B2)"
     ],
     "deny": []
   }

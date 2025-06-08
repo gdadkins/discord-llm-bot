@@ -2,6 +2,8 @@ import { Mutex } from 'async-mutex';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../utils/logger';
+import { DataStore, DataValidator } from '../utils/DataStore';
+import { dataStoreFactory } from '../utils/DataStoreFactory';
 import { RateLimiter } from './rateLimiter';
 import { ContextManager } from './contextManager';
 import { GeminiService } from './gemini';
@@ -41,11 +43,30 @@ export interface HealthMetrics {
       duplicatesRemoved: number;
     };
   };
+  dataStoreMetrics: {
+    totalStores: number;
+    storesByType: Record<string, number>;
+    totalSaveOperations: number;
+    totalLoadOperations: number;
+    totalErrors: number;
+    avgSaveLatency: number;
+    avgLoadLatency: number;
+    healthyStores: number;
+    unhealthyStores: number;
+    totalBytesWritten: number;
+    totalBytesRead: number;
+  };
 }
 
-interface HealthSnapshot {
+export interface HealthSnapshot {
   timestamp: number;
   metrics: HealthMetrics;
+}
+
+interface HealthMetricsData {
+  snapshots: HealthSnapshot[];
+  alertState: AlertState;
+  lastSaved: number;
 }
 
 interface AlertConfig {
@@ -77,6 +98,7 @@ export class HealthMonitor {
   private readonly stateMutex = new Mutex();
   private readonly ioMutex = new Mutex();
   private readonly dataFile: string;
+  private metricsDataStore: DataStore<HealthMetricsData>;
   private metricsTimer: NodeJS.Timeout | null = null;
   private cleanupTimer: NodeJS.Timeout | null = null;
   
@@ -126,6 +148,25 @@ export class HealthMonitor {
   
   constructor(dataFile = './data/health-metrics.json') {
     this.dataFile = dataFile;
+    
+    // Initialize DataStore with compression and TTL
+    const validator: DataValidator<HealthMetricsData> = (data: unknown): data is HealthMetricsData => {
+      if (!data || typeof data !== 'object') return false;
+      const d = data as any;
+      return Array.isArray(d.snapshots) && 
+             typeof d.lastSaved === 'number' &&
+             d.alertState && typeof d.alertState === 'object';
+    };
+    
+    this.metricsDataStore = new DataStore<HealthMetricsData>('./data/metrics.json', {
+      validator,
+      compressionEnabled: true,
+      compressionThreshold: 10000, // 10KB threshold
+      ttl: 30 * 24 * 60 * 60 * 1000, // 30 days
+      autoCleanup: true,
+      maxBackups: 5,
+      enableDebugLogging: false
+    });
   }
 
   async initialize(): Promise<void> {
@@ -331,6 +372,51 @@ export class HealthMonitor {
       };
     }
     
+    // DataStore metrics
+    let dataStoreMetrics = {
+      totalStores: 0,
+      storesByType: {} as Record<string, number>,
+      totalSaveOperations: 0,
+      totalLoadOperations: 0,
+      totalErrors: 0,
+      avgSaveLatency: 0,
+      avgLoadLatency: 0,
+      healthyStores: 0,
+      unhealthyStores: 0,
+      totalBytesWritten: 0,
+      totalBytesRead: 0,
+    };
+    
+    try {
+      // Get aggregated metrics from DataStore factory
+      const aggregated = dataStoreFactory.getAggregatedMetrics();
+      dataStoreMetrics = {
+        ...aggregated,
+        healthyStores: 0,
+        unhealthyStores: 0,
+        totalBytesWritten: 0,
+        totalBytesRead: 0,
+      };
+      
+      // Perform health checks on all DataStores
+      const healthResults = await dataStoreFactory.healthCheckAll();
+      for (const [path, result] of healthResults) {
+        if (result.health && result.health.healthy) {
+          dataStoreMetrics.healthyStores++;
+        } else {
+          dataStoreMetrics.unhealthyStores++;
+        }
+        
+        // Aggregate bytes from individual store metrics
+        if (result.health && result.health.metrics) {
+          dataStoreMetrics.totalBytesWritten += result.health.metrics.totalBytesWritten;
+          dataStoreMetrics.totalBytesRead += result.health.metrics.totalBytesRead;
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to collect DataStore metrics:', error);
+    }
+    
     return {
       memoryUsage,
       activeConversations,
@@ -341,6 +427,7 @@ export class HealthMonitor {
       apiHealth,
       cacheMetrics,
       contextMetrics,
+      dataStoreMetrics,
     };
   }
 
@@ -418,6 +505,30 @@ export class HealthMonitor {
       if (!metrics.apiHealth.discord) unhealthyServices.push('Discord');
       
       await this.triggerAlert('api_health', `Unhealthy services: ${unhealthyServices.join(', ')}`, metrics);
+    }
+    
+    // DataStore health alerts
+    if (metrics.dataStoreMetrics.unhealthyStores > 0) {
+      await this.triggerAlert('datastore_health', 
+        `Unhealthy DataStores: ${metrics.dataStoreMetrics.unhealthyStores} of ${metrics.dataStoreMetrics.totalStores}`, 
+        metrics);
+    }
+    
+    // DataStore performance alerts
+    const dataStoreErrorRate = metrics.dataStoreMetrics.totalErrors / 
+      (metrics.dataStoreMetrics.totalSaveOperations + metrics.dataStoreMetrics.totalLoadOperations || 1) * 100;
+    
+    if (dataStoreErrorRate > 5.0) { // 5% error threshold
+      await this.triggerAlert('datastore_errors', 
+        `High DataStore error rate: ${dataStoreErrorRate.toFixed(1)}% (${metrics.dataStoreMetrics.totalErrors} errors)`, 
+        metrics);
+    }
+    
+    // DataStore latency alerts
+    if (metrics.dataStoreMetrics.avgSaveLatency > 500 || metrics.dataStoreMetrics.avgLoadLatency > 200) {
+      await this.triggerAlert('datastore_latency', 
+        `High DataStore latency - Save: ${metrics.dataStoreMetrics.avgSaveLatency.toFixed(0)}ms, Load: ${metrics.dataStoreMetrics.avgLoadLatency.toFixed(0)}ms`, 
+        metrics);
     }
   }
 
@@ -648,23 +759,31 @@ export class HealthMonitor {
   private async saveMetricsData(): Promise<void> {
     const release = await this.ioMutex.acquire();
     try {
-      // Only save recent data to disk (last 24 hours for persistence)
-      const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-      const recentSnapshots: HealthSnapshot[] = [];
+      // Aggregate metrics before saving to reduce storage size
+      const aggregatedSnapshots = await this.aggregateMetrics();
       
-      for (const [timestamp, snapshot] of this.metricsData.entries()) {
-        if (timestamp >= oneDayAgo) {
-          recentSnapshots.push(snapshot);
-        }
-      }
+      // Convert Map to serializable format for alertState
+      const serializableAlertState = {
+        ...this.alertState,
+        consecutiveAlerts: Object.fromEntries(this.alertState.consecutiveAlerts)
+      };
       
-      const data = {
-        snapshots: recentSnapshots,
-        alertState: this.alertState,
+      const data: HealthMetricsData = {
+        snapshots: aggregatedSnapshots,
+        alertState: {
+          ...serializableAlertState,
+          consecutiveAlerts: serializableAlertState.consecutiveAlerts
+        } as any,
         lastSaved: Date.now(),
       };
       
-      await fs.writeFile(this.dataFile, JSON.stringify(data));
+      // Save using DataStore with compression
+      await this.metricsDataStore.save(data);
+      
+      const stats = await this.metricsDataStore.getStats();
+      if (stats) {
+        logger.info(`Saved health metrics with compression. Size: ${stats.size} bytes`);
+      }
     } catch (error) {
       logger.error('Failed to save health monitor data:', error);
     } finally {
@@ -674,27 +793,277 @@ export class HealthMonitor {
 
   private async loadMetricsData(): Promise<void> {
     try {
-      const data = await fs.readFile(this.dataFile, 'utf8');
-      const parsed = JSON.parse(data);
+      // Load data using DataStore with automatic decompression
+      const data = await this.metricsDataStore.load();
       
-      if (parsed.snapshots && Array.isArray(parsed.snapshots)) {
-        for (const snapshot of parsed.snapshots) {
+      if (data && data.snapshots && Array.isArray(data.snapshots)) {
+        // Apply TTL cleanup - remove snapshots older than 30 days
+        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+        let loadedCount = 0;
+        let expiredCount = 0;
+        
+        for (const snapshot of data.snapshots) {
           if (snapshot.timestamp && snapshot.metrics) {
-            this.metricsData.set(snapshot.timestamp, snapshot);
+            if (snapshot.timestamp >= thirtyDaysAgo) {
+              this.metricsData.set(snapshot.timestamp, snapshot);
+              loadedCount++;
+            } else {
+              expiredCount++;
+            }
           }
         }
-        logger.info(`Loaded ${parsed.snapshots.length} health metric snapshots from disk`);
-      }
-      
-      if (parsed.alertState) {
-        this.alertState = {
-          ...this.alertState,
-          ...parsed.alertState,
-          consecutiveAlerts: new Map(Object.entries(parsed.alertState.consecutiveAlerts || {})),
-        };
+        
+        logger.info(`Loaded ${loadedCount} health metric snapshots from disk (${expiredCount} expired)`);
+        
+        // Restore alert state
+        if (data.alertState) {
+          this.alertState = {
+            ...this.alertState,
+            ...data.alertState,
+            consecutiveAlerts: new Map(Object.entries(data.alertState.consecutiveAlerts || {})),
+          };
+        }
+      } else {
+        logger.info('No existing health monitor data found, starting fresh');
       }
     } catch (error) {
-      logger.info('No existing health monitor data found, starting fresh');
+      logger.error('Failed to load health monitor data:', error);
+      logger.info('Starting with fresh health monitor data');
+    }
+  }
+
+  /**
+   * Aggregate metrics to reduce storage size
+   * Groups metrics by hour and calculates averages
+   */
+  private async aggregateMetrics(): Promise<HealthSnapshot[]> {
+    const hourlyGroups = new Map<number, HealthSnapshot[]>();
+    const now = Date.now();
+    const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+    
+    // Group snapshots by hour
+    for (const [timestamp, snapshot] of this.metricsData.entries()) {
+      if (timestamp >= thirtyDaysAgo) {
+        const hourKey = Math.floor(timestamp / (60 * 60 * 1000));
+        if (!hourlyGroups.has(hourKey)) {
+          hourlyGroups.set(hourKey, []);
+        }
+        hourlyGroups.get(hourKey)!.push(snapshot);
+      }
+    }
+    
+    // Aggregate each hourly group
+    const aggregatedSnapshots: HealthSnapshot[] = [];
+    for (const [hourKey, snapshots] of hourlyGroups.entries()) {
+      if (snapshots.length === 0) continue;
+      
+      // For recent data (last 24 hours), keep all snapshots
+      const hourTimestamp = hourKey * 60 * 60 * 1000;
+      if (now - hourTimestamp < 24 * 60 * 60 * 1000) {
+        aggregatedSnapshots.push(...snapshots);
+      } else {
+        // For older data, aggregate to hourly averages
+        const aggregated = this.calculateAverageMetrics(snapshots);
+        aggregated.timestamp = hourTimestamp;
+        aggregatedSnapshots.push(aggregated);
+      }
+    }
+    
+    return aggregatedSnapshots.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * Calculate average metrics from multiple snapshots
+   */
+  private calculateAverageMetrics(snapshots: HealthSnapshot[]): HealthSnapshot {
+    if (snapshots.length === 0) {
+      throw new Error('Cannot calculate average of empty snapshots array');
+    }
+    
+    const first = snapshots[0];
+    const avgMetrics: HealthMetrics = {
+      memoryUsage: {
+        rss: 0,
+        heapTotal: 0,
+        heapUsed: 0,
+        external: 0,
+        arrayBuffers: 0,
+      },
+      activeConversations: 0,
+      rateLimitStatus: {
+        minuteRemaining: 0,
+        dailyRemaining: 0,
+        requestsThisMinute: 0,
+        requestsToday: 0,
+      },
+      uptime: 0,
+      errorRate: 0,
+      responseTime: { p50: 0, p95: 0, p99: 0 },
+      apiHealth: { gemini: true, discord: true },
+      cacheMetrics: {
+        hitRate: 0,
+        memoryUsage: 0,
+        size: 0,
+      },
+      contextMetrics: first.metrics.contextMetrics, // Keep context metrics as-is
+      dataStoreMetrics: first.metrics.dataStoreMetrics, // Keep dataStore metrics as-is
+    };
+    
+    // Calculate averages
+    for (const snapshot of snapshots) {
+      const m = snapshot.metrics;
+      avgMetrics.memoryUsage.rss += m.memoryUsage.rss;
+      avgMetrics.memoryUsage.heapTotal += m.memoryUsage.heapTotal;
+      avgMetrics.memoryUsage.heapUsed += m.memoryUsage.heapUsed;
+      avgMetrics.memoryUsage.external += m.memoryUsage.external;
+      avgMetrics.memoryUsage.arrayBuffers += m.memoryUsage.arrayBuffers;
+      avgMetrics.activeConversations += m.activeConversations;
+      avgMetrics.uptime = Math.max(avgMetrics.uptime, m.uptime);
+      avgMetrics.errorRate += m.errorRate;
+      avgMetrics.responseTime.p50 += m.responseTime.p50;
+      avgMetrics.responseTime.p95 += m.responseTime.p95;
+      avgMetrics.responseTime.p99 += m.responseTime.p99;
+      avgMetrics.cacheMetrics.hitRate += m.cacheMetrics.hitRate;
+      avgMetrics.cacheMetrics.memoryUsage += m.cacheMetrics.memoryUsage;
+      avgMetrics.cacheMetrics.size += m.cacheMetrics.size;
+    }
+    
+    const count = snapshots.length;
+    avgMetrics.memoryUsage.rss /= count;
+    avgMetrics.memoryUsage.heapTotal /= count;
+    avgMetrics.memoryUsage.heapUsed /= count;
+    avgMetrics.memoryUsage.external /= count;
+    avgMetrics.memoryUsage.arrayBuffers /= count;
+    avgMetrics.activeConversations = Math.round(avgMetrics.activeConversations / count);
+    avgMetrics.errorRate /= count;
+    avgMetrics.responseTime.p50 /= count;
+    avgMetrics.responseTime.p95 /= count;
+    avgMetrics.responseTime.p99 /= count;
+    avgMetrics.cacheMetrics.hitRate /= count;
+    avgMetrics.cacheMetrics.memoryUsage /= count;
+    avgMetrics.cacheMetrics.size = Math.round(avgMetrics.cacheMetrics.size / count);
+    
+    // Use the latest rate limit status
+    avgMetrics.rateLimitStatus = snapshots[snapshots.length - 1].metrics.rateLimitStatus;
+    
+    return {
+      timestamp: snapshots[0].timestamp,
+      metrics: avgMetrics,
+    };
+  }
+
+  /**
+   * Export metrics for analysis
+   * @param from Start timestamp (inclusive)
+   * @param to End timestamp (inclusive)
+   * @param format Export format (json or csv)
+   */
+  async exportMetrics(
+    from: number = Date.now() - (7 * 24 * 60 * 60 * 1000),
+    to: number = Date.now(),
+    format: 'json' | 'csv' = 'json'
+  ): Promise<string> {
+    const snapshots = await this.getHistoricalMetrics(from, to);
+    
+    if (format === 'json') {
+      return JSON.stringify(snapshots, null, 2);
+    } else {
+      // CSV format
+      const headers = [
+        'timestamp',
+        'date',
+        'memory_rss_mb',
+        'memory_heap_used_mb',
+        'active_conversations',
+        'error_rate',
+        'response_time_p50',
+        'response_time_p95',
+        'cache_hit_rate',
+        'context_total_servers',
+        'rate_limit_minute_remaining',
+        'rate_limit_daily_remaining'
+      ];
+      
+      const rows = [headers.join(',')];
+      
+      for (const snapshot of snapshots) {
+        const m = snapshot.metrics;
+        const row = [
+          snapshot.timestamp,
+          new Date(snapshot.timestamp).toISOString(),
+          (m.memoryUsage.rss / 1024 / 1024).toFixed(2),
+          (m.memoryUsage.heapUsed / 1024 / 1024).toFixed(2),
+          m.activeConversations,
+          m.errorRate.toFixed(2),
+          m.responseTime.p50.toFixed(2),
+          m.responseTime.p95.toFixed(2),
+          m.cacheMetrics.hitRate.toFixed(2),
+          m.contextMetrics.totalServers,
+          m.rateLimitStatus.minuteRemaining,
+          m.rateLimitStatus.dailyRemaining
+        ];
+        rows.push(row.join(','));
+      }
+      
+      return rows.join('\n');
+    }
+  }
+
+  /**
+   * Get compression statistics
+   */
+  async getCompressionStats(): Promise<{
+    originalSize: number;
+    compressedSize: number;
+    compressionRatio: number;
+    savedBytes: number;
+    savedPercentage: number;
+  }> {
+    try {
+      const stats = await this.metricsDataStore.getStats();
+      if (!stats) {
+        return {
+          originalSize: 0,
+          compressedSize: 0,
+          compressionRatio: 0,
+          savedBytes: 0,
+          savedPercentage: 0,
+        };
+      }
+      
+      // Estimate original size
+      const data = await this.metricsDataStore.load();
+      if (!data) {
+        return {
+          originalSize: 0,
+          compressedSize: stats.size,
+          compressionRatio: 0,
+          savedBytes: 0,
+          savedPercentage: 0,
+        };
+      }
+      
+      const originalSize = JSON.stringify(data).length;
+      const compressedSize = stats.size;
+      const savedBytes = originalSize - compressedSize;
+      const savedPercentage = (savedBytes / originalSize) * 100;
+      
+      return {
+        originalSize,
+        compressedSize,
+        compressionRatio: originalSize / compressedSize,
+        savedBytes,
+        savedPercentage,
+      };
+    } catch (error) {
+      logger.error('Failed to get compression stats:', error);
+      return {
+        originalSize: 0,
+        compressedSize: 0,
+        compressionRatio: 0,
+        savedBytes: 0,
+        savedPercentage: 0,
+      };
     }
   }
 }

@@ -1,7 +1,6 @@
 import { Mutex } from 'async-mutex';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { logger } from '../utils/logger';
+import { DataStore } from '../utils/DataStore';
 
 export interface UserPreferences {
   userId: string;
@@ -74,13 +73,16 @@ export class UserPreferenceManager {
   private preferences: UserPreferenceStorage = {};
   private scheduledCommandTimers = new Map<string, NodeJS.Timeout>();
   private bulkOperations = new Map<string, BulkOperation>();
-  private readonly storageFile: string;
+  private readonly dataStore: DataStore<UserPreferenceStorage>;
   private readonly maxHistorySize = 100;
   private readonly maxScheduledCommands = 50;
   private readonly maxBulkOperations = 10;
 
   constructor(storageFile = './data/user-preferences.json') {
-    this.storageFile = storageFile;
+    this.dataStore = new DataStore<UserPreferenceStorage>(storageFile, {
+      maxBackups: 3,
+      validator: this.validateUserPreferenceStorage.bind(this)
+    });
   }
 
   async initialize(): Promise<void> {
@@ -90,7 +92,7 @@ export class UserPreferenceManager {
       logger.info('UserPreferenceManager initialized with existing data');
     } catch (error) {
       logger.info('No existing preference data found, starting fresh');
-      await this.ensureDataDirectory();
+      this.preferences = {};
     }
   }
 
@@ -562,37 +564,59 @@ export class UserPreferenceManager {
   }
 
   // Storage Methods
-  private async ensureDataDirectory(): Promise<void> {
-    const dir = path.dirname(this.storageFile);
-    try {
-      await fs.mkdir(dir, { recursive: true });
-    } catch (error) {
-      logger.error('Failed to create user preference data directory:', error);
-    }
-  }
-
   private async savePreferences(): Promise<void> {
     try {
-      await fs.writeFile(
-        this.storageFile,
-        JSON.stringify(this.preferences, null, 2),
-      );
+      await this.dataStore.save(this.preferences);
     } catch (error) {
       logger.error('Failed to save user preference data:', error);
+      throw error;
     }
   }
 
   private async loadPreferences(): Promise<void> {
     try {
-      const data = await fs.readFile(this.storageFile, 'utf8');
-      const loadedData = JSON.parse(data) as UserPreferenceStorage;
-
-      if (typeof loadedData === 'object' && loadedData !== null) {
+      const loadedData = await this.dataStore.load();
+      
+      if (loadedData !== null) {
         this.preferences = loadedData;
+      } else {
+        this.preferences = {};
       }
     } catch (error) {
       throw new Error(`Failed to load user preference data: ${error}`);
     }
+  }
+
+  /**
+   * Validate user preference storage structure
+   * @param data - Data to validate
+   * @returns true if data is valid UserPreferenceStorage
+   */
+  private validateUserPreferenceStorage(data: unknown): data is UserPreferenceStorage {
+    if (typeof data !== 'object' || data === null) {
+      return false;
+    }
+    
+    // Basic validation - could be extended for more thorough checks
+    const storage = data as Record<string, unknown>;
+    
+    // Check that all values are UserPreferences objects
+    for (const value of Object.values(storage)) {
+      if (typeof value !== 'object' || value === null) {
+        return false;
+      }
+      
+      const prefs = value as Record<string, unknown>;
+      if (typeof prefs.userId !== 'string' || 
+          typeof prefs.serverId !== 'string' ||
+          typeof prefs.preferences !== 'object' ||
+          !Array.isArray(prefs.commandHistory) ||
+          !Array.isArray(prefs.scheduledCommands)) {
+        return false;
+      }
+    }
+    
+    return true;
   }
 
   // Statistics

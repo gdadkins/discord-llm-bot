@@ -6,6 +6,8 @@ import Ajv from 'ajv';
 import { logger } from '../utils/logger';
 import { EventEmitter } from 'events';
 import { config } from 'dotenv';
+import { DataStore, DataValidator } from '../utils/DataStore';
+import { dataStoreFactory } from '../utils/DataStoreFactory';
 
 // Configuration interfaces
 export interface DiscordConfig {
@@ -191,6 +193,8 @@ class ConfigurationManager extends EventEmitter {
   private initialized = false;
   private isReloading = false;
   private configSchemas: Map<string, object> = new Map();
+  private configDataStore: DataStore<BotConfiguration>;
+  private versionDataStores: Map<string, DataStore<ConfigurationVersion>> = new Map();
 
   // Default configuration
   private readonly defaultConfig: BotConfiguration = {
@@ -345,6 +349,16 @@ class ConfigurationManager extends EventEmitter {
       strict: false 
     });
     this.initializeSchemas();
+    
+    // Initialize DataStore with configuration validation using factory
+    const configValidator: DataValidator<BotConfiguration> = (data: unknown): data is BotConfiguration => {
+      return this.validateConfiguration(data as BotConfiguration).valid;
+    };
+    
+    this.configDataStore = dataStoreFactory.createConfigStore<BotConfiguration>(
+      this.configPath,
+      configValidator
+    );
   }
 
   private initializeSchemas(): void {
@@ -448,10 +462,10 @@ class ConfigurationManager extends EventEmitter {
       logger.info('Starting loadConfiguration method');
       logger.info(`Checking if config file exists at: ${this.configPath}`);
       
-      if (await fs.pathExists(this.configPath)) {
-        logger.info('Config file exists, reading...');
-        const configData = await fs.readJSON(this.configPath);
-        logger.info('Config file read successfully');
+      const configData = await this.configDataStore.load();
+      
+      if (configData) {
+        logger.info('Config file loaded successfully via DataStore');
         
         const mergedConfig = this.applyEnvironmentOverrides(configData);
         logger.info('Environment overrides applied');
@@ -667,8 +681,8 @@ class ConfigurationManager extends EventEmitter {
       throw new Error(`Configuration validation failed: ${validation.errors?.join(', ')}`);
     }
 
-    // Save current configuration
-    await fs.writeJSON(this.configPath, this.currentConfig, { spaces: 2 });
+    // Save current configuration using DataStore with atomic write
+    await this.configDataStore.save(this.currentConfig);
 
     // Save version history
     await this.saveVersionHistory();
@@ -703,15 +717,48 @@ class ConfigurationManager extends EventEmitter {
     };
 
     const versionFile = path.join(this.versionsPath, `${this.currentConfig.version}.json`);
-    await fs.writeJSON(versionFile, version, { spaces: 2 });
+    
+    // Create or get DataStore for this version file
+    const versionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
+      if (typeof data !== 'object' || !data) return false;
+      const v = data as ConfigurationVersion;
+      return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
+    };
+    
+    const versionDataStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
+      versionFile,
+      versionValidator
+    );
+    
+    await versionDataStore.save(version);
+    this.versionDataStores.set(version.version, versionDataStore);
 
     // Clean up old versions (keep last 50)
     const versions = await this.getVersionHistory();
     if (versions.length > 50) {
       const versionsToDelete = versions.slice(50);
-      for (const version of versionsToDelete) {
-        const versionFile = path.join(this.versionsPath, `${version.version}.json`);
-        await fs.remove(versionFile).catch(() => {}); // Ignore errors
+      for (const versionToDelete of versionsToDelete) {
+        const versionFilePath = path.join(this.versionsPath, `${versionToDelete.version}.json`);
+        // Use DataStore to delete if we have it cached
+        const cachedStore = this.versionDataStores.get(versionToDelete.version);
+        if (cachedStore) {
+          await cachedStore.delete(true);
+          this.versionDataStores.delete(versionToDelete.version);
+        } else {
+          // Create a temporary DataStore for this version file to delete it properly
+          const tempVersionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
+            if (typeof data !== 'object' || !data) return false;
+            const v = data as ConfigurationVersion;
+            return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
+          };
+          
+          const tempDataStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
+            versionFilePath,
+            tempVersionValidator
+          );
+          
+          await tempDataStore.delete(true).catch(() => {}); // Ignore errors
+        }
       }
     }
   }
@@ -731,8 +778,34 @@ class ConfigurationManager extends EventEmitter {
       for (const file of files) {
         if (file.endsWith('.json')) {
           try {
-            const versionData = await fs.readJSON(path.join(this.versionsPath, file));
-            versions.push(versionData);
+            const versionFile = path.join(this.versionsPath, file);
+            const versionName = path.basename(file, '.json');
+            
+            // Try to use cached DataStore first
+            let versionData: ConfigurationVersion | null = null;
+            const cachedStore = this.versionDataStores.get(versionName);
+            
+            if (cachedStore) {
+              versionData = await cachedStore.load();
+            } else {
+              // Create new DataStore for reading
+              const versionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
+                if (typeof data !== 'object' || !data) return false;
+                const v = data as ConfigurationVersion;
+                return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
+              };
+              
+              const tempStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
+                versionFile,
+                versionValidator
+              );
+              
+              versionData = await tempStore.load();
+            }
+            
+            if (versionData) {
+              versions.push(versionData);
+            }
           } catch (error) {
             logger.warn(`Failed to read version file ${file}:`, error);
           }
@@ -752,11 +825,32 @@ class ConfigurationManager extends EventEmitter {
     try {
       const versionFile = path.join(this.versionsPath, `${version}.json`);
       
-      if (!await fs.pathExists(versionFile)) {
+      // Check if cached DataStore exists
+      let versionData: ConfigurationVersion | null = null;
+      const cachedStore = this.versionDataStores.get(version);
+      
+      if (cachedStore) {
+        versionData = await cachedStore.load();
+      } else {
+        // Create new DataStore for reading
+        const versionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
+          if (typeof data !== 'object' || !data) return false;
+          const v = data as ConfigurationVersion;
+          return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
+        };
+        
+        const tempStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
+          versionFile,
+          versionValidator
+        );
+        
+        versionData = await tempStore.load();
+      }
+      
+      if (!versionData) {
         throw new Error(`Version ${version} not found`);
       }
 
-      const versionData: ConfigurationVersion = await fs.readJSON(versionFile);
       const oldVersion = this.currentConfig.version;
       
       // Apply the rollback
@@ -764,8 +858,8 @@ class ConfigurationManager extends EventEmitter {
       this.currentConfig.lastModified = new Date().toISOString();
       this.currentConfig.modifiedBy = modifiedBy;
 
-      // Save the rolled back configuration
-      await fs.writeJSON(this.configPath, this.currentConfig, { spaces: 2 });
+      // Save the rolled back configuration using DataStore
+      await this.configDataStore.save(this.currentConfig);
 
       // Log the rollback
       await this.logConfigurationChange({

@@ -1,0 +1,156 @@
+{
+  "metadata": {
+    "task_type": "datastore_extension_phase1",
+    "timestamp": "2025-06-08T14:30:00Z",
+    "based_on_analysis": [
+      "REF-006 implementation success",
+      "datastore_improvement_suggestions"
+    ],
+    "total_tasks": 2,
+    "estimated_total_effort_hours": 3,
+    "phase": "immediate_priority",
+    "description": "Phase 1: High-impact DataStore migration for ConfigurationManager and RateLimiter"
+  },
+  "tasks": [
+    {
+      "id": "DSE-001",
+      "title": "Migrate ConfigurationManager to DataStore",
+      "description": "Replace manual fs.writeJSON/fs.readJSON operations in ConfigurationManager with DataStore for atomic writes, backup recovery, and configuration validation",
+      "priority": "critical",
+      "category": "datastore_migration",
+      "estimated_effort": 2,
+      "complexity": "medium",
+      "prerequisites": ["REF-006"],
+      "files_to_modify": [
+        {
+          "path": "src/services/configurationManager.ts",
+          "line_ranges": ["671-768"],
+          "operations": ["replace_file_io", "implement_datastore", "add_validation"]
+        }
+      ],
+      "agent_instructions": [
+        "1. Analyze current manual file I/O operations in ConfigurationManager (lines 671-768)",
+        "2. Create specialized ConfigurationDataStore with BotConfiguration type",
+        "3. Implement configuration validation using validateConfiguration method",
+        "4. Replace fs.writeJSON/fs.readJSON with DataStore operations",
+        "5. Add atomic write protection with backup/restore capability",
+        "6. Implement configuration schema validation",
+        "7. Add compression support for large configuration files",
+        "8. Set maxBackups to 10 for configuration history",
+        "9. Ensure backward compatibility with existing configuration format",
+        "10. Add comprehensive unit tests for configuration persistence",
+        "11. Test configuration validation and recovery scenarios"
+      ],
+      "validation_criteria": [
+        "89+ lines of manual file I/O code replaced with DataStore",
+        "Configuration writes are atomic with backup recovery",
+        "All existing configuration validation preserved",
+        "Configuration files remain backward compatible",
+        "DataStore operations have >95% test coverage",
+        "Configuration corruption recovery tested and working"
+      ],
+      "expected_outcome": "ConfigurationManager uses robust DataStore with atomic writes, validation, and backup recovery",
+      "risk_level": "medium",
+      "rollback_plan": "Keep original file I/O methods as private fallbacks with feature flag",
+      "success_metrics": [
+        "89+ lines of file I/O code eliminated",
+        "Configuration corruption incidents reduced to zero",
+        "Backup/restore functionality tested and verified",
+        "Configuration load/save performance improved by >20%"
+      ],
+      "datastore_config": {
+        "file_path": "./data/config.json",
+        "max_backups": 10,
+        "compression_enabled": true,
+        "atomic_writes": true,
+        "validation_required": true
+      }
+    },
+    {
+      "id": "DSE-002", 
+      "title": "Standardize RateLimiter State Persistence",
+      "description": "Replace manual JSON serialization in RateLimiter with DataStore for atomic state updates and recovery",
+      "priority": "high",
+      "category": "datastore_migration",
+      "estimated_effort": 1,
+      "complexity": "simple",
+      "prerequisites": ["REF-006"],
+      "files_to_modify": [
+        {
+          "path": "src/services/rateLimiter.ts",
+          "line_ranges": ["254-298"],
+          "operations": ["replace_serialization", "implement_datastore", "add_atomic_updates"]
+        }
+      ],
+      "agent_instructions": [
+        "1. Analyze current manual JSON serialization in RateLimiter (lines 254-298)",
+        "2. Create RateLimitStateDataStore with RateLimitState type",
+        "3. Replace manual JSON serialization with DataStore operations",
+        "4. Implement atomic state updates for rate limit tracking",
+        "5. Add state validation to prevent corruption",
+        "6. Set maxBackups to 3 for state history",
+        "7. Ensure atomic writes for concurrent rate limit updates",
+        "8. Add state recovery for corrupted rate limit data",
+        "9. Maintain existing rate limiting behavior exactly",
+        "10. Add unit tests for state persistence and recovery",
+        "11. Test high-concurrency scenarios with atomic updates"
+      ],
+      "validation_criteria": [
+        "44+ lines of manual serialization code replaced with DataStore",
+        "Rate limit state updates are atomic and thread-safe",
+        "All existing rate limiting behavior preserved",
+        "State corruption recovery tested and working",
+        "High-concurrency scenarios handle atomic updates correctly"
+      ],
+      "expected_outcome": "RateLimiter has robust state persistence with atomic updates and recovery",
+      "risk_level": "low",
+      "rollback_plan": "Maintain original serialization methods as fallback",
+      "success_metrics": [
+        "44+ lines of serialization code eliminated",
+        "Rate limit state corruption incidents reduced to zero",
+        "Atomic update performance under load maintained",
+        "State recovery tested with 100% success rate"
+      ],
+      "datastore_config": {
+        "file_path": "./data/rate-limits.json",
+        "max_backups": 3,
+        "atomic_writes": true,
+        "compression_enabled": false,
+        "validation_required": true
+      }
+    }
+  ],
+  "task_dependencies": {
+    "DSE-001": ["REF-006"],
+    "DSE-002": ["REF-006"]
+  },
+  "execution_strategy": {
+    "parallel_execution": true,
+    "independent_tasks": ["DSE-001", "DSE-002"],
+    "completion_criteria": "Both tasks completed with validation passing"
+  },
+  "risk_assessment": {
+    "high_risk_tasks": [],
+    "medium_risk_tasks": ["DSE-001"],
+    "low_risk_tasks": ["DSE-002"],
+    "mitigation_strategies": [
+      "Implement feature flags for gradual rollout",
+      "Maintain original implementations as fallbacks",
+      "Test atomic operations under load",
+      "Verify backup/restore functionality before deployment"
+    ]
+  },
+  "quality_gates": {
+    "code_coverage": "Maintain >95% test coverage for DataStore operations",
+    "performance": "No performance degradation for file I/O operations",
+    "behavioral_compatibility": "100% compatibility for existing configuration and rate limiting",
+    "data_integrity": "Zero data corruption incidents during migration",
+    "atomicity": "All write operations must be atomic with backup recovery"
+  },
+  "success_impact": {
+    "code_reduction": "133+ lines of duplicate file I/O logic eliminated",
+    "reliability": "2 additional services with automatic backup/restore",
+    "consistency": "Standardized persistence patterns across 4+ services",
+    "maintenance": "Centralized data persistence reduces maintenance burden"
+  }
+}

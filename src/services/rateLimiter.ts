@@ -1,7 +1,7 @@
 import { Mutex } from 'async-mutex';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { logger } from '../utils/logger';
+import { DataStore, DataValidator } from '../utils/DataStore';
+import { dataStoreFactory } from '../utils/DataStoreFactory';
 
 interface RateLimitingConfig {
   rpm: number;
@@ -29,6 +29,7 @@ export class RateLimiter {
   private readonly stateFile: string;
   private rpmLimit: number;
   private dailyLimit: number;
+  private stateDataStore: DataStore<RateLimitState>;
   
   // Performance optimization fields
   private isDirty = false;
@@ -57,6 +58,21 @@ export class RateLimiter {
       minuteWindowStart: this.getCurrentMinuteWindow(),
       dayWindowStart: this.getCurrentDayWindow(),
     };
+
+    // Initialize DataStore with validation
+    const stateValidator: DataValidator<RateLimitState> = (data: unknown): data is RateLimitState => {
+      if (typeof data !== 'object' || !data) return false;
+      const state = data as RateLimitState;
+      return typeof state.requestsThisMinute === 'number' &&
+             typeof state.requestsToday === 'number' &&
+             typeof state.minuteWindowStart === 'number' &&
+             typeof state.dayWindowStart === 'number';
+    };
+
+    this.stateDataStore = dataStoreFactory.createStateStore<RateLimitState>(
+      this.stateFile,
+      stateValidator
+    );
   }
 
   async initialize(): Promise<void> {
@@ -65,7 +81,7 @@ export class RateLimiter {
       logger.info('Rate limiter initialized with persisted state');
     } catch (error) {
       logger.info('No persisted rate limit state found, starting fresh');
-      await this.ensureDataDirectory();
+      // DataStore handles directory creation automatically
     }
     
     // Start periodic flush timer
@@ -238,20 +254,11 @@ export class RateLimiter {
     return now.getTime();
   }
 
-  private async ensureDataDirectory(): Promise<void> {
-    const dir = path.dirname(this.stateFile);
-    try {
-      await fs.mkdir(dir, { recursive: true });
-    } catch (error) {
-      logger.error('Failed to create data directory:', error);
-    }
-  }
-
   private async saveState(): Promise<void> {
     const release = await this.ioMutex.acquire();
     try {
-      // Optimized serialization without formatting
-      await fs.writeFile(this.stateFile, JSON.stringify(this.state));
+      // Use DataStore for atomic writes with backup
+      await this.stateDataStore.save(this.state);
       this.isDirty = false;
       this.lastFlushTime = Date.now();
     } catch (error) {
@@ -295,16 +302,9 @@ export class RateLimiter {
 
   private async loadState(): Promise<void> {
     try {
-      const data = await fs.readFile(this.stateFile, 'utf8');
-      const loadedState = JSON.parse(data) as RateLimitState;
+      const loadedState = await this.stateDataStore.load();
 
-      // Validate loaded state
-      if (
-        typeof loadedState.requestsThisMinute === 'number' &&
-        typeof loadedState.requestsToday === 'number' &&
-        typeof loadedState.minuteWindowStart === 'number' &&
-        typeof loadedState.dayWindowStart === 'number'
-      ) {
+      if (loadedState) {
         this.state = loadedState;
         // Force update windows in case we've moved to a new time period
         await this.updateTimeWindows();

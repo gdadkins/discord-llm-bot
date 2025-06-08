@@ -93,12 +93,12 @@ export class ConfigurationFactory {
   static createRateLimitingConfig(): RateLimitingConfig {
     const config: RateLimitingConfig = {
       rpm: this.parseIntWithDefault('RATE_LIMIT_RPM', 15, 1, 60),
-      daily: this.parseIntWithDefault('RATE_LIMIT_DAILY', 1000, 1, 10000),
+      daily: this.parseIntWithDefault('RATE_LIMIT_DAILY', 500, 1, 10000),
       burstSize: this.parseIntWithDefault('RATE_LIMIT_BURST', 5, 1, 20),
       safetyMargin: 0.1,
       retryOptions: {
         maxRetries: this.parseIntWithDefault('GEMINI_MAX_RETRIES', 3, 0, 10),
-        retryDelay: this.parseIntWithDefault('GEMINI_RETRY_DELAY_MS', 1000, 100, 10000),
+        retryDelay: this.parseIntWithDefault('GEMINI_RETRY_DELAY_MS', 500, 100, 10000),
         retryMultiplier: this.parseFloatWithDefault('GEMINI_RETRY_MULTIPLIER', 2.0, 1.0, 5.0)
       }
     };
