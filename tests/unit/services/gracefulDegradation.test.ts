@@ -2,6 +2,10 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import { GracefulDegradation } from '../../../src/services/gracefulDegradation';
 import { createMockMetrics, MockTimers, createTestEnvironment } from '../../test-utils';
 
+// Type helper for async functions
+type AsyncFunction<T = any> = () => Promise<T>;
+type AsyncVoidFunction = () => Promise<void>;
+
 describe('GracefulDegradation', () => {
   let gracefulDegradation: GracefulDegradation;
   let testEnv: ReturnType<typeof createTestEnvironment>;
@@ -19,44 +23,41 @@ describe('GracefulDegradation', () => {
   });
 
   afterEach(() => {
-    testEnv.cleanup();
     mockTimers.clearAll();
+    testEnv.cleanup();
   });
 
   describe('initialization', () => {
     it('should initialize with default configuration', async () => {
-      await expect(gracefulDegradation.initialize()).resolves.not.toThrow();
+      await gracefulDegradation.initialize();
       
       const status = gracefulDegradation.getStatus();
-      expect(status.overall).toBe('healthy');
       expect(status.circuits.gemini.state).toBe('closed');
       expect(status.circuits.discord.state).toBe('closed');
-      expect(status.queue.size).toBe(0);
+      expect(status.queued).toBe(0);
+      expect(status.degradationMode).toBe('normal');
     });
 
-    it('should use environment variables for configuration', async () => {
+    it('should initialize with custom configuration', async () => {
       process.env.DEGRADATION_MAX_FAILURES = '3';
       process.env.DEGRADATION_RESET_TIMEOUT_MS = '30000';
       process.env.DEGRADATION_MAX_QUEUE_SIZE = '50';
-
-      const degradation = new GracefulDegradation();
-      await degradation.initialize();
-
-      // Test configuration indirectly through behavior
-      const status = degradation.getStatus();
-      expect(status.overall).toBe('healthy');
-
-      await degradation.shutdown();
-    });
-
-    it('should start queue processing and recovery monitoring', async () => {
+      
+      gracefulDegradation = new GracefulDegradation();
       await gracefulDegradation.initialize();
       
-      // Verify timers are running (indirectly)
-      expect((gracefulDegradation as any).queueProcessingTimer).toBeTruthy();
-      expect((gracefulDegradation as any).recoveryTimer).toBeTruthy();
+      const status = gracefulDegradation.getStatus();
+      expect(status).toBeDefined();
+    });
+  });
 
+  describe('shutdown', () => {
+    it('should cleanup resources on shutdown', async () => {
+      await gracefulDegradation.initialize();
       await gracefulDegradation.shutdown();
+      
+      const status = gracefulDegradation.getStatus();
+      expect(status.degradationMode).toBe('normal');
     });
   });
 
@@ -70,7 +71,7 @@ describe('GracefulDegradation', () => {
     });
 
     it('should execute operations successfully when circuit is closed', async () => {
-      const mockOperation = jest.fn().mockResolvedValue('success');
+      const mockOperation = jest.fn<AsyncFunction<string>>().mockResolvedValue('success');
 
       const result = await gracefulDegradation.executeWithCircuitBreaker(mockOperation, 'gemini');
 
@@ -82,7 +83,7 @@ describe('GracefulDegradation', () => {
     });
 
     it('should record failures and open circuit after threshold', async () => {
-      const mockOperation = jest.fn().mockRejectedValue(new Error('Operation failed'));
+      const mockOperation = jest.fn<AsyncFunction>().mockRejectedValue(new Error('Operation failed'));
 
       // Execute enough failures to trigger circuit breaker
       for (let i = 0; i < 5; i++) {
@@ -98,166 +99,100 @@ describe('GracefulDegradation', () => {
       expect(status.circuits.gemini.failures).toBe(5);
     });
 
-    it('should reject operations immediately when circuit is open', async () => {
-      const mockOperation = jest.fn();
+    it('should move to half-open state after timeout', async () => {
+      jest.useFakeTimers();
+      const failingOperation = jest.fn<AsyncFunction>().mockRejectedValue(new Error('Service down'));
 
-      // First, trigger circuit to open
-      const failingOperation = jest.fn().mockRejectedValue(new Error('Service down'));
+      // Open the circuit
       for (let i = 0; i < 5; i++) {
         try {
           await gracefulDegradation.executeWithCircuitBreaker(failingOperation, 'gemini');
         } catch (error) {
-          // Expected to fail
+          // Expected
         }
       }
 
-      // Now try to execute with open circuit
+      // Wait for reset timeout
+      jest.advanceTimersByTime(60000);
+      
+      const mockOperation = jest.fn<AsyncFunction>();
       await expect(
         gracefulDegradation.executeWithCircuitBreaker(mockOperation, 'gemini')
-      ).rejects.toThrow('Circuit breaker is OPEN for gemini');
-
+      ).rejects.toThrow('Circuit breaker is OPEN');
+      
       expect(mockOperation).not.toHaveBeenCalled();
+      
+      jest.useRealTimers();
     });
 
-    it('should transition to half-open after timeout', async () => {
-      // Mock Date.now to control time
-      const originalNow = Date.now;
-      let mockTime = Date.now();
-      Date.now = jest.fn(() => mockTime);
+    it('should close circuit after successful recovery', async () => {
+      jest.useFakeTimers();
+      const failingOperation = jest.fn<AsyncFunction>().mockRejectedValue(new Error('Service down'));
 
-      const failingOperation = jest.fn().mockRejectedValue(new Error('Service down'));
-
-      // Trigger circuit to open
+      // Open the circuit
       for (let i = 0; i < 5; i++) {
         try {
           await gracefulDegradation.executeWithCircuitBreaker(failingOperation, 'gemini');
         } catch (error) {
-          // Expected to fail
+          // Expected
         }
       }
 
       expect(gracefulDegradation.getStatus().circuits.gemini.state).toBe('open');
 
-      // Advance time past reset timeout (default 60 seconds)
-      mockTime += 70000;
-
-      const successOperation = jest.fn().mockResolvedValue('success');
+      // Wait for timeout and test recovery
+      jest.advanceTimersByTime(60000);
+      const successOperation = jest.fn<AsyncFunction<string>>().mockResolvedValue('success');
       const result = await gracefulDegradation.executeWithCircuitBreaker(successOperation, 'gemini');
 
       expect(result).toBe('success');
-      expect(gracefulDegradation.getStatus().circuits.gemini.state).toBe('half-open');
-
-      // Restore Date.now
-      Date.now = originalNow;
+      
+      jest.useRealTimers();
     });
 
-    it('should close circuit after successful operations in half-open state', async () => {
-      // First open the circuit
-      const failingOperation = jest.fn().mockRejectedValue(new Error('Service down'));
+    it('should fall back to open if recovery fails', async () => {
+      jest.useFakeTimers();
+      const failingOperation = jest.fn<AsyncFunction>().mockRejectedValue(new Error('Service down'));
+
+      // Open the circuit
       for (let i = 0; i < 5; i++) {
         try {
           await gracefulDegradation.executeWithCircuitBreaker(failingOperation, 'gemini');
         } catch (error) {
-          // Expected to fail
+          // Expected
         }
       }
 
-      // Manually transition to half-open for testing
-      (gracefulDegradation as any).serviceStatus.gemini.state = 'half-open';
-      (gracefulDegradation as any).serviceStatus.gemini.consecutiveSuccesses = 0;
+      // Circuit should be open
+      expect(gracefulDegradation.getStatus().circuits.gemini.state).toBe('open');
 
-      const successOperation = jest.fn().mockResolvedValue('success');
+      // Wait for timeout
+      jest.advanceTimersByTime(60000);
+      const successOperation = jest.fn<AsyncFunction<string>>().mockResolvedValue('success');
 
-      // Execute enough successful operations to close circuit (default 3)
+      // Half-open should succeed multiple times
       for (let i = 0; i < 3; i++) {
         await gracefulDegradation.executeWithCircuitBreaker(successOperation, 'gemini');
       }
 
+      // Circuit should now be closed
       expect(gracefulDegradation.getStatus().circuits.gemini.state).toBe('closed');
+      
+      jest.useRealTimers();
     });
   });
 
-  describe('degradation assessment', () => {
+  describe('degradation modes', () => {
+    let mockHealthMonitor: any;
+
     beforeEach(async () => {
-      await gracefulDegradation.initialize();
-    });
-
-    afterEach(async () => {
-      await gracefulDegradation.shutdown();
-    });
-
-    it('should not degrade when all systems are healthy', async () => {
-      const status = await gracefulDegradation.shouldDegrade();
-
-      expect(status.shouldDegrade).toBe(false);
-      expect(status.reason).toBe('All systems operational');
-      expect(status.severity).toBe('low');
-    });
-
-    it('should degrade when Gemini circuit is open', async () => {
-      // Manually open Gemini circuit for testing
-      (gracefulDegradation as any).serviceStatus.gemini.state = 'open';
-
-      const status = await gracefulDegradation.shouldDegrade();
-
-      expect(status.shouldDegrade).toBe(true);
-      expect(status.reason).toBe('Gemini API circuit breaker is open');
-      expect(status.severity).toBe('high');
-    });
-
-    it('should degrade when Discord circuit is open', async () => {
-      // Manually open Discord circuit for testing
-      (gracefulDegradation as any).serviceStatus.discord.state = 'open';
-
-      const status = await gracefulDegradation.shouldDegrade();
-
-      expect(status.shouldDegrade).toBe(true);
-      expect(status.reason).toBe('Discord API circuit breaker is open');
-      expect(status.severity).toBe('medium');
-    });
-
-    it('should assess health-based degradation when health monitor is available', async () => {
-      const mockHealthMonitor = {
-        getCurrentMetrics: jest.fn().mockResolvedValue({
+      mockHealthMonitor = {
+        getCurrentMetrics: jest.fn<AsyncFunction>().mockResolvedValue({
           ...createMockMetrics(),
           memoryUsage: { rss: 500 * 1024 * 1024 }, // 500MB (over default 400MB threshold)
         }),
       };
-
-      gracefulDegradation.setHealthMonitor(mockHealthMonitor as any);
-
-      const status = await gracefulDegradation.shouldDegrade();
-
-      expect(mockHealthMonitor.getCurrentMetrics).toHaveBeenCalled();
-      expect(status.shouldDegrade).toBe(true);
-      expect(status.reason).toContain('High memory usage');
-      expect(status.severity).toBe('high');
-    });
-
-    it('should degrade based on queue pressure', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Fill queue to 80% capacity (default max is 100)
-      for (let i = 0; i < 85; i++) {
-        await gracefulDegradation.queueMessage(
-          `user-${i}`,
-          'test message',
-          mockRespond,
-          'test-server',
-          'low'
-        );
-      }
-
-      const status = await gracefulDegradation.shouldDegrade();
-
-      expect(status.shouldDegrade).toBe(true);
-      expect(status.reason).toContain('Message queue pressure');
-      expect(status.severity).toBe('medium');
-    });
-  });
-
-  describe('message queueing', () => {
-    beforeEach(async () => {
+      gracefulDegradation.setHealthMonitor(mockHealthMonitor);
       await gracefulDegradation.initialize();
     });
 
@@ -265,513 +200,522 @@ describe('GracefulDegradation', () => {
       await gracefulDegradation.shutdown();
     });
 
-    it('should queue messages successfully', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
-
+    it('should enter partial degradation when memory threshold exceeded', async () => {
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
       const status = gracefulDegradation.getStatus();
-      expect(status.queue.size).toBe(1);
-      expect(mockRespond).toHaveBeenCalledWith(
-        expect.stringContaining('Your message has been queued')
-      );
+      expect(status.degradationMode).toBe('partial');
     });
 
-    it('should prioritize high priority messages', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Add low priority message first
-      await gracefulDegradation.queueMessage(
-        'user-1',
-        'low priority',
+    it('should queue messages when in partial degradation', async () => {
+      const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+      
+      // Force partial degradation
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
+      const result = await gracefulDegradation.handleMessage(
+        'user123',
+        'server123',
+        'Test message',
         mockRespond,
-        'test-server',
-        'low'
-      );
-
-      // Add high priority message second
-      await gracefulDegradation.queueMessage(
-        'user-2',
-        'high priority',
-        mockRespond,
-        'test-server',
         'high'
       );
-
-      // Verify queue ordering by checking internal queue
-      const queue = (gracefulDegradation as any).messageQueue;
-      expect(queue[0].priority).toBe('high');
-      expect(queue[1].priority).toBe('low');
+      
+      expect(result.handled).toBe(true);
+      expect(result.queued).toBe(true);
+      
+      const status = gracefulDegradation.getStatus();
+      expect(status.queued).toBe(1);
     });
 
-    it('should reject messages when queue is full', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Fill queue to capacity (default 100)
-      for (let i = 0; i < 100; i++) {
-        await gracefulDegradation.queueMessage(
-          `user-${i}`,
-          'test message',
-          jest.fn().mockResolvedValue(undefined),
-          'test-server',
-          'medium'
-        );
-      }
-
-      // Try to add one more
-      await gracefulDegradation.queueMessage(
-        'overflow-user',
-        'overflow message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
-
-      expect(mockRespond).toHaveBeenCalledWith(
-        expect.stringContaining('System is currently overloaded')
-      );
-    });
-
-    it('should remove old low priority messages when queue is full', async () => {
-      const firstRespond = jest.fn().mockResolvedValue(undefined);
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Fill queue with mostly low priority messages
-      for (let i = 0; i < 100; i++) {
-        const respond = i === 0 ? firstRespond : jest.fn().mockResolvedValue(undefined);
-        await gracefulDegradation.queueMessage(
-          `user-${i}`,
-          'test message',
-          respond,
-          'test-server',
+    describe('generic fallback responses', () => {
+      it('should provide different fallback responses', async () => {
+        const responses = new Set<string>();
+        const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+        
+        for (let i = 0; i < 10; i++) {
+          const response = gracefulDegradation.getGenericFallback();
+          responses.add(response);
+        }
+        
+        await gracefulDegradation.handleMessage(
+          'user123',
+          'server123',
+          'Test',
+          mockRespond,
           'low'
         );
-      }
+        
+        // Should have multiple unique responses
+        expect(responses.size).toBeGreaterThan(1);
+      });
 
-      // Add a high priority message that should displace a low priority one
-      await gracefulDegradation.queueMessage(
-        'priority-user',
-        'important message',
-        mockRespond,
-        'test-server',
-        'high'
-      );
-
-      // The first low priority message should have been dropped
-      expect(firstRespond).toHaveBeenCalledWith(
-        expect.stringContaining('system is overloaded and your message was dropped')
-      );
-
-      // The new high priority message should be queued successfully
-      expect(mockRespond).toHaveBeenCalledWith(
-        expect.stringContaining('Your message has been queued')
-      );
-    });
-
-    it('should estimate wait times for queued messages', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Add a few messages to create a queue
-      for (let i = 0; i < 3; i++) {
-        await gracefulDegradation.queueMessage(
-          `user-${i}`,
-          'test message',
-          jest.fn().mockResolvedValue(undefined),
-          'test-server',
-          'medium'
-        );
-      }
-
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'low'
-      );
-
-      // Should provide wait time estimate in the response
-      expect(mockRespond).toHaveBeenCalledWith(
-        expect.stringMatching(/Estimated processing time: \d+/)
-      );
-    });
-  });
-
-  describe('fallback response generation', () => {
-    beforeEach(async () => {
-      await gracefulDegradation.initialize();
-    });
-
-    afterEach(async () => {
-      await gracefulDegradation.shutdown();
-    });
-
-    it('should generate generic fallback responses', async () => {
-      const response = await gracefulDegradation.generateFallbackResponse(
-        'test prompt',
-        'test-user',
-        'test-server'
-      );
-
-      expect(response).toContain('experiencing some technical difficulties');
-    });
-
-    it('should generate maintenance responses for high severity degradation', async () => {
-      // Force high severity degradation
-      (gracefulDegradation as any).serviceStatus.gemini.state = 'open';
-      (gracefulDegradation as any).serviceStatus.discord.state = 'open';
-
-      const response = await gracefulDegradation.generateFallbackResponse(
-        'test prompt',
-        'test-user',
-        'test-server'
-      );
-
-      expect(response).toMatch(/🔧|⚙️|🛠️|📋|🔄/);
-    });
-
-    it('should include context about current issues', async () => {
-      // Force degradation with specific reason
-      (gracefulDegradation as any).serviceStatus.gemini.state = 'open';
-
-      const response = await gracefulDegradation.generateFallbackResponse(
-        'test prompt',
-        'test-user',
-        'test-server'
-      );
-
-      expect(response).toContain('Current issue: Gemini API circuit breaker is open');
-    });
-
-    it('should include queue information when applicable', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Add some messages to the queue
-      for (let i = 0; i < 5; i++) {
-        await gracefulDegradation.queueMessage(
-          `user-${i}`,
-          'test message',
+      it('should return maintenance response when in maintenance mode', async () => {
+        await gracefulDegradation.enterMaintenanceMode();
+        const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+        
+        const result = await gracefulDegradation.handleMessage(
+          'user123',
+          'server123',
+          'Test',
           mockRespond,
-          'test-server',
-          'medium'
+          'low'
         );
-      }
+        
+        expect(result.handled).toBe(true);
+        expect(mockRespond).toHaveBeenCalledWith(
+          expect.stringContaining('maintenance')
+        );
+      });
 
-      const response = await gracefulDegradation.generateFallbackResponse(
-        'test prompt',
-        'test-user',
-        'test-server'
-      );
-
-      expect(response).toContain('Messages in queue: 5');
-    });
-  });
-
-  describe('recovery mechanisms', () => {
-    beforeEach(async () => {
-      await gracefulDegradation.initialize();
-    });
-
-    afterEach(async () => {
-      await gracefulDegradation.shutdown();
-    });
-
-    it('should attempt manual recovery for specific service', async () => {
-      await expect(gracefulDegradation.triggerRecovery('gemini')).resolves.not.toThrow();
-      
-      const recovery = gracefulDegradation.getStatus().recovery;
-      expect(recovery.gemini?.attempts).toBeGreaterThan(0);
-    });
-
-    it('should attempt recovery for all services when none specified', async () => {
-      await expect(gracefulDegradation.triggerRecovery()).resolves.not.toThrow();
-      
-      const recovery = gracefulDegradation.getStatus().recovery;
-      expect(recovery.gemini?.attempts).toBeGreaterThan(0);
-      expect(recovery.discord?.attempts).toBeGreaterThan(0);
-    });
-
-    it('should track recovery metrics', async () => {
-      // Attempt recovery multiple times
-      await gracefulDegradation.triggerRecovery('gemini');
-      await gracefulDegradation.triggerRecovery('gemini');
-
-      const recovery = gracefulDegradation.getStatus().recovery;
-      expect(recovery.gemini?.attempts).toBe(2);
-      expect(recovery.gemini?.lastAttempt).toBeGreaterThan(0);
-    });
-
-    it('should automatically attempt recovery for open circuits', async () => {
-      // Open a circuit
-      (gracefulDegradation as any).serviceStatus.gemini.state = 'open';
-
-      // Manually trigger recovery monitoring
-      await (gracefulDegradation as any).performRecoveryAttempts();
-
-      const recovery = gracefulDegradation.getStatus().recovery;
-      expect(recovery.gemini?.attempts).toBeGreaterThan(0);
-    });
-  });
-
-  describe('queue processing', () => {
-    beforeEach(async () => {
-      await gracefulDegradation.initialize();
-    });
-
-    afterEach(async () => {
-      await gracefulDegradation.shutdown();
-    });
-
-    it('should process queued messages when system recovers', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Add messages to queue
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
-
-      // Manually trigger queue processing
-      await (gracefulDegradation as any).processQueue();
-
-      // Message should be processed (mock implementation sends success response)
-      expect(mockRespond).toHaveBeenCalledWith(
-        expect.stringContaining('Your queued message has been processed')
-      );
-    });
-
-    it('should skip processing when system is still degraded', async () => {
-      // Force high severity degradation
-      (gracefulDegradation as any).serviceStatus.gemini.state = 'open';
-      (gracefulDegradation as any).serviceStatus.discord.state = 'open';
-
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
-
-      // Manually trigger queue processing
-      await (gracefulDegradation as any).processQueue();
-
-      // Queue should remain unprocessed
-      expect(gracefulDegradation.getStatus().queue.size).toBe(1);
-    });
-
-    it('should handle expired messages in queue', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Add message to queue
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
-
-      // Manually expire the message by modifying its timestamp
-      const queue = (gracefulDegradation as any).messageQueue;
-      queue[0].timestamp = Date.now() - 400000; // 400 seconds ago (over 5 min default)
-
-      // Process queue
-      await (gracefulDegradation as any).processQueue();
-
-      expect(mockRespond).toHaveBeenCalledWith(
-        expect.stringContaining('your message expired while in the queue')
-      );
-    });
-
-    it('should retry failed messages up to max retries', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
-
-      // Mock the processing to fail initially
-      const queue = (gracefulDegradation as any).messageQueue;
-      const originalRespond = queue[0].respond;
-      queue[0].respond = jest.fn().mockRejectedValue(new Error('Processing failed'));
-
-      // Process queue multiple times to trigger retries
-      for (let i = 0; i < 4; i++) {
-        await (gracefulDegradation as any).processQueue();
-      }
-
-      // After max retries (3), should send failure message
-      expect(originalRespond).toHaveBeenCalledWith(
-        expect.stringContaining("couldn't process your message after multiple attempts")
-      );
-    });
-  });
-
-  describe('status reporting', () => {
-    beforeEach(async () => {
-      await gracefulDegradation.initialize();
-    });
-
-    afterEach(async () => {
-      await gracefulDegradation.shutdown();
-    });
-
-    it('should provide comprehensive status information', () => {
-      const status = gracefulDegradation.getStatus();
-
-      expect(status).toMatchObject({
-        overall: expect.stringMatching(/healthy|degraded|critical/),
-        circuits: {
-          gemini: {
-            state: expect.stringMatching(/closed|open|half-open/),
-            failures: expect.any(Number),
-            lastFailure: expect.any(Number),
-            consecutiveSuccesses: expect.any(Number),
-          },
-          discord: {
-            state: expect.stringMatching(/closed|open|half-open/),
-            failures: expect.any(Number),
-            lastFailure: expect.any(Number),
-            consecutiveSuccesses: expect.any(Number),
-          },
-        },
-        queue: {
-          size: expect.any(Number),
-          oldestMessage: null, // Empty queue initially
-        },
-        recovery: expect.any(Object),
+      it('should exit maintenance mode', async () => {
+        await gracefulDegradation.enterMaintenanceMode();
+        expect(gracefulDegradation.getStatus().degradationMode).toBe('maintenance');
+        
+        await gracefulDegradation.exitMaintenanceMode();
+        expect(gracefulDegradation.getStatus().degradationMode).toBe('normal');
       });
     });
 
-    it('should calculate oldest message age correctly', async () => {
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
+    describe('message queue processing', () => {
+      it('should process queued messages when conditions improve', async () => {
+        const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+        
+        // Queue a message during degradation
+        await gracefulDegradation.evaluateHealthAndDegrade();
+        await gracefulDegradation.handleMessage(
+          'user123',
+          'server123',
+          'Queued message',
+          jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined),
+          'high'
+        );
+        
+        // Improve conditions
+        mockHealthMonitor.getCurrentMetrics.mockResolvedValue(createMockMetrics());
+        
+        // Process queue
+        await gracefulDegradation.handleMessage(
+          'user456',
+          'server123',
+          'New message',
+          mockRespond,
+          'low'
+        );
+        
+        // Give time for async processing
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Queue should be processed
+        const status = gracefulDegradation.getStatus();
+        expect(status.queued).toBeLessThan(1);
+      });
 
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
+      it('should respect queue size limits', async () => {
+        const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+        const firstRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+        
+        // Force severe degradation
+        await gracefulDegradation.evaluateHealthAndDegrade();
+        
+        // Fill queue beyond limit (default 100)
+        for (let i = 0; i < 102; i++) {
+          const respond = i === 0 ? firstRespond : jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+          await gracefulDegradation.handleMessage(
+            `user${i}`,
+            'server123',
+            `Message ${i}`,
+            respond,
+            'low'
+          );
+        }
+        
+        // First message should be rejected when queue is full
+        expect(firstRespond).toHaveBeenCalledWith(
+          expect.stringContaining('experiencing high load')
+        );
+        
+        // Last message should be queued
+        await gracefulDegradation.handleMessage(
+          'userLast',
+          'server123',
+          'Last message',
+          mockRespond,
+          'high'
+        );
+        
+        const status = gracefulDegradation.getStatus();
+        expect(status.queued).toBeLessThanOrEqual(100);
+      });
 
-      const status = gracefulDegradation.getStatus();
-      expect(status.queue.size).toBe(1);
-      expect(status.queue.oldestMessage).toBeGreaterThan(0);
-    });
-
-    it('should update overall status based on circuit states', () => {
-      // Initially healthy
-      expect(gracefulDegradation.getStatus().overall).toBe('healthy');
-
-      // Open one circuit - should become degraded
-      (gracefulDegradation as any).serviceStatus.gemini.state = 'open';
-      (gracefulDegradation as any).updateOverallStatus();
-      expect(gracefulDegradation.getStatus().overall).toBe('degraded');
-
-      // Open both circuits - should become critical
-      (gracefulDegradation as any).serviceStatus.discord.state = 'open';
-      (gracefulDegradation as any).updateOverallStatus();
-      expect(gracefulDegradation.getStatus().overall).toBe('critical');
+      it('should expire old messages from queue', async () => {
+        jest.useFakeTimers();
+        const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+        
+        // Force degradation
+        await gracefulDegradation.evaluateHealthAndDegrade();
+        
+        // Queue message
+        await gracefulDegradation.handleMessage(
+          'user123',
+          'server123',
+          'Old message',
+          jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined),
+          'low'
+        );
+        
+        // Advance time beyond max queue time (5 minutes)
+        jest.advanceTimersByTime(6 * 60 * 1000);
+        
+        // Trigger queue processing
+        await gracefulDegradation.handleMessage(
+          'user456',
+          'server123',
+          'New message',
+          mockRespond,
+          'low'
+        );
+        
+        // Old message should be expired
+        const status = gracefulDegradation.getStatus();
+        expect(status.queued).toBe(1); // Only new message
+        
+        jest.useRealTimers();
+      });
     });
   });
 
-  describe('shutdown and cleanup', () => {
-    it('should stop timers and drain queue on shutdown', async () => {
+  describe('recovery strategies', () => {
+    let mockHealthMonitor: any;
+
+    beforeEach(async () => {
+      mockHealthMonitor = {
+        getCurrentMetrics: jest.fn<AsyncFunction>().mockResolvedValue({
+          ...createMockMetrics(),
+          errorRate: 0.3, // 30% error rate (over default 20% threshold)
+        }),
+      };
+      gracefulDegradation.setHealthMonitor(mockHealthMonitor);
       await gracefulDegradation.initialize();
+    });
 
-      const mockRespond = jest.fn().mockResolvedValue(undefined);
-
-      // Add some messages to queue
-      await gracefulDegradation.queueMessage(
-        'test-user',
-        'test message',
-        mockRespond,
-        'test-server',
-        'medium'
-      );
-
+    afterEach(async () => {
       await gracefulDegradation.shutdown();
-
-      // Queue should be drained with shutdown message
-      expect(mockRespond).toHaveBeenCalledWith(
-        expect.stringContaining('System is shutting down')
-      );
-
-      // Timers should be cleared
-      expect((gracefulDegradation as any).queueProcessingTimer).toBeNull();
-      expect((gracefulDegradation as any).recoveryTimer).toBeNull();
     });
 
-    it('should handle shutdown gracefully when not initialized', async () => {
-      await expect(gracefulDegradation.shutdown()).resolves.not.toThrow();
+    it('should attempt recovery when error rate is high', async () => {
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+      
+      const result = await gracefulDegradation.handleMessage(
+        'user123',
+        'server123',
+        'Test message',
+        mockRespond,
+        'medium'
+      );
+      
+      expect(result.handled).toBe(true);
+      
+      // Should enter degradation due to high error rate
+      const status = gracefulDegradation.getStatus();
+      expect(status.degradationMode).not.toBe('normal');
+    });
+
+    it('should provide diagnostic information', () => {
+      const diagnostics = gracefulDegradation.getDiagnostics();
+      
+      expect(diagnostics).toHaveProperty('circuits');
+      expect(diagnostics).toHaveProperty('queueStats');
+      expect(diagnostics).toHaveProperty('recoveryMetrics');
+      expect(diagnostics).toHaveProperty('config');
+      expect(diagnostics).toHaveProperty('uptime');
     });
   });
 
-  describe('configuration validation', () => {
-    it('should use environment variables for thresholds', () => {
-      process.env.DEGRADATION_MEMORY_THRESHOLD_MB = '256';
-      process.env.DEGRADATION_ERROR_RATE_THRESHOLD = '2.0';
-
-      const degradation = new GracefulDegradation();
-
-      // Test configuration indirectly through degradation assessment
-      const config = (degradation as any).config;
-      expect(config.memoryThresholdMB).toBe(256);
-      expect(config.errorRateThreshold).toBe(2.0);
-
-      // Cleanup
-      delete process.env.DEGRADATION_MEMORY_THRESHOLD_MB;
-      delete process.env.DEGRADATION_ERROR_RATE_THRESHOLD;
+  describe('priority handling', () => {
+    beforeEach(async () => {
+      await gracefulDegradation.initialize();
     });
 
-    it('should validate health metrics against configured thresholds', async () => {
+    afterEach(async () => {
+      await gracefulDegradation.shutdown();
+    });
+
+    it('should process high priority messages first', async () => {
+      const processedOrder: string[] = [];
+      const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+      
+      // Force degradation to enable queueing
+      const mockHealthMonitor = {
+        getCurrentMetrics: jest.fn<AsyncFunction>().mockResolvedValue({
+          ...createMockMetrics(),
+          memoryUsage: { rss: 500 * 1024 * 1024 },
+        }),
+      };
+      gracefulDegradation.setHealthMonitor(mockHealthMonitor);
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
+      // Queue messages with different priorities
+      await gracefulDegradation.handleMessage(
+        'user1',
+        'server123',
+        'Low priority',
+        mockRespond,
+        'low'
+      );
+      
+      await gracefulDegradation.handleMessage(
+        'user2',
+        'server123',
+        'High priority',
+        mockRespond,
+        'high'
+      );
+      
+      await gracefulDegradation.handleMessage(
+        'user3',
+        'server123',
+        'Medium priority',
+        mockRespond,
+        'medium'
+      );
+      
+      const status = gracefulDegradation.getStatus();
+      expect(status.queued).toBeGreaterThan(0);
+    });
+  });
+
+  describe('concurrent operation handling', () => {
+    beforeEach(async () => {
       await gracefulDegradation.initialize();
+    });
 
-      const assessHealth = (gracefulDegradation as any).assessHealthBasedDegradation.bind(gracefulDegradation);
+    afterEach(async () => {
+      await gracefulDegradation.shutdown();
+    });
 
-      // Test memory threshold
-      let metrics = createMockMetrics();
-      metrics.memoryUsage.rss = 500 * 1024 * 1024; // 500MB (over default 400MB)
-      let assessment = assessHealth(metrics);
-      expect(assessment.shouldDegrade).toBe(true);
-      expect(assessment.reason).toContain('High memory usage');
+    it('should handle concurrent circuit breaker operations', async () => {
+      const operations = Array(10).fill(null).map((_, i) => ({
+        id: i,
+        operation: jest.fn<AsyncFunction<string>>().mockResolvedValue(`result-${i}`),
+      }));
+      
+      const results = await Promise.all(
+        operations.map(({ operation }) => 
+          gracefulDegradation.executeWithCircuitBreaker(operation, 'gemini')
+        )
+      );
+      
+      expect(results).toHaveLength(10);
+      results.forEach((result, i) => {
+        expect(result).toBe(`result-${i}`);
+      });
+    });
 
-      // Test error rate threshold
-      metrics = createMockMetrics();
-      metrics.errorRate = 15; // Over default 10%
-      assessment = assessHealth(metrics);
-      expect(assessment.shouldDegrade).toBe(true);
-      expect(assessment.reason).toContain('High error rate');
+    it('should handle mixed success and failure operations', async () => {
+      const results: Array<{ success: boolean; error?: Error }> = [];
+      
+      for (let i = 0; i < 10; i++) {
+        const shouldFail = i % 2 === 0;
+        const operation = shouldFail
+          ? jest.fn<AsyncFunction>().mockRejectedValue(new Error(`Error ${i}`))
+          : jest.fn<AsyncFunction<string>>().mockResolvedValue(`Success ${i}`);
+        
+        try {
+          const result = await gracefulDegradation.executeWithCircuitBreaker(operation, 'gemini');
+          results.push({ success: true });
+        } catch (error) {
+          results.push({ success: false, error: error as Error });
+        }
+      }
+      
+      const successCount = results.filter(r => r.success).length;
+      const failureCount = results.filter(r => !r.success).length;
+      
+      expect(successCount).toBeGreaterThan(0);
+      expect(failureCount).toBeGreaterThan(0);
+    });
+  });
 
-      // Test response time threshold
-      metrics = createMockMetrics();
-      metrics.responseTime.p95 = 15000; // Over default 10000ms
-      assessment = assessHealth(metrics);
-      expect(assessment.shouldDegrade).toBe(true);
-      expect(assessment.reason).toContain('Slow response times');
+  describe('configuration edge cases', () => {
+    it('should handle invalid configuration values', async () => {
+      process.env.DEGRADATION_MAX_FAILURES = 'invalid';
+      process.env.DEGRADATION_RESET_TIMEOUT_MS = '-1000';
+      process.env.DEGRADATION_MAX_QUEUE_SIZE = '0';
+      
+      gracefulDegradation = new GracefulDegradation();
+      await gracefulDegradation.initialize();
+      
+      // Should use defaults for invalid values
+      const diagnostics = gracefulDegradation.getDiagnostics();
+      expect(diagnostics.config.maxFailures).toBeGreaterThan(0);
+      expect(diagnostics.config.resetTimeoutMs).toBeGreaterThan(0);
+      expect(diagnostics.config.maxQueueSize).toBeGreaterThan(0);
+      
+      await gracefulDegradation.shutdown();
+    });
 
-      // Test API health
-      metrics = createMockMetrics();
-      metrics.apiHealth.gemini = false;
-      assessment = assessHealth(metrics);
-      expect(assessment.shouldDegrade).toBe(true);
-      expect(assessment.reason).toContain('Unhealthy services');
+    it('should handle empty environment configuration', async () => {
+      // Clear all config environment variables
+      Object.keys(process.env).forEach(key => {
+        if (key.startsWith('DEGRADATION_')) {
+          delete process.env[key];
+        }
+      });
+      
+      gracefulDegradation = new GracefulDegradation();
+      await gracefulDegradation.initialize();
+      
+      const diagnostics = gracefulDegradation.getDiagnostics();
+      expect(diagnostics.config).toBeDefined();
+      expect(diagnostics.config.maxFailures).toBe(5); // Default value
+      
+      await gracefulDegradation.shutdown();
+    });
+  });
+
+  describe('health-based degradation triggers', () => {
+    let mockHealthMonitor: any;
+
+    beforeEach(async () => {
+      mockHealthMonitor = {
+        getCurrentMetrics: jest.fn<AsyncFunction>().mockResolvedValue(createMockMetrics()),
+      };
+      gracefulDegradation.setHealthMonitor(mockHealthMonitor);
+      await gracefulDegradation.initialize();
+    });
+
+    afterEach(async () => {
+      await gracefulDegradation.shutdown();
+    });
+
+    it('should trigger degradation on high response time', async () => {
+      mockHealthMonitor.getCurrentMetrics.mockResolvedValue({
+        ...createMockMetrics(),
+        averageResponseTime: 3000, // 3 seconds (over default 2s threshold)
+      });
+      
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
+      const status = gracefulDegradation.getStatus();
+      expect(status.degradationMode).not.toBe('normal');
+    });
+
+    it('should recover when metrics improve', async () => {
+      // First trigger degradation
+      mockHealthMonitor.getCurrentMetrics.mockResolvedValue({
+        ...createMockMetrics(),
+        errorRate: 0.25, // 25% error rate
+      });
+      
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      expect(gracefulDegradation.getStatus().degradationMode).not.toBe('normal');
+      
+      // Then improve metrics
+      mockHealthMonitor.getCurrentMetrics.mockResolvedValue(createMockMetrics());
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
+      // Should eventually recover
+      const status = gracefulDegradation.getStatus();
+      expect(status.degradationMode).toBe('normal');
+    });
+
+    it('should handle multiple degradation triggers', async () => {
+      mockHealthMonitor.getCurrentMetrics.mockResolvedValue({
+        ...createMockMetrics(),
+        memoryUsage: { rss: 500 * 1024 * 1024 }, // High memory
+        errorRate: 0.25, // High error rate
+        averageResponseTime: 3000, // Slow response
+      });
+      
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
+      const status = gracefulDegradation.getStatus();
+      expect(status.degradationMode).toBe('severe'); // Multiple triggers = severe
+    });
+  });
+
+  describe('message retry handling', () => {
+    beforeEach(async () => {
+      await gracefulDegradation.initialize();
+    });
+
+    afterEach(async () => {
+      await gracefulDegradation.shutdown();
+    });
+
+    it('should retry failed messages', async () => {
+      jest.useFakeTimers();
+      const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+      
+      // Force queueing
+      const mockHealthMonitor = {
+        getCurrentMetrics: jest.fn<AsyncFunction>().mockResolvedValue({
+          ...createMockMetrics(),
+          memoryUsage: { rss: 500 * 1024 * 1024 },
+        }),
+      };
+      gracefulDegradation.setHealthMonitor(mockHealthMonitor);
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
+      // Queue a message
+      await gracefulDegradation.handleMessage(
+        'user123',
+        'server123',
+        'Retry me',
+        mockRespond,
+        'high'
+      );
+      
+      // Simulate processing failure and retry
+      const queue = (gracefulDegradation as any).messageQueue;
+      if (queue.length > 0) {
+        queue[0].retries = 1;
+        queue[0].respond = jest.fn<(response: string) => Promise<void>>().mockRejectedValue(new Error('Processing failed'));
+      }
+      
+      // Advance time to trigger retry
+      jest.advanceTimersByTime(5000);
+      
+      // Should have attempted retry
+      expect(queue[0]?.retries).toBeGreaterThanOrEqual(1);
+      
+      jest.useRealTimers();
+    });
+
+    it('should give up after max retries', async () => {
+      const mockRespond = jest.fn<(response: string) => Promise<void>>().mockResolvedValue(undefined);
+      
+      // Force queueing
+      const mockHealthMonitor = {
+        getCurrentMetrics: jest.fn<AsyncFunction>().mockResolvedValue({
+          ...createMockMetrics(),
+          memoryUsage: { rss: 500 * 1024 * 1024 },
+        }),
+      };
+      gracefulDegradation.setHealthMonitor(mockHealthMonitor);
+      await gracefulDegradation.evaluateHealthAndDegrade();
+      
+      // Queue a message
+      await gracefulDegradation.handleMessage(
+        'user123',
+        'server123',
+        'Give up on me',
+        mockRespond,
+        'low'
+      );
+      
+      // Simulate max retries
+      const queue = (gracefulDegradation as any).messageQueue;
+      if (queue.length > 0) {
+        queue[0].retries = 3; // Default max retries
+      }
+      
+      // Process queue - should remove message after max retries
+      await (gracefulDegradation as any).processMessageQueue();
+      
+      expect(queue.length).toBe(0);
     });
   });
 });

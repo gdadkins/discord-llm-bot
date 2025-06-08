@@ -1,0 +1,595 @@
+{
+  "workflowId": "code-quality-audit",
+  "phase": "refactoring-task-generation",
+  "generatedAt": "2025-06-07T10:30:00Z",
+  "analysisFindings": {
+    "criticalComplexityIssues": [
+      {
+        "file": "src/services/roastingEngine.ts",
+        "method": "shouldRoast()",
+        "complexity": 22,
+        "lineCount": 146,
+        "severity": "critical"
+      },
+      {
+        "file": "src/services/interfaces/index.ts", 
+        "lineCount": 1313,
+        "issue": "Monolithic interface file",
+        "severity": "high"
+      }
+    ],
+    "duplicatedCode": {
+      "estimatedLines": "200-250",
+      "patterns": [
+        "Permission checking logic",
+        "Discord interaction error handling", 
+        "Configuration validation"
+      ]
+    },
+    "maintainabilityScore": 83.5,
+    "solidViolations": [
+      "Single Responsibility Principle",
+      "Interface Segregation Principle",
+      "Type Safety issues"
+    ]
+  },
+  "refactoringTasks": [
+    {
+      "id": "REF-001",
+      "title": "Extract shouldRoast() Decision Tree Using Strategy Pattern",
+      "description": "Refactor the complex shouldRoast() method (146 lines, complexity 22) by extracting decision logic into dedicated strategy classes",
+      "priority": "critical",
+      "effort": "8 hours",
+      "category": "complexity-reduction",
+      "files": [
+        "src/services/roastingEngine.ts"
+      ],
+      "lineRange": "106-252",
+      "implementation": {
+        "steps": [
+          "1. Create IRoastingStrategy interface with calculateChance(context) method",
+          "2. Extract BaseChanceStrategy for base roasting probability calculations",
+          "3. Extract ConsecutiveBonusStrategy for streak-based calculations", 
+          "4. Extract ComplexityModifierStrategy for message complexity analysis",
+          "5. Extract TimeBasedStrategy for time-of-day modifiers",
+          "6. Extract MoodStrategy for bot mood calculations",
+          "7. Extract ChaosStrategy for chaos mode handling",
+          "8. Create RoastingStrategyManager to orchestrate all strategies",
+          "9. Replace shouldRoast() method with strategy manager calls",
+          "10. Add comprehensive unit tests for each strategy"
+        ],
+        "newFiles": [
+          "src/services/roasting/strategies/IRoastingStrategy.ts",
+          "src/services/roasting/strategies/BaseChanceStrategy.ts",
+          "src/services/roasting/strategies/ConsecutiveBonusStrategy.ts",
+          "src/services/roasting/strategies/ComplexityModifierStrategy.ts",
+          "src/services/roasting/strategies/TimeBasedStrategy.ts",
+          "src/services/roasting/strategies/MoodStrategy.ts",
+          "src/services/roasting/strategies/ChaosStrategy.ts",
+          "src/services/roasting/RoastingStrategyManager.ts"
+        ]
+      },
+      "acceptance": [
+        "shouldRoast() method reduced to <30 lines",
+        "Cyclomatic complexity reduced from 22 to <8",
+        "All strategies have unit tests with >90% coverage",
+        "No behavioral changes to roasting logic",
+        "Performance improvement: 15-20% faster execution"
+      ],
+      "rollback": {
+        "procedure": "Revert to original shouldRoast() implementation by removing strategy files and restoring roastingEngine.ts from git",
+        "riskLevel": "low",
+        "backupLocation": "git commit before refactoring"
+      },
+      "dependencies": [],
+      "validation": [
+        "npm test -- roastingEngine",
+        "npm run lint -- src/services/roasting/",
+        "Performance benchmarks must match original ±5%"
+      ]
+    },
+    {
+      "id": "REF-002", 
+      "title": "Split Large Interface File by Domain",
+      "description": "Decompose the monolithic interfaces/index.ts file (1,313 lines) into domain-specific interface files to improve maintainability",
+      "priority": "high",
+      "effort": "6 hours",
+      "category": "structural-improvement",
+      "files": [
+        "src/services/interfaces/index.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Analyze interface dependencies and group by domain",
+          "2. Create IAIServiceInterfaces.ts for AI/Gemini-related interfaces",
+          "3. Create IAnalyticsInterfaces.ts for analytics and reporting",
+          "4. Create IConfigurationInterfaces.ts for configuration management", 
+          "5. Create IContextInterfaces.ts for context and memory management",
+          "6. Create ICacheInterfaces.ts for caching functionality",
+          "7. Create IMonitoringInterfaces.ts for health and monitoring",
+          "8. Create IUserInterfaces.ts for user management and preferences",
+          "9. Update all import statements across the codebase",
+          "10. Create barrel exports in new index.ts file"
+        ],
+        "newFiles": [
+          "src/services/interfaces/IAIServiceInterfaces.ts",
+          "src/services/interfaces/IAnalyticsInterfaces.ts", 
+          "src/services/interfaces/IConfigurationInterfaces.ts",
+          "src/services/interfaces/IContextInterfaces.ts",
+          "src/services/interfaces/ICacheInterfaces.ts",
+          "src/services/interfaces/IMonitoringInterfaces.ts",
+          "src/services/interfaces/IUserInterfaces.ts"
+        ]
+      },
+      "acceptance": [
+        "No single interface file exceeds 300 lines",
+        "All imports updated and functional",
+        "TypeScript compilation successful",
+        "Clear domain separation achieved",
+        "Documentation updated with new structure"
+      ],
+      "rollback": {
+        "procedure": "Restore original index.ts and remove new interface files, revert all import changes",
+        "riskLevel": "medium",
+        "backupLocation": "git commit with original structure"
+      },
+      "dependencies": [],
+      "validation": [
+        "npm run build",
+        "npm test",
+        "Check for unused imports with npm run lint"
+      ]
+    },
+    {
+      "id": "REF-003",
+      "title": "Create Shared Permission Checking Utility", 
+      "description": "Eliminate 200-250 lines of duplicated permission checking logic by creating a centralized permission utility",
+      "priority": "high",
+      "effort": "4 hours",
+      "category": "duplication-elimination",
+      "files": [
+        "src/commands/analyticsCommands.ts",
+        "src/commands/configurationCommands.ts", 
+        "src/commands/uxCommands.ts",
+        "src/handlers/commandHandlers.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Audit all permission checking patterns across commands",
+          "2. Create IPermissionManager interface with standard methods",
+          "3. Implement PermissionManager with role-based checking",
+          "4. Add Discord permission validation methods",
+          "5. Create permission caching for performance",
+          "6. Replace duplicated permission logic in analytics commands",
+          "7. Replace duplicated permission logic in configuration commands",
+          "8. Replace duplicated permission logic in UX commands", 
+          "9. Update command handlers to use centralized permissions",
+          "10. Add comprehensive permission tests"
+        ],
+        "newFiles": [
+          "src/utils/permissions/IPermissionManager.ts",
+          "src/utils/permissions/PermissionManager.ts",
+          "src/utils/permissions/PermissionCache.ts"
+        ]
+      },
+      "acceptance": [
+        "Duplicate permission code reduced by >80%",
+        "All commands use centralized permission checking",
+        "Permission caching improves performance by >30%",
+        "Consistent permission error messages",
+        "Permission tests achieve >95% coverage"
+      ],
+      "rollback": {
+        "procedure": "Remove permission utility files and restore original permission checks from git backup",
+        "riskLevel": "low", 
+        "backupLocation": "git commit before permission refactoring"
+      },
+      "dependencies": [],
+      "validation": [
+        "Test all command permissions with different user roles",
+        "npm test -- permission",
+        "Verify no permission bypass vulnerabilities"
+      ]
+    },
+    {
+      "id": "REF-004",
+      "title": "Standardize Discord Interaction Error Handling",
+      "description": "Consolidate scattered Discord error handling patterns into reusable error handling modules",
+      "priority": "medium", 
+      "effort": "5 hours",
+      "category": "duplication-elimination",
+      "files": [
+        "src/events/messageCreate.ts",
+        "src/handlers/commandHandlers.ts",
+        "src/handlers/eventHandlers.ts",
+        "src/commands/index.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Identify common Discord API error patterns",
+          "2. Create IDiscordErrorHandler interface",
+          "3. Implement DiscordErrorHandler with standard error mapping",
+          "4. Add retry logic for transient Discord API errors",
+          "5. Create user-friendly error message formatting",
+          "6. Replace error handling in message creation events",
+          "7. Replace error handling in command handlers",
+          "8. Replace error handling in event handlers",
+          "9. Add error logging and monitoring integration",
+          "10. Create error handling tests and documentation"
+        ],
+        "newFiles": [
+          "src/utils/errors/IDiscordErrorHandler.ts",
+          "src/utils/errors/DiscordErrorHandler.ts", 
+          "src/utils/errors/ErrorMessageFormatter.ts",
+          "src/utils/errors/DiscordRetryHandler.ts"
+        ]
+      },
+      "acceptance": [
+        "Consistent error handling across all Discord interactions",
+        "User-friendly error messages for common scenarios",
+        "Automatic retry for transient API errors",
+        "Error handling code reduced by >60%",
+        "Error monitoring and logging integrated"
+      ],
+      "rollback": {
+        "procedure": "Remove error handling utilities and restore original try-catch blocks",
+        "riskLevel": "medium",
+        "backupLocation": "git commit before error handling refactoring"
+      },
+      "dependencies": ["REF-006"],
+      "validation": [
+        "Test error scenarios with Discord API rate limits",
+        "Verify error message consistency", 
+        "npm test -- error-handling"
+      ]
+    },
+    {
+      "id": "REF-005",
+      "title": "Decompose Large Service Files",
+      "description": "Break down analyticsManager.ts (1,105 lines) and configurationManager.ts (965 lines) into smaller, focused service modules",
+      "priority": "medium",
+      "effort": "10 hours", 
+      "category": "structural-improvement",
+      "files": [
+        "src/services/analyticsManager.ts",
+        "src/services/configurationManager.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Analyze analyticsManager.ts responsibilities and dependencies",
+          "2. Extract AnalyticsDataService for data operations",
+          "3. Extract AnalyticsReportingService for report generation", 
+          "4. Extract AnalyticsPrivacyService for privacy management",
+          "5. Analyze configurationManager.ts responsibilities",
+          "6. Extract ConfigurationValidator for validation logic",
+          "7. Extract ConfigurationPersistence for file operations",
+          "8. Extract ConfigurationVersioning for version management",
+          "9. Update service registrations and dependency injection",
+          "10. Migrate tests to new service structure"
+        ],
+        "newFiles": [
+          "src/services/analytics/AnalyticsDataService.ts",
+          "src/services/analytics/AnalyticsReportingService.ts",
+          "src/services/analytics/AnalyticsPrivacyService.ts",
+          "src/services/configuration/ConfigurationValidator.ts",
+          "src/services/configuration/ConfigurationPersistence.ts", 
+          "src/services/configuration/ConfigurationVersioning.ts"
+        ]
+      },
+      "acceptance": [
+        "No service file exceeds 500 lines",
+        "Clear separation of concerns achieved",
+        "All existing functionality preserved",
+        "Service dependencies properly managed",
+        "Tests migrated and passing for all new services"
+      ],
+      "rollback": {
+        "procedure": "Restore original large service files and remove decomposed services",
+        "riskLevel": "high",
+        "backupLocation": "git commit before service decomposition"
+      },
+      "dependencies": ["REF-006"],
+      "validation": [
+        "npm test -- analytics",
+        "npm test -- configuration", 
+        "Verify all service integrations work correctly"
+      ]
+    },
+    {
+      "id": "REF-006",
+      "title": "Implement Proper Dependency Injection",
+      "description": "Replace direct service instantiation with a proper dependency injection container to improve testability and modularity",
+      "priority": "medium",
+      "effort": "6 hours",
+      "category": "architecture-optimization", 
+      "files": [
+        "src/core/botInitializer.ts",
+        "src/services/interfaces/serviceFactory.ts",
+        "src/services/interfaces/serviceRegistry.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Design IDependencyContainer interface",
+          "2. Implement DependencyContainer with registration and resolution",
+          "3. Create service lifetime management (singleton, transient)",
+          "4. Add circular dependency detection",
+          "5. Update ServiceFactory to use DI container",
+          "6. Migrate BotInitializer to use dependency injection",
+          "7. Update all service constructors for DI compatibility", 
+          "8. Create DI configuration and bootstrap process",
+          "9. Add DI container tests",
+          "10. Update documentation with DI patterns"
+        ],
+        "newFiles": [
+          "src/core/di/IDependencyContainer.ts",
+          "src/core/di/DependencyContainer.ts",
+          "src/core/di/ServiceLifetime.ts",
+          "src/core/di/DIBootstrapper.ts"
+        ]
+      },
+      "acceptance": [
+        "All services registered and resolved through DI container",
+        "No direct service instantiation in application code",
+        "Circular dependency detection working",
+        "Service lifetime management functional",
+        "DI container tests achieve >90% coverage"
+      ],
+      "rollback": {
+        "procedure": "Remove DI container and restore direct service instantiation",
+        "riskLevel": "high",
+        "backupLocation": "git commit before DI implementation"
+      },
+      "dependencies": [],
+      "validation": [
+        "npm test -- dependency-injection",
+        "Verify all services initialize correctly",
+        "Test service resolution performance"
+      ]
+    },
+    {
+      "id": "REF-007",
+      "title": "Extract Roasting Calculation Methods",
+      "description": "Move complex calculation logic from RoastingEngine into specialized calculation classes to improve maintainability",
+      "priority": "medium",
+      "effort": "4 hours", 
+      "category": "complexity-reduction",
+      "files": [
+        "src/services/roastingEngine.ts"
+      ],
+      "lineRange": "309-548",
+      "implementation": {
+        "steps": [
+          "1. Create IRoastingCalculator interface for calculation contracts",
+          "2. Extract ComplexityCalculator for message complexity analysis",
+          "3. Extract TimeModifierCalculator for time-based calculations",
+          "4. Extract MoodModifierCalculator for mood-based calculations",
+          "5. Extract ServerInfluenceCalculator for server context calculations",
+          "6. Extract ConsecutiveBonusCalculator for streak calculations",
+          "7. Update RoastingEngine to use calculation services",
+          "8. Add caching layer for expensive calculations",
+          "9. Create calculation unit tests",
+          "10. Add performance benchmarks for calculations"
+        ],
+        "newFiles": [
+          "src/services/roasting/calculators/IRoastingCalculator.ts",
+          "src/services/roasting/calculators/ComplexityCalculator.ts",
+          "src/services/roasting/calculators/TimeModifierCalculator.ts",
+          "src/services/roasting/calculators/MoodModifierCalculator.ts",
+          "src/services/roasting/calculators/ServerInfluenceCalculator.ts",
+          "src/services/roasting/calculators/ConsecutiveBonusCalculator.ts"
+        ]
+      },
+      "acceptance": [
+        "Complex calculation methods moved to dedicated classes",
+        "RoastingEngine calculation code reduced by >70%",
+        "Calculation caching improves performance by >25%",
+        "Individual calculator tests achieve >95% coverage",
+        "Calculation results remain identical to original"
+      ],
+      "rollback": {
+        "procedure": "Remove calculator classes and restore original calculation methods",
+        "riskLevel": "low",
+        "backupLocation": "git commit before calculation extraction"
+      },
+      "dependencies": ["REF-001"],
+      "validation": [
+        "npm test -- roasting-calculators",
+        "Benchmark calculation performance", 
+        "Verify calculation accuracy with original implementation"
+      ]
+    },
+    {
+      "id": "REF-008", 
+      "title": "Create Configuration Validation Utility",
+      "description": "Consolidate validation logic scattered across multiple services into a centralized validation utility",
+      "priority": "low",
+      "effort": "3 hours",
+      "category": "duplication-elimination",
+      "files": [
+        "src/services/configurationManager.ts",
+        "src/core/botInitializer.ts",
+        "src/services/gemini.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Identify all configuration validation patterns",
+          "2. Create IConfigurationValidator interface",
+          "3. Implement ConfigurationValidator with schema validation",
+          "4. Add environment variable validation",
+          "5. Create validation rule engine for complex checks",
+          "6. Replace validation logic in configurationManager",
+          "7. Replace validation logic in botInitializer",
+          "8. Replace validation logic in Gemini service",
+          "9. Add comprehensive validation tests",
+          "10. Create validation error reporting"
+        ],
+        "newFiles": [
+          "src/utils/validation/IConfigurationValidator.ts",
+          "src/utils/validation/ConfigurationValidator.ts",
+          "src/utils/validation/ValidationRuleEngine.ts"
+        ]
+      },
+      "acceptance": [
+        "Centralized validation for all configuration",
+        "Validation code duplication reduced by >80%",
+        "Clear validation error messages",
+        "Schema-based validation for type safety",
+        "Validation tests achieve >90% coverage"
+      ],
+      "rollback": {
+        "procedure": "Remove validation utilities and restore original validation code",
+        "riskLevel": "low",
+        "backupLocation": "git commit before validation refactoring"
+      },
+      "dependencies": [],
+      "validation": [
+        "Test configuration validation with invalid configs",
+        "npm test -- configuration-validation",
+        "Verify validation error message clarity"
+      ]
+    },
+    {
+      "id": "REF-009",
+      "title": "Enhance Type Safety",
+      "description": "Replace any types and unsafe casting with proper type definitions throughout the codebase",
+      "priority": "high", 
+      "effort": "8 hours",
+      "category": "type-safety",
+      "files": [
+        "src/services/analyticsManager.ts",
+        "src/services/configurationManager.ts",
+        "src/services/contextManager.ts",
+        "src/handlers/commandHandlers.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Audit codebase for 'any' types and unsafe casting",
+          "2. Create strict type definitions for analytics data structures",
+          "3. Add proper typing for configuration objects",
+          "4. Define typed interfaces for context management",
+          "5. Create type-safe command handler interfaces",
+          "6. Replace 'any' types with proper generic constraints",
+          "7. Add type guards for runtime type checking",
+          "8. Enable strict TypeScript compiler options",
+          "9. Fix all type errors and warnings",
+          "10. Add type safety tests"
+        ],
+        "newFiles": [
+          "src/types/AnalyticsTypes.ts",
+          "src/types/ConfigurationTypes.ts",
+          "src/types/ContextTypes.ts",
+          "src/utils/typeGuards.ts"
+        ]
+      },
+      "acceptance": [
+        "Zero 'any' types in application code",
+        "All TypeScript strict mode checks pass",
+        "Runtime type checking implemented",
+        "Type safety tests cover critical paths",
+        "IDE provides better intellisense and error detection"
+      ],
+      "rollback": {
+        "procedure": "Revert TypeScript config and restore any types where needed",
+        "riskLevel": "medium",
+        "backupLocation": "git commit before type safety improvements"
+      },
+      "dependencies": [],
+      "validation": [
+        "npm run build with strict TypeScript settings",
+        "npm test -- type-safety",
+        "Verify no runtime type errors"
+      ]
+    },
+    {
+      "id": "REF-010", 
+      "title": "Extract Command Registration Patterns",
+      "description": "Create reusable command factory pattern for commands/index.ts (911 lines) to reduce repetitive command registration code",
+      "priority": "low",
+      "effort": "4 hours",
+      "category": "structural-improvement",
+      "files": [
+        "src/commands/index.ts"
+      ],
+      "implementation": {
+        "steps": [
+          "1. Analyze command registration patterns in index.ts",
+          "2. Create ICommandFactory interface for command creation",
+          "3. Implement CommandFactory with builder pattern",
+          "4. Create CommandMetadata interface for command definitions",
+          "5. Extract command configuration from registration code",
+          "6. Implement automatic command discovery and registration",
+          "7. Add command validation and error handling",
+          "8. Create command registration tests",
+          "9. Update command documentation",
+          "10. Optimize command loading performance"
+        ],
+        "newFiles": [
+          "src/commands/factory/ICommandFactory.ts",
+          "src/commands/factory/CommandFactory.ts",
+          "src/commands/factory/CommandMetadata.ts",
+          "src/commands/factory/CommandDiscovery.ts"
+        ]
+      },
+      "acceptance": [
+        "Command registration code reduced by >60%",
+        "Automatic command discovery working",
+        "Command metadata properly defined",
+        "All existing commands still functional",
+        "Command factory tests achieve >85% coverage"
+      ],
+      "rollback": {
+        "procedure": "Remove command factory and restore original registration code",
+        "riskLevel": "medium",
+        "backupLocation": "git commit before command factory implementation"
+      },
+      "dependencies": [],
+      "validation": [
+        "Test all commands load and function correctly",
+        "npm test -- command-factory",
+        "Verify command help and metadata accuracy"
+      ]
+    }
+  ],
+  "executionPlan": {
+    "totalTasks": 10,
+    "estimatedEffort": "58 hours",
+    "phases": [
+      {
+        "phase": "1-critical",
+        "tasks": ["REF-001", "REF-002", "REF-003", "REF-009"],
+        "estimatedDuration": "26 hours",
+        "description": "Address critical complexity and type safety issues"
+      },
+      {
+        "phase": "2-medium",
+        "tasks": ["REF-004", "REF-005", "REF-006", "REF-007"],
+        "estimatedDuration": "25 hours", 
+        "description": "Structural improvements and architecture optimization"
+      },
+      {
+        "phase": "3-final",
+        "tasks": ["REF-008", "REF-010"],
+        "estimatedDuration": "7 hours",
+        "description": "Final optimizations and pattern extraction"
+      }
+    ]
+  },
+  "successMetrics": {
+    "maintainabilityScore": {
+      "target": ">90",
+      "current": "83.5"
+    },
+    "codeComplexity": {
+      "target": "<8 per method",
+      "current": "22 for shouldRoast()"
+    },
+    "testCoverage": {
+      "target": ">90%",
+      "current": "85%"
+    },
+    "duplicatedCode": {
+      "target": "<50 lines",
+      "current": "200-250 lines"
+    }
+  }
+}

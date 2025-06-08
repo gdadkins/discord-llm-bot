@@ -117,15 +117,6 @@ npm test               # Run automated test suite
 
 For complete architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-### Quick Reference
-- Discord bot with Gemini AI integration
-- Discord.js v14 + @google/genai for API calls
-- Dual personality system (roasting vs helpful)
-- Extended conversation memory (1M token context)
-- Rate limiting with persistent state
-- Enhanced context: Discord profiles, channel context, social dynamics
-- Memory monitoring: `/analytics discord-storage`
-
 ## Agent Coordination
 
 For complete agent coordination protocols, see [agents/COORDINATION_PROTOCOLS.md](agents/COORDINATION_PROTOCOLS.md).
@@ -144,7 +135,6 @@ For detailed improvement processes, see [docs/CONTINUOUS_IMPROVEMENT.md](docs/CO
 ### Quick Reference
 - Measure performance with confidence intervals
 - Document agent effectiveness patterns
-- Update CLAUDE.md based on validated learnings
 - Track architecture quality trends
 
 ## Critical System Stability Guidelines
@@ -162,25 +152,75 @@ For detailed improvement processes, see [docs/CONTINUOUS_IMPROVEMENT.md](docs/CO
  ### Claude Orchestrator v2.0
  This project includes the Claude Orchestrator for automated workflows.
 
- Available commands:
- - `Execute research workflow` - Analyze codebase (now generates structured findings and analysis documents)
- - `Execute improvements workflow` - Find and fix issues
- - `Execute security audit workflow` - Security assessment with executable security fix tasks
- - `Execute microservices audit workflow` - Architecture review with refactoring tasks
- - `Execute cicd pipeline workflow` - Pipeline optimization with automation scripts
- - `Execute ai code review workflow` - Intelligent code review with refactoring tasks
- - `Execute test driven development workflow` - TDD automation with test generation
- 
- Orchestrator location: `/claude-orchestrator/`
+## Core Workflows
+- `Execute comprehensive analysis workflow` - Complete codebase discovery and analysis
+- `Execute code quality audit workflow` - AI-powered code quality assessment with refactoring tasks
+- `Execute security audit workflow` - Security assessment with OWASP compliance and remediation
+- `Execute performance profiling workflow` - Performance bottleneck analysis with optimization
+- `Execute dependency hygiene workflow` - Dependency security and compliance management
+- `Execute cicd pipeline workflow` - CI/CD pipeline optimization with automation
+- `Execute microservices audit workflow` - architecture audit generating executable modernization tasks
 
- ## Workflow Execution Examples
+## Gallery Workflows (Domain-Organized)
+**Backend:**
+- `Execute database performance audit workflow` - Database optimization with query and schema analysis
+- `Execute api lifecycle management workflow` - Complete API lifecycle automation
 
- "Execute improvements workflow with max_changes=5"
- "Execute security audit workflow on src/api/"
- "Execute research workflow and focus on authentication"
+**Frontend:**
+- `Execute frontend performance optimization workflow` - Core Web Vitals and bundle optimization
+- `Execute accessibility compliance workflow` - WCAG 2.1/3.0 compliance
+- `Execute internationalization workflow` - Multi-language support
 
- ## v2.0 Task Execution Examples
+**Infrastructure:**
+- `Execute legacy modernization workflow` - Legacy system transformation planning
+- `Execute infrastructure as code workflow` - Terraform/CloudFormation security
+- `Execute incident response automation workflow` - Automated runbook generation
 
-After running workflows that generate tasks:
-- `Execute task-runner --manifest=outputs/improvements_20240607/ORCHESTRATION_MANIFEST.yaml` - Execute all generated tasks
-- `Execute task --file=outputs/security_audit_20240607/tasks/security/SEC-001.json` - Execute individual task
+**Data & Analytics:**
+- `Execute mlops readiness workflow` - ML operational maturity assessment
+- `Execute data pipeline audit workflow` - ETL/ELT optimization
+
+**Educational:**
+- `Execute test driven development workflow` - TDD automation with test generation
+
+## Advanced Enterprise Features
+
+### Understanding Outputs
+All workflows generate:
+- **JSON files** - Machine-readable task definitions following schema
+- **Markdown files** - Human-readable reports with visualizations
+- **ORCHESTRATION_MANIFEST.yaml** - Task execution manifest
+- **Section summaries** - DISCOVERY_SUMMARY.md, ANALYSIS_SUMMARY.md, etc.
+
+### Format Reference
+- **Workflows**: XML embedded in .workflow.md files
+- **Tasks**: JSON with strict schema validation (templates/task-schema.json)
+- **Config**: YAML for settings (config/defaults.yaml)
+- **Metadata**: Standardized XML structure (templates/workflow-metadata-standard.xml)
+
+Locations: 
+- `/claude-orchestrator/workflows/` - Core workflows
+- `/claude-orchestrator/workflows/gallery/` - Domain-specialized workflows
+- `/claude-orchestrator/core/` - Advanced framework components and systems
+- `/claude-orchestrator/docs/` - Comprehensive documentation and user guides
+- `/claude-orchestrator/templates/` - Workflow template library
+
+## Workflow Execution Examples
+
+**Core Workflows:**
+"Execute comprehensive analysis workflow"
+"Execute code quality audit workflow with complexity_threshold=8"
+"Execute security audit workflow on src/api/"
+"Execute performance profiling workflow with focus_area=database"
+
+**Gallery Workflows:**
+"Execute database performance audit workflow with database_type=postgresql"
+"Execute frontend performance optimization workflow with framework=react"
+"Execute legacy modernization workflow with modernization_approach=strangler_fig"
+"Execute accessibility compliance workflow targeting WCAG 2.1 AA"
+
+## Project-Specific Workflows
+
+Custom workflows for this project:
+- `Execute api-validation workflow` - Validates all API endpoints
+- `Execute database-migration workflow` - Safe schema updates

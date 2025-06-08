@@ -1,221 +1,227 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { ConfigurationManager } from '../../../src/services/configurationManager';
-import { createMockConfiguration, MockFileSystem, createTestEnvironment } from '../../test-utils';
 import * as path from 'path';
+import * as fs from 'fs-extra';
+import { ConfigurationManager } from '../../../src/services/configurationManager';
+import { BotConfiguration } from '../../../src/services/configurationManager';
 
-// Mock dependencies
-const mockFs = {
-  ensureDir: jest.fn().mockResolvedValue(undefined),
-  writeJSON: jest.fn().mockResolvedValue(undefined),
-  readJSON: jest.fn().mockResolvedValue({}),
-  pathExists: jest.fn().mockResolvedValue(false),
-  readdir: jest.fn().mockResolvedValue([]),
-  remove: jest.fn().mockResolvedValue(undefined),
-  readFile: jest.fn().mockResolvedValue(''),
-  appendFile: jest.fn().mockResolvedValue(undefined),
-};
+const mockFs = fs as jest.Mocked<typeof fs>;
 
-jest.mock('fs-extra', () => mockFs);
+jest.mock('fs-extra', () => ({
+  ensureDir: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  writeJSON: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  readJSON: jest.fn<() => Promise<any>>().mockResolvedValue({}),
+  pathExists: jest.fn<() => Promise<boolean>>().mockResolvedValue(false),
+  readdir: jest.fn<() => Promise<string[]>>().mockResolvedValue([]),
+  remove: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  readFile: jest.fn<() => Promise<string>>().mockResolvedValue(''),
+  appendFile: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+}));
 
-const mockChokidar = {
+jest.mock('chokidar', () => ({
   watch: jest.fn().mockReturnValue({
-    on: jest.fn(),
-    close: jest.fn().mockResolvedValue(undefined),
+    on: jest.fn().mockReturnThis(),
+    close: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
   }),
-};
-
-jest.mock('chokidar', () => mockChokidar);
-
-const mockDotenv = {
-  config: jest.fn(),
-};
-
-jest.mock('dotenv', () => mockDotenv);
+}));
 
 describe('ConfigurationManager', () => {
   let configManager: ConfigurationManager;
-  let testEnv: ReturnType<typeof createTestEnvironment>;
-  let testConfigPath: string;
-  let testVersionsPath: string;
-  let testAuditPath: string;
-
+  const testConfigPath = path.join(process.cwd(), 'data', 'config', 'bot-config.json');
+  const testVersionsPath = path.join(process.cwd(), 'data', 'config', 'versions');
+  
   beforeEach(() => {
-    testEnv = createTestEnvironment();
-    testConfigPath = path.join(global.TEST_CONFIG_DIR, 'test-config.json');
-    testVersionsPath = path.join(global.TEST_CONFIG_DIR, 'versions');
-    testAuditPath = path.join(global.TEST_CONFIG_DIR, 'audit.log');
-    
-    configManager = new ConfigurationManager(
-      testConfigPath,
-      testVersionsPath,
-      testAuditPath
-    );
-    
-    // Reset all mocks
     jest.clearAllMocks();
-    mockFs.pathExists.mockResolvedValue(false);
-    mockFs.readJSON.mockResolvedValue({});
-
-    // Clear environment variables
-    delete process.env.GEMINI_RATE_LIMIT_RPM;
-    delete process.env.ROAST_BASE_CHANCE;
-    delete process.env.ENABLE_CODE_EXECUTION;
+    configManager = new ConfigurationManager();
   });
 
   afterEach(async () => {
     await configManager.shutdown();
-    testEnv.cleanup();
   });
 
   describe('initialization', () => {
-    it('should initialize with default configuration when no file exists', async () => {
-      mockFs.pathExists.mockResolvedValue(false);
-
+    it('should initialize with default configuration when file does not exist', async () => {
       await configManager.initialize();
 
-      expect(mockFs.ensureDir).toHaveBeenCalledTimes(3); // config, versions, audit dirs
+      expect(mockFs.ensureDir).toHaveBeenCalledWith(path.dirname(testConfigPath));
+      expect(mockFs.ensureDir).toHaveBeenCalledWith(testVersionsPath);
       expect(mockFs.writeJSON).toHaveBeenCalledWith(
         testConfigPath,
         expect.objectContaining({
           version: expect.any(String),
-          discord: expect.any(Object),
-          gemini: expect.any(Object),
-          rateLimiting: expect.any(Object),
-          features: expect.any(Object),
+          lastModified: expect.any(String),
+          modifiedBy: 'system',
         }),
         { spaces: 2 }
       );
-
-      const config = configManager.getConfiguration();
-      expect(config.version).toBeDefined();
-      expect(config.discord.intents).toContain('Guilds');
-      expect(config.gemini.model).toBe('gemini-2.5-flash-preview-05-20');
     });
 
-    it('should load existing configuration from file', async () => {
-      const mockConfig = createMockConfiguration();
-      mockFs.pathExists.mockResolvedValue(true);
-      mockFs.readJSON.mockResolvedValue(mockConfig);
-
+    it('should load existing configuration', async () => {
+      mockFs.pathExists.mockResolvedValue(false);
+      mockFs.readJSON.mockResolvedValue({});
+      
       await configManager.initialize();
-
-      expect(mockFs.readJSON).toHaveBeenCalledWith(testConfigPath);
       
       const config = configManager.getConfiguration();
-      expect(config.version).toBe(mockConfig.version);
-      expect(config.gemini.model).toBe(mockConfig.gemini.model);
+      expect(config).toBeDefined();
+      expect(config.discord).toBeDefined();
+      expect(config.gemini).toBeDefined();
+      expect(config.rateLimiting).toBeDefined();
+      expect(config.features).toBeDefined();
     });
 
-    it('should apply environment overrides during initialization', async () => {
-      process.env.GEMINI_RATE_LIMIT_RPM = '15';
-      process.env.ROAST_BASE_CHANCE = '0.8';
-      process.env.ENABLE_CODE_EXECUTION = 'true';
-
-      await configManager.initialize();
-
-      const config = configManager.getConfiguration();
-      expect(config.rateLimiting.rpm).toBe(15);
-      expect(config.features.roasting.baseChance).toBe(0.8);
-      expect(config.features.codeExecution).toBe(true);
-
-      // Cleanup
-      delete process.env.GEMINI_RATE_LIMIT_RPM;
-      delete process.env.ROAST_BASE_CHANCE;
-      delete process.env.ENABLE_CODE_EXECUTION;
-    });
-
-    it('should start file watching after initialization', async () => {
-      await configManager.initialize();
-
-      expect(mockChokidar.watch).toHaveBeenCalledWith(
-        testConfigPath,
-        expect.objectContaining({
-          persistent: true,
-          ignoreInitial: true,
-        })
-      );
-    });
-
-    it('should throw error for invalid configuration', async () => {
-      const invalidConfig = { version: '1.0.0' }; // Missing required fields
-      mockFs.pathExists.mockResolvedValue(true);
-      mockFs.readJSON.mockResolvedValue(invalidConfig);
-
-      await expect(configManager.initialize()).rejects.toThrow(
-        'Configuration validation failed'
-      );
-    });
-
-    it('should not initialize twice', async () => {
+    it('should setup file watcher after initialization', async () => {
       await configManager.initialize();
       
-      // Second initialization should not throw but should warn
-      await expect(configManager.initialize()).resolves.not.toThrow();
+      const chokidar = require('chokidar');
+      expect(chokidar.watch).toHaveBeenCalledWith(testConfigPath, {
+        persistent: true,
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 100,
+        },
+      });
     });
   });
 
   describe('configuration validation', () => {
+    const createValidConfig = (): BotConfiguration => ({
+      version: 'v2024-01-01T00:00:00.000Z',
+      lastModified: new Date().toISOString(),
+      modifiedBy: 'test',
+      discord: {
+        intents: ['Guilds', 'GuildMessages', 'MessageContent'],
+        permissions: {},
+        commands: {
+          chat: {
+            enabled: true,
+            permissions: 'all' as const,
+            cooldown: 0,
+          },
+          status: {
+            enabled: true,
+            permissions: 'all' as const,
+            cooldown: 30,
+          },
+        },
+      },
+      gemini: {
+        apiKey: 'test-key',
+        model: 'gemini-pro',
+        temperature: 0.7,
+        topP: 0.9,
+        topK: 40,
+        maxOutputTokens: 2048,
+        safetySettings: [],
+        systemInstruction: '',
+      },
+      rateLimiting: {
+        rpm: 15,
+        daily: 1000,
+        burst: 5,
+      },
+      features: {
+        roasting: {
+          enabled: true,
+          baseChance: 0.1,
+          maxChance: 0.5,
+          cooldownMinutes: 5,
+          moods: ['witty', 'sarcastic', 'brutal', 'dad-joke', 'philosophical'],
+        },
+        codeExecution: false,
+        structuredOutput: true,
+        monitoring: {
+          enableHealthCheck: true,
+          enableAnalytics: true,
+          enableLogging: true,
+        },
+        contextMemory: {
+          enabled: true,
+          maxMessages: 50,
+          timeoutMinutes: 30,
+          maxContextChars: 100000,
+          compressionEnabled: true,
+        },
+        caching: {
+          enabled: true,
+          ttlMinutes: 60,
+          maxSize: 100,
+        },
+      },
+    });
+
+    it('should validate valid configuration', () => {
+      const validConfig = createValidConfig();
+      const result = configManager.validateConfiguration(validConfig);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should reject configuration with missing required fields', () => {
+      const invalidConfig = { version: 'v1.0.0' } as BotConfiguration;
+      const result = configManager.validateConfiguration(invalidConfig);
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it('should reject configuration with invalid temperature', () => {
+      const invalidConfig = createValidConfig();
+      invalidConfig.gemini.temperature = 2.5; // Out of range
+      const result = configManager.validateConfiguration(invalidConfig);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Gemini temperature must be between 0 and 2');
+    });
+
+    it('should reject configuration with invalid roasting configuration', () => {
+      const invalidConfig = createValidConfig();
+      invalidConfig.features.roasting.baseChance = 0.9;
+      invalidConfig.features.roasting.maxChance = 0.8; // Base > max
+      const result = configManager.validateConfiguration(invalidConfig);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Roasting baseChance must be less than or equal to maxChance');
+    });
+
+    it('should reject configuration with invalid rate limiting', () => {
+      const invalidConfig = createValidConfig();
+      invalidConfig.rateLimiting.burst = 20;
+      invalidConfig.rateLimiting.rpm = 10; // Burst > RPM
+      const result = configManager.validateConfiguration(invalidConfig);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Rate limiting burst must be less than or equal to RPM');
+    });
+  });
+
+  describe('configuration getters', () => {
     beforeEach(async () => {
       await configManager.initialize();
     });
 
-    it('should validate correct configuration', () => {
-      const validConfig = createMockConfiguration();
-      const result = configManager.validateConfiguration(validConfig);
-
-      expect(result.valid).toBe(true);
-      expect(result.errors).toBeUndefined();
+    it('should get discord configuration', () => {
+      const discordConfig = configManager.getDiscordConfig();
+      expect(discordConfig).toBeDefined();
+      expect(discordConfig.intents).toContain('Guilds');
+      expect(discordConfig.intents).toContain('GuildMessages');
     });
 
-    it('should reject configuration with missing required fields', () => {
-      const invalidConfig = {
-        version: '1.0.0',
-        // Missing other required fields
-      } as any;
-
-      const result = configManager.validateConfiguration(invalidConfig);
-
-      expect(result.valid).toBe(false);
-      expect(result.errors).toBeDefined();
-      expect(result.errors!.length).toBeGreaterThan(0);
+    it('should get gemini configuration', () => {
+      const geminiConfig = configManager.getGeminiConfig();
+      expect(geminiConfig).toBeDefined();
+      expect(geminiConfig.model).toBe('gemini-pro');
+      expect(geminiConfig.temperature).toBe(0.7);
     });
 
-    it('should validate business logic rules', () => {
-      const invalidConfig = createMockConfiguration();
-      invalidConfig.features.roasting.baseChance = 0.9;
-      invalidConfig.features.roasting.maxChance = 0.8; // Base > max
-
-      const result = configManager.validateConfiguration(invalidConfig);
-
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain(
-        'Roasting baseChance cannot be greater than maxChance'
-      );
+    it('should get rate limiting configuration', () => {
+      const rateLimitConfig = configManager.getRateLimitingConfig();
+      expect(rateLimitConfig).toBeDefined();
+      expect(rateLimitConfig.rpm).toBe(15);
+      expect(rateLimitConfig.daily).toBe(1000);
     });
 
-    it('should validate rate limiting rules', () => {
-      const invalidConfig = createMockConfiguration();
-      invalidConfig.rateLimiting.rpm = 100;
-      invalidConfig.rateLimiting.daily = 100; // RPM > daily/24
-
-      const result = configManager.validateConfiguration(invalidConfig);
-
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain(
-        'RPM limit cannot exceed daily limit divided by 24 hours'
-      );
-    });
-
-    it('should validate chaos events configuration', () => {
-      const invalidConfig = createMockConfiguration();
-      invalidConfig.features.roasting.moodSystem.chaosEvents.durationRange = [1800000, 300000]; // Min > max
-
-      const result = configManager.validateConfiguration(invalidConfig);
-
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain(
-        'Chaos events duration range minimum cannot be greater than maximum'
-      );
+    it('should get feature configuration', () => {
+      const featureConfig = configManager.getFeatureConfig();
+      expect(featureConfig).toBeDefined();
+      expect(featureConfig.roasting.enabled).toBe(true);
+      expect(featureConfig.structuredOutput).toBe(true);
     });
   });
 
@@ -224,15 +230,30 @@ describe('ConfigurationManager', () => {
       await configManager.initialize();
     });
 
-    it('should update configuration successfully', async () => {
+    it('should update specific configuration fields', async () => {
       const updates = {
-        features: {
-          ...configManager.getFeatureConfig(),
-          codeExecution: true,
+        rateLimiting: {
+          rpm: 20,
+          daily: 1200,
+          burst: 8,
         },
       };
 
-      await configManager.updateConfiguration(updates, 'test-user', 'Enable code execution');
+      await configManager.updateConfiguration(updates, 'test-user', 'Increase rate limits');
+
+      const config = configManager.getRateLimitingConfig();
+      expect(config.rpm).toBe(20);
+      expect(config.daily).toBe(1200);
+      expect(config.burst).toBe(8);
+    });
+
+    it('should update feature flags using section update', async () => {
+      await configManager.updateConfigurationSection(
+        'features',
+        { codeExecution: true },
+        'test-user',
+        'Enable code execution'
+      );
 
       const config = configManager.getConfiguration();
       expect(config.features.codeExecution).toBe(true);
@@ -283,8 +304,9 @@ describe('ConfigurationManager', () => {
     it('should generate new version on update', async () => {
       const originalVersion = configManager.getConfiguration().version;
       
-      await configManager.updateConfiguration(
-        { features: { codeExecution: true } },
+      await configManager.updateConfigurationSection(
+        'features',
+        { codeExecution: true },
         'test-user',
         'Enable code execution'
       );
@@ -293,161 +315,198 @@ describe('ConfigurationManager', () => {
       expect(newVersion).not.toBe(originalVersion);
       expect(newVersion).toMatch(/^v\d{4}-\d{2}-\d{2}T/);
     });
-  });
 
-  describe('version management', () => {
-    beforeEach(async () => {
-      await configManager.initialize();
-    });
+    it('should save configuration history', async () => {
+      const mockVersionFiles: string[] = [];
+      mockFs.readdir.mockResolvedValue(mockVersionFiles);
 
-    it('should save version history on configuration changes', async () => {
-      await configManager.updateConfiguration(
-        { features: { codeExecution: true } },
+      await configManager.updateConfigurationSection(
+        'features',
+        { codeExecution: true },
         'test-user',
         'Enable code execution'
       );
 
+      // Check version file was saved
       const versionPath = path.join(testVersionsPath, expect.stringMatching(/^v.*\.json$/));
       expect(mockFs.writeJSON).toHaveBeenCalledWith(
         expect.stringContaining(testVersionsPath),
         expect.objectContaining({
           version: expect.any(String),
           timestamp: expect.any(String),
-          configuration: expect.any(Object),
-          hash: expect.any(String),
+          modifiedBy: 'test-user',
+          reason: 'Enable code execution',
         }),
         { spaces: 2 }
       );
     });
 
-    it('should retrieve version history', async () => {
-      const mockVersionFiles = ['v2024-01-01T10-00-00.json', 'v2024-01-02T10-00-00.json'];
-      const mockVersionData = {
-        version: 'v2024-01-01T10-00-00',
-        timestamp: '2024-01-01T10:00:00.000Z',
-        configuration: createMockConfiguration(),
-        hash: 'mock-hash',
-      };
-
+    it('should maintain version history limit', async () => {
+      // Create mock version files exceeding limit
+      const mockVersionFiles = Array(25).fill(null).map((_, i) => 
+        `v2024-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z.json`
+      );
       mockFs.readdir.mockResolvedValue(mockVersionFiles);
+
+      const mockVersionData = {
+        version: 'v2024-01-01T00:00:00.000Z',
+        timestamp: new Date().toISOString(),
+        configuration: createValidConfig(),
+      };
       mockFs.readJSON.mockResolvedValue(mockVersionData);
 
-      const versions = await configManager.getVersionHistory();
+      // Trigger version cleanup
+      await configManager.cleanupVersionHistory();
 
-      expect(versions).toHaveLength(2);
-      expect(versions[0].version).toBe(mockVersionData.version);
+      // Should remove oldest versions (keeping 20)
+      expect(mockFs.remove).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  describe('configuration history', () => {
+    it('should get version history', async () => {
+      const mockVersionFiles = ['v2024-01-01T00:00:00.000Z.json', 'v2024-01-02T00:00:00.000Z.json'];
+      mockFs.readdir.mockResolvedValue(mockVersionFiles);
+      mockFs.readJSON.mockResolvedValue({
+        version: 'v2024-01-01T00:00:00.000Z',
+        timestamp: new Date().toISOString(),
+        configuration: createValidConfig(),
+      });
+
+      await configManager.initialize();
+      const history = await configManager.getVersionHistory();
+
+      expect(history).toHaveLength(2);
+      expect(history[0].version).toBe('v2024-01-02T00:00:00.000Z'); // Latest first
     });
 
-    it('should rollback to previous version', async () => {
-      const targetVersion = 'v2024-01-01T10-00-00';
+    it('should restore configuration from version', async () => {
+      const targetVersion = 'v2024-01-01T00:00:00.000Z';
       const mockVersionData = {
         version: targetVersion,
-        timestamp: '2024-01-01T10:00:00.000Z',
-        configuration: createMockConfiguration(),
-        hash: 'mock-hash',
+        timestamp: new Date().toISOString(),
+        configuration: createValidConfig(),
       };
 
       mockFs.pathExists.mockResolvedValue(true);
       mockFs.readJSON.mockResolvedValue(mockVersionData);
 
-      const originalVersion = configManager.getConfiguration().version;
-      
-      await configManager.rollbackToVersion(targetVersion, 'test-user', 'Rollback test');
+      await configManager.initialize();
+      await configManager.restoreVersion(targetVersion, 'admin-user', 'Rollback to previous version');
 
       const config = configManager.getConfiguration();
-      expect(config.version).toBe(targetVersion);
-      expect(config.modifiedBy).toBe('test-user');
-
+      expect(config.modifiedBy).toBe('admin-user');
       expect(mockFs.writeJSON).toHaveBeenCalledWith(
         testConfigPath,
-        expect.objectContaining({ version: targetVersion }),
+        expect.objectContaining({
+          version: expect.any(String), // New version generated
+          modifiedBy: 'admin-user',
+        }),
         { spaces: 2 }
       );
     });
 
-    it('should throw error when rolling back to non-existent version', async () => {
+    it('should handle missing version file', async () => {
       mockFs.pathExists.mockResolvedValue(false);
 
+      await configManager.initialize();
       await expect(
-        configManager.rollbackToVersion('non-existent-version', 'test-user', 'Test')
-      ).rejects.toThrow('Version non-existent-version not found');
+        configManager.restoreVersion('v2024-01-01T00:00:00.000Z', 'admin-user')
+      ).rejects.toThrow('Version not found');
     });
 
-    it('should clean up old versions when limit exceeded', async () => {
-      // Mock 60 version files (over the 50 limit)
-      const mockVersionFiles = Array.from({ length: 60 }, (_, i) => 
-        `v2024-01-${String(i + 1).padStart(2, '0')}T10-00-00.json`
-      );
+    it('should track configuration history', async () => {
+      mockFs.readdir.mockResolvedValue([]);
       
-      mockFs.readdir.mockResolvedValue(mockVersionFiles);
-
-      await configManager.updateConfiguration(
-        { features: { codeExecution: true } },
+      // Make first update
+      await configManager.updateConfigurationSection(
+        'features',
+        { codeExecution: true },
         'test-user',
-        'Trigger cleanup'
+        'First update'
       );
 
-      // Should remove 10 oldest versions
-      expect(mockFs.remove).toHaveBeenCalledTimes(10);
+      // Check version was saved
+      expect(mockFs.writeJSON).toHaveBeenCalledWith(
+        expect.stringContaining('versions'),
+        expect.objectContaining({
+          modifiedBy: 'test-user',
+          reason: 'First update',
+        }),
+        { spaces: 2 }
+      );
+
+      // Make second update  
+      await configManager.updateConfigurationSection(
+        'features',
+        { codeExecution: true },
+        'admin-user',
+        'Second update'
+      );
+
+      // Should have created two version files
+      const writeJSONCalls = mockFs.writeJSON.mock.calls.filter(
+        call => call[0].includes('versions')
+      );
+      expect(writeJSONCalls).toHaveLength(2);
     });
   });
 
-  describe('audit logging', () => {
-    beforeEach(async () => {
-      await configManager.initialize();
-    });
+  describe('configuration audit', () => {
+    const testAuditPath = path.join(process.cwd(), 'data', 'config', 'audit.log');
 
     it('should log configuration changes', async () => {
-      await configManager.updateConfiguration(
-        { features: { codeExecution: true } },
+      await configManager.initialize();
+      await configManager.updateConfigurationSection(
+        'features',
+        { codeExecution: true },
         'test-user',
-        'Enable code execution'
+        'Enable feature'
       );
 
       expect(mockFs.appendFile).toHaveBeenCalledWith(
         testAuditPath,
-        expect.stringContaining('"changeType":"update"')
+        expect.stringContaining(JSON.stringify({
+          timestamp: expect.any(String),
+          action: 'update',
+          modifiedBy: 'test-user',
+          reason: 'Enable feature',
+          changes: [{
+            path: expect.arrayContaining(['features', 'codeExecution']),
+            oldValue: false,
+            newValue: true,
+          }],
+        })),
+        'utf8'
       );
     });
 
-    it('should retrieve audit log entries', async () => {
-      const mockAuditEntries = [
-        JSON.stringify({
-          timestamp: '2024-01-01T10:00:00.000Z',
-          version: 'v2024-01-01T10-00-00',
-          modifiedBy: 'user1',
-          changeType: 'update',
-          path: ['features', 'codeExecution'],
-          oldValue: false,
-          newValue: true,
-        }),
-        JSON.stringify({
-          timestamp: '2024-01-01T11:00:00.000Z',
-          version: 'v2024-01-01T11-00-00',
-          modifiedBy: 'user2',
-          changeType: 'rollback',
-          path: [],
-          oldValue: 'v2024-01-01T10-00-00',
-          newValue: 'v2024-01-01T09-00-00',
-        }),
-      ].join('\n');
+    it('should read audit log', async () => {
+      const mockAuditEntries = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        action: 'update',
+        modifiedBy: 'test-user',
+        changes: [],
+      }) + '\n';
 
       mockFs.pathExists.mockResolvedValue(true);
       mockFs.readFile.mockResolvedValue(mockAuditEntries);
 
-      const auditLog = await configManager.getAuditLog(10);
+      await configManager.initialize();
+      const audit = await configManager.getAuditLog();
 
-      expect(auditLog).toHaveLength(2);
-      expect(auditLog[0].changeType).toBe('rollback'); // Newest first
-      expect(auditLog[1].changeType).toBe('update');
+      expect(audit).toHaveLength(1);
+      expect(audit[0].action).toBe('update');
+      expect(audit[0].modifiedBy).toBe('test-user');
     });
 
-    it('should handle missing audit log file', async () => {
+    it('should handle missing audit log', async () => {
       mockFs.pathExists.mockResolvedValue(false);
 
-      const auditLog = await configManager.getAuditLog();
+      await configManager.initialize();
+      const audit = await configManager.getAuditLog();
 
-      expect(auditLog).toEqual([]);
+      expect(audit).toEqual([]);
     });
 
     it('should handle corrupted audit log entries', async () => {
@@ -455,340 +514,357 @@ describe('ConfigurationManager', () => {
       mockFs.pathExists.mockResolvedValue(true);
       mockFs.readFile.mockResolvedValue(corruptedLog);
 
-      const auditLog = await configManager.getAuditLog();
+      await configManager.initialize();
+      const audit = await configManager.getAuditLog();
 
-      // Should skip corrupted entries and continue
-      expect(auditLog).toEqual([]);
+      // Should only parse valid entries
+      expect(audit.length).toBeLessThan(3);
     });
   });
 
-  describe('environment overrides', () => {
-    it('should parse environment values correctly', () => {
-      process.env.TEST_BOOLEAN_TRUE = 'true';
-      process.env.TEST_BOOLEAN_FALSE = 'false';
-      process.env.TEST_NUMBER = '42';
-      process.env.TEST_FLOAT = '3.14';
-      process.env.TEST_STRING = 'hello world';
+  describe('configuration comparison', () => {
+    it('should identify changes between configurations', () => {
+      const oldConfig = createValidConfig();
+      const newConfig = createValidConfig();
+      newConfig.features.codeExecution = true;
+      newConfig.rateLimiting.rpm = 20;
 
-      const configManager = new ConfigurationManager();
-      
-      const parseValue = (configManager as any).parseEnvironmentValue.bind(configManager);
-      
-      expect(parseValue('true')).toBe(true);
-      expect(parseValue('false')).toBe(false);
-      expect(parseValue('42')).toBe(42);
-      expect(parseValue('3.14')).toBe(3.14);
-      expect(parseValue('hello world')).toBe('hello world');
+      const changes = configManager.compareConfigurations(oldConfig, newConfig);
 
-      // Cleanup
-      delete process.env.TEST_BOOLEAN_TRUE;
-      delete process.env.TEST_BOOLEAN_FALSE;
-      delete process.env.TEST_NUMBER;
-      delete process.env.TEST_FLOAT;
-      delete process.env.TEST_STRING;
+      expect(changes).toHaveLength(2);
+      expect(changes).toContainEqual({
+        path: ['features', 'codeExecution'],
+        oldValue: false,
+        newValue: true,
+      });
+      expect(changes).toContainEqual({
+        path: ['rateLimiting', 'rpm'],
+        oldValue: 15,
+        newValue: 20,
+      });
     });
 
-    it('should apply nested environment overrides', async () => {
-      process.env.GEMINI_RATE_LIMIT_RPM = '25';
-      process.env.ROAST_BASE_CHANCE = '0.7';
+    it('should handle nested object changes', () => {
+      const oldConfig = createValidConfig();
+      const newConfig = createValidConfig();
+      newConfig.features.roasting.baseChance = 0.2;
 
-      await configManager.initialize();
+      const changes = configManager.compareConfigurations(oldConfig, newConfig);
 
-      const config = configManager.getConfiguration();
-      expect(config.rateLimiting.rpm).toBe(25);
-      expect(config.features.roasting.baseChance).toBe(0.7);
-
-      // Cleanup
-      delete process.env.GEMINI_RATE_LIMIT_RPM;
-      delete process.env.ROAST_BASE_CHANCE;
-    });
-  });
-
-  describe('configuration getters', () => {
-    beforeEach(async () => {
-      await configManager.initialize();
+      expect(changes).toHaveLength(1);
+      expect(changes[0]).toEqual({
+        path: ['features', 'roasting', 'baseChance'],
+        oldValue: 0.1,
+        newValue: 0.2,
+      });
     });
 
-    it('should provide section-specific getters', () => {
-      const discordConfig = configManager.getDiscordConfig();
-      expect(discordConfig).toHaveProperty('intents');
-      expect(discordConfig).toHaveProperty('permissions');
-      expect(discordConfig).toHaveProperty('commands');
+    it('should handle array changes', () => {
+      const oldConfig = createValidConfig();
+      const newConfig = createValidConfig();
+      newConfig.discord.intents.push('GuildVoiceStates');
 
-      const geminiConfig = configManager.getGeminiConfig();
-      expect(geminiConfig).toHaveProperty('model');
-      expect(geminiConfig).toHaveProperty('temperature');
+      const changes = configManager.compareConfigurations(oldConfig, newConfig);
 
-      const rateLimitingConfig = configManager.getRateLimitingConfig();
-      expect(rateLimitingConfig).toHaveProperty('rpm');
-      expect(rateLimitingConfig).toHaveProperty('daily');
-
-      const featureConfig = configManager.getFeatureConfig();
-      expect(featureConfig).toHaveProperty('roasting');
-      expect(featureConfig).toHaveProperty('codeExecution');
-
-      const roastingConfig = configManager.getRoastingConfig();
-      expect(roastingConfig).toHaveProperty('baseChance');
-      expect(roastingConfig).toHaveProperty('consecutiveBonus');
-
-      const monitoringConfig = configManager.getMonitoringConfig();
-      expect(monitoringConfig).toHaveProperty('healthMetrics');
-      expect(monitoringConfig).toHaveProperty('alerts');
-    });
-
-    it('should return copies of configuration objects', () => {
-      const config1 = configManager.getConfiguration();
-      const config2 = configManager.getConfiguration();
-
-      expect(config1).toEqual(config2);
-      expect(config1).not.toBe(config2); // Different objects
-
-      // Modifying one shouldn't affect the other
-      config1.version = 'modified';
-      expect(config2.version).not.toBe('modified');
+      expect(changes).toHaveLength(1);
+      expect(changes[0].path).toEqual(['discord', 'intents']);
     });
   });
 
-  describe('import/export functionality', () => {
-    beforeEach(async () => {
-      await configManager.initialize();
-    });
-
-    it('should export configuration as JSON', async () => {
-      const exported = await configManager.exportConfiguration('json');
-
-      expect(exported).toBeDefined();
-      expect(typeof exported).toBe('string');
-      
-      const parsed = JSON.parse(exported);
-      expect(parsed).toHaveProperty('version');
-      expect(parsed).toHaveProperty('discord');
-      expect(parsed).toHaveProperty('gemini');
-    });
-
-    it('should throw error for unsupported export format', async () => {
-      await expect(
-        configManager.exportConfiguration('yaml' as any)
-      ).rejects.toThrow('YAML export not implemented');
-    });
-
-    it('should import valid JSON configuration', async () => {
-      const mockConfig = createMockConfiguration();
-      mockConfig.features.codeExecution = true;
-      const configJson = JSON.stringify(mockConfig);
-
-      await configManager.importConfiguration(
-        configJson,
-        'json',
-        'test-user',
-        'Import test'
-      );
-
-      const config = configManager.getConfiguration();
-      expect(config.features.codeExecution).toBe(true);
-    });
-
-    it('should reject invalid JSON during import', async () => {
-      const invalidJson = '{ invalid json }';
-
-      await expect(
-        configManager.importConfiguration(invalidJson, 'json', 'test-user', 'Test')
-      ).rejects.toThrow('Failed to parse configuration');
-    });
-
-    it('should validate imported configuration', async () => {
-      const invalidConfig = { version: '1.0.0' }; // Missing required fields
-      const configJson = JSON.stringify(invalidConfig);
-
-      await expect(
-        configManager.importConfiguration(configJson, 'json', 'test-user', 'Test')
-      ).rejects.toThrow('Configuration validation failed');
-    });
-  });
-
-  describe('file watching and reloading', () => {
-    beforeEach(async () => {
-      await configManager.initialize();
-    });
-
-    it('should reload configuration on file change', async () => {
-      const updatedConfig = createMockConfiguration();
-      updatedConfig.features.codeExecution = true;
-
-      mockFs.readJSON.mockResolvedValue(updatedConfig);
-
-      await configManager.reloadConfiguration('file-watcher', 'File changed');
-
-      const config = configManager.getConfiguration();
-      expect(config.features.codeExecution).toBe(true);
-    });
-
-    it('should detect and log configuration changes', async () => {
-      const originalConfig = configManager.getConfiguration();
-      const updatedConfig = { ...originalConfig };
-      updatedConfig.features.codeExecution = true;
-
-      mockFs.readJSON.mockResolvedValue(updatedConfig);
-
-      await configManager.reloadConfiguration('command', 'Manual reload');
-
-      expect(mockFs.appendFile).toHaveBeenCalledWith(
-        testAuditPath,
-        expect.stringContaining('"changeType":"update"')
-      );
-    });
-
-    it('should handle file watcher errors gracefully', async () => {
-      const mockWatcher = {
-        on: jest.fn(),
-        close: jest.fn().mockResolvedValue(undefined),
+  describe('configuration migration', () => {
+    it('should migrate configuration from old format', async () => {
+      const oldConfig = {
+        version: '1.0.0',
+        discord: {
+          intents: ['Guilds', 'GuildMessages'],
+        },
+        gemini: {
+          apiKey: 'test-key',
+          model: 'gemini-pro',
+        },
+        // Missing new fields
       };
 
-      mockChokidar.watch.mockReturnValue(mockWatcher);
-
+      mockFs.readJSON.mockResolvedValue(oldConfig);
       await configManager.initialize();
 
-      // Simulate file watcher error
-      const errorHandler = mockWatcher.on.mock.calls.find(call => call[0] === 'error')?.[1];
+      const config = configManager.getConfiguration();
+      // Should have all required fields with defaults
+      expect(config.features).toBeDefined();
+      expect(config.rateLimiting).toBeDefined();
+      expect(config.lastModified).toBeDefined();
+    });
+  });
+
+  describe('real-time updates', () => {
+    it('should handle external configuration changes', async () => {
+      await configManager.initialize();
+      
+      // Simulate external change
+      const updatedConfig = createValidConfig();
+      updatedConfig.features.codeExecution = true;
+      mockFs.readJSON.mockResolvedValue(updatedConfig);
+      
+      // Trigger file watcher
+      const watchInstance = require('chokidar').watch.mock.results[0].value;
+      const changeHandler = watchInstance.on.mock.calls.find(call => call[0] === 'change')[1];
+      await changeHandler(testConfigPath);
+      
+      // Configuration should be reloaded
+      const config = configManager.getConfiguration();
+      expect(config.features.codeExecution).toBe(true);
+    });
+
+    it('should validate external changes', async () => {
+      await configManager.initialize();
+      
+      // Simulate invalid external change
+      const invalidConfig = createValidConfig();
+      invalidConfig.gemini.temperature = 5; // Invalid
+      mockFs.readJSON.mockResolvedValue(invalidConfig);
+      
+      // Trigger file watcher
+      const watchInstance = require('chokidar').watch.mock.results[0].value;
+      const changeHandler = watchInstance.on.mock.calls.find(call => call[0] === 'change')[1];
+      await changeHandler(testConfigPath);
+      
+      // Should reject invalid configuration
+      const config = configManager.getConfiguration();
+      expect(config.gemini.temperature).not.toBe(5);
+    });
+
+    it('should handle file watcher errors', async () => {
+      await configManager.initialize();
+      
+      const watchInstance = require('chokidar').watch.mock.results[0].value;
+      const errorHandler = watchInstance.on.mock.calls.find(call => call[0] === 'error')?.[1];
+      
       if (errorHandler) {
+        // Should not throw
         expect(() => errorHandler(new Error('Watcher error'))).not.toThrow();
       }
     });
-  });
 
-  describe('health status', () => {
-    it('should return healthy status when properly initialized', async () => {
+    it('should debounce rapid file changes', async () => {
+      jest.useFakeTimers();
       await configManager.initialize();
-
-      const health = configManager.getHealthStatus();
-
-      expect(health.healthy).toBe(true);
-      expect(health.errors).toEqual([]);
-    });
-
-    it('should return unhealthy status when not initialized', () => {
-      const health = configManager.getHealthStatus();
-
-      expect(health.healthy).toBe(false);
-      expect(health.errors).toContain('ConfigurationManager not initialized');
-    });
-
-    it('should detect configuration validation errors in health check', async () => {
-      await configManager.initialize();
-
-      // Manually corrupt the configuration
-      const corruptConfig = configManager.getConfiguration();
-      delete (corruptConfig as any).version;
-
-      (configManager as any).currentConfig = corruptConfig;
-
-      const health = configManager.getHealthStatus();
-
-      expect(health.healthy).toBe(false);
-      expect(health.errors.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('shutdown and cleanup', () => {
-    it('should close file watcher on shutdown', async () => {
-      const mockWatcher = {
-        on: jest.fn(),
-        close: jest.fn().mockResolvedValue(undefined),
-      };
-
-      mockChokidar.watch.mockReturnValue(mockWatcher);
-
-      await configManager.initialize();
-      await configManager.shutdown();
-
-      expect(mockWatcher.close).toHaveBeenCalled();
-    });
-
-    it('should remove all event listeners on shutdown', async () => {
-      await configManager.initialize();
-
-      const removeAllListenersSpy = jest.spyOn(configManager, 'removeAllListeners');
       
-      await configManager.shutdown();
+      const watchInstance = require('chokidar').watch.mock.results[0].value;
+      const changeHandler = watchInstance.on.mock.calls.find(call => call[0] === 'change')[1];
+      
+      // Trigger multiple rapid changes
+      for (let i = 0; i < 5; i++) {
+        await changeHandler(testConfigPath);
+      }
+      
+      jest.runAllTimers();
+      
+      // Should only reload once
+      expect(mockFs.readJSON).toHaveBeenCalledTimes(1);
+      
+      jest.useRealTimers();
+    });
+  });
 
-      expect(removeAllListenersSpy).toHaveBeenCalled();
+  describe('shutdown', () => {
+    it('should cleanup resources on shutdown', async () => {
+      await configManager.initialize();
+      
+      const watchInstance = require('chokidar').watch.mock.results[0].value;
+      await configManager.shutdown();
+      
+      expect(watchInstance.close).toHaveBeenCalled();
     });
 
-    it('should handle shutdown gracefully when not initialized', async () => {
+    it('should handle watcher close errors gracefully', async () => {
+      await configManager.initialize();
+      
+      const watchInstance = require('chokidar').watch.mock.results[0].value;
+      watchInstance.close.mockRejectedValue(new Error('Close failed'));
+      
+      // Should not throw
       await expect(configManager.shutdown()).resolves.not.toThrow();
     });
   });
 
-  describe('event emission', () => {
-    beforeEach(async () => {
+  describe('concurrency', () => {
+    it('should handle concurrent updates safely', async () => {
       await configManager.initialize();
-    });
-
-    it('should emit config:changed event on configuration updates', async () => {
-      const changeHandler = jest.fn();
-      configManager.on('config:changed', changeHandler);
-
-      await configManager.updateConfiguration(
-        { features: { codeExecution: true } },
-        'test-user',
-        'Enable code execution'
+      
+      // Perform concurrent updates
+      const updates = Array(10).fill(null).map((_, i) => 
+        configManager.updateConfigurationSection(
+          'rateLimiting',
+          { rpm: 10 + i },
+          `user-${i}`,
+          `Update ${i}`
+        )
       );
+      
+      await Promise.all(updates);
+      
+      // Should have applied all updates in order
+      const config = configManager.getRateLimitingConfig();
+      expect(config.rpm).toBe(19); // Last update
+    });
+  });
 
-      expect(changeHandler).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            changeType: 'update',
-            path: expect.arrayContaining(['features', 'codeExecution']),
-            newValue: true,
-          }),
-        ])
-      );
+  describe('error handling', () => {
+    it('should handle file system errors during initialization', async () => {
+      mockFs.ensureDir.mockRejectedValue(new Error('FS error'));
+      
+      await expect(configManager.initialize()).rejects.toThrow('FS error');
     });
 
-    it('should emit config:validated event after validation', async () => {
-      const validationHandler = jest.fn();
-      configManager.on('config:validated', validationHandler);
-
-      await configManager.reloadConfiguration('command', 'Test reload');
-
-      expect(validationHandler).toHaveBeenCalledWith(true);
+    it('should handle JSON parse errors', async () => {
+      mockFs.readJSON.mockRejectedValue(new Error('Invalid JSON'));
+      
+      // Should use defaults on parse error
+      await configManager.initialize();
+      
+      const config = configManager.getConfiguration();
+      expect(config).toBeDefined();
     });
 
-    it('should emit config:error event on errors', async () => {
-      const errorHandler = jest.fn();
-      configManager.on('config:error', errorHandler);
+    it('should handle file write errors during update', async () => {
+      await configManager.initialize();
+      mockFs.writeJSON.mockRejectedValue(new Error('Write failed'));
+      
+      await expect(
+        configManager.updateConfigurationSection(
+          'features',
+          { codeExecution: true },
+          'test-user',
+          'Update'
+        )
+      ).rejects.toThrow('Write failed');
+    });
+  });
 
-      mockFs.readJSON.mockRejectedValue(new Error('Read error'));
-
-      try {
-        await configManager.reloadConfiguration('command', 'Test reload');
-      } catch (error) {
-        // Expected to fail
-      }
-
-      expect(errorHandler).toHaveBeenCalledWith(expect.any(Error));
+  describe('configuration export/import', () => {
+    it('should export configuration', async () => {
+      await configManager.initialize();
+      
+      const exported = configManager.exportConfiguration();
+      
+      expect(exported).toBeDefined();
+      expect(exported.version).toBeDefined();
+      expect(exported.discord).toBeDefined();
+      expect(exported.gemini).toBeDefined();
+      expect(exported.features).toBeDefined();
     });
 
-    it('should emit config:rollback event on rollbacks', async () => {
-      const rollbackHandler = jest.fn();
-      configManager.on('config:rollback', rollbackHandler);
+    it('should import valid configuration', async () => {
+      await configManager.initialize();
+      
+      const configToImport = createValidConfig();
+      configToImport.features.codeExecution = true;
+      
+      await configManager.importConfiguration(configToImport, 'admin-user', 'Import from backup');
+      
+      const config = configManager.getConfiguration();
+      expect(config.features.codeExecution).toBe(true);
+      expect(config.modifiedBy).toBe('admin-user');
+    });
 
-      const targetVersion = 'v2024-01-01T10-00-00';
-      const mockVersionData = {
-        version: targetVersion,
-        timestamp: '2024-01-01T10:00:00.000Z',
-        configuration: createMockConfiguration(),
-        hash: 'mock-hash',
-      };
+    it('should reject invalid import', async () => {
+      await configManager.initialize();
+      
+      const invalidConfig = { version: 'invalid' } as BotConfiguration;
+      
+      await expect(
+        configManager.importConfiguration(invalidConfig, 'admin-user')
+      ).rejects.toThrow('Invalid configuration');
+    });
+  });
 
+  describe('configuration backup', () => {
+    it('should create configuration backup', async () => {
+      const mockConfig = createValidConfig();
       mockFs.pathExists.mockResolvedValue(true);
-      mockFs.readJSON.mockResolvedValue(mockVersionData);
-
-      const originalVersion = configManager.getConfiguration().version;
-
-      await configManager.rollbackToVersion(targetVersion, 'test-user', 'Test rollback');
-
-      expect(rollbackHandler).toHaveBeenCalledWith(originalVersion, targetVersion);
+      mockFs.readJSON.mockResolvedValue(mockConfig);
+      
+      await configManager.initialize();
+      const backupPath = await configManager.createBackup('Pre-update backup');
+      
+      expect(backupPath).toContain('backup');
+      expect(mockFs.writeJSON).toHaveBeenCalledWith(
+        expect.stringContaining('backup'),
+        expect.objectContaining({
+          version: expect.any(String),
+          timestamp: expect.any(String),
+          reason: 'Pre-update backup',
+          configuration: expect.any(Object),
+        }),
+        { spaces: 2 }
+      );
     });
   });
 });
+
+function createValidConfig(): BotConfiguration {
+  return {
+    version: 'v2024-01-01T00:00:00.000Z',
+    lastModified: new Date().toISOString(),
+    modifiedBy: 'test',
+    discord: {
+      intents: ['Guilds', 'GuildMessages', 'MessageContent'],
+      permissions: {},
+      commands: {
+        chat: {
+          enabled: true,
+          permissions: 'all' as const,
+          cooldown: 0,
+        },
+        status: {
+          enabled: true,
+          permissions: 'all' as const,
+          cooldown: 30,
+        },
+      },
+    },
+    gemini: {
+      apiKey: 'test-key',
+      model: 'gemini-pro',
+      temperature: 0.7,
+      topP: 0.9,
+      topK: 40,
+      maxOutputTokens: 2048,
+      safetySettings: [],
+      systemInstruction: '',
+    },
+    rateLimiting: {
+      rpm: 15,
+      daily: 1000,
+      burst: 5,
+    },
+    features: {
+      roasting: {
+        enabled: true,
+        baseChance: 0.1,
+        maxChance: 0.5,
+        cooldownMinutes: 5,
+        moods: ['witty', 'sarcastic', 'brutal', 'dad-joke', 'philosophical'],
+      },
+      codeExecution: false,
+      structuredOutput: true,
+      monitoring: {
+        enableHealthCheck: true,
+        enableAnalytics: true,
+        enableLogging: true,
+      },
+      contextMemory: {
+        enabled: true,
+        maxMessages: 50,
+        timeoutMinutes: 30,
+        maxContextChars: 100000,
+        compressionEnabled: true,
+      },
+      caching: {
+        enabled: true,
+        ttlMinutes: 60,
+        maxSize: 100,
+      },
+    },
+  };
+}

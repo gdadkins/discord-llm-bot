@@ -1,4 +1,5 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { logger } from '../utils/logger';
 
 export interface HelpTopic {
   title: string;
@@ -783,5 +784,21 @@ export class HelpSystem {
     }
 
     return results.sort((a, b) => b.relevance - a.relevance).slice(0, 10);
+  }
+
+  /**
+   * Initialize the service
+   */
+  async initialize(): Promise<void> {
+    logger.info('HelpSystem initialized successfully');
+  }
+
+  /**
+   * Shutdown the service and clean up resources
+   */
+  async shutdown(): Promise<void> {
+    this.helpTopics.clear();
+    this.commandHelp.clear();
+    logger.info('HelpSystem shutdown completed');
   }
 }

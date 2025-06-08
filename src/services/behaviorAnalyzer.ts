@@ -466,4 +466,19 @@ export class BehaviorAnalyzer {
     const now = Date.now();
     return (now - pattern.lastUpdated) > (60 * 60 * 1000); // 1 hour
   }
+
+  /**
+   * Initialize the service
+   */
+  async initialize(): Promise<void> {
+    logger.info('BehaviorAnalyzer initialized successfully');
+  }
+
+  /**
+   * Shutdown the service and clean up resources
+   */
+  async shutdown(): Promise<void> {
+    this.patterns.clear();
+    logger.info('BehaviorAnalyzer shutdown completed');
+  }
 }

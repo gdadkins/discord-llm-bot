@@ -2,6 +2,8 @@ import { Mutex } from 'async-mutex';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../utils/logger';
+import { BaseService } from './base/BaseService';
+import type { IService } from './interfaces';
 
 interface PersonalityData {
   descriptions: string[];
@@ -20,7 +22,7 @@ interface PersonalityStorage {
   [userId: string]: PersonalityData;
 }
 
-export class PersonalityManager {
+export class PersonalityManager extends BaseService implements IService {
   private mutex = new Mutex();
   private personalities: PersonalityStorage = {};
   private readonly storageFile: string;
@@ -28,13 +30,18 @@ export class PersonalityManager {
   private readonly MAX_DESCRIPTION_LENGTH = 200;
 
   constructor(storageFile = './data/user-personalities.json') {
+    super();
     this.storageFile = storageFile;
   }
 
-  async initialize(): Promise<void> {
+  protected getServiceName(): string {
+    return 'PersonalityManager';
+  }
+
+  protected async performInitialization(): Promise<void> {
     try {
       await this.loadPersonalities();
-      logger.info('PersonalityManager initialized with existing data');
+      logger.info('Initialized with existing personality data');
     } catch (error) {
       logger.info('No existing personality data found, starting fresh');
       await this.ensureDataDirectory();
@@ -290,5 +297,18 @@ export class PersonalityManager {
     } catch (error) {
       throw new Error(`Failed to load personality data: ${error}`);
     }
+  }
+
+  protected async performShutdown(): Promise<void> {
+    await this.savePersonalities();
+    this.personalities = {};
+  }
+
+  protected getHealthMetrics(): Record<string, unknown> {
+    const stats = this.getPersonalityStats();
+    return {
+      ...stats,
+      storageFile: this.storageFile
+    };
   }
 }

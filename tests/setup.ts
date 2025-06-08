@@ -54,6 +54,47 @@ jest.mock('discord.js', () => ({
     addSubcommand: jest.fn().mockReturnThis(),
     toJSON: jest.fn().mockReturnValue({}),
   })),
+  PermissionsBitField: jest.fn().mockImplementation(() => ({
+    has: jest.fn().mockReturnValue(true),
+    toArray: jest.fn().mockReturnValue(['Administrator', 'ManageMessages']),
+    serialize: jest.fn().mockReturnValue({ Administrator: true, ManageMessages: true }),
+  })),
+  Collection: jest.fn().mockImplementation(() => {
+    class MockCollection extends Map {
+      filter(fn: any) {
+        const filtered = new MockCollection();
+        for (const [key, value] of this) {
+          if (fn(value, key, this)) {
+            filtered.set(key, value);
+          }
+        }
+        return filtered;
+      }
+      
+      map(fn: any) {
+        const result = [];
+        for (const [key, value] of this) {
+          result.push(fn(value, key, this));
+        }
+        return result;
+      }
+      
+      find(fn: any) {
+        for (const [key, value] of this) {
+          if (fn(value, key, this)) {
+            return value;
+          }
+        }
+        return undefined;
+      }
+      
+      toArray() {
+        return Array.from(this.values());
+      }
+    }
+    
+    return new MockCollection();
+  }),
 }));
 
 // Mock Google AI
@@ -144,9 +185,21 @@ beforeAll(async () => {
 // Clean up after each test
 afterEach(() => {
   jest.clearAllMocks();
+  jest.clearAllTimers();
+  jest.useRealTimers();
 });
 
 // Global teardown
 afterAll(async () => {
+  // Clean up test files
   await global.cleanupTestFiles(global.TEST_DATA_DIR);
+  
+  // Clear all timers
+  jest.clearAllTimers();
+  jest.useRealTimers();
+  
+  // Force garbage collection if available
+  if (global.gc) {
+    global.gc();
+  }
 });

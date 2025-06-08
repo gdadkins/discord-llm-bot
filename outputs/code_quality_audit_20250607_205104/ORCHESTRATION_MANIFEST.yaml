@@ -1,0 +1,426 @@
+# Code Quality Audit - Task Orchestration Manifest
+# Generated: 2025-06-07T20:51:04Z
+
+metadata:
+  audit_type: code_quality_audit
+  timestamp: "2025-06-07T20:51:04Z"
+  total_tasks: 20
+  total_effort_hours: 96
+  execution_phases: 4
+  parallel_execution_supported: true
+  rollback_strategy: incremental_with_fallbacks
+
+summary:
+  refactoring_tasks: 12
+  documentation_tasks: 8
+  critical_priority: 4
+  high_priority: 6
+  medium_priority: 6
+  low_priority: 4
+
+execution_strategy:
+  approach: "phased_parallel_execution"
+  description: "Execute tasks in 4 phases with parallel execution within phases where dependencies allow"
+  risk_mitigation: "Comprehensive testing and fallback strategies for each task"
+  quality_gates: "Automated validation after each phase completion"
+
+phases:
+  phase_1_critical_foundation:
+    name: "Critical Issues and Foundation"
+    description: "Address critical complexity and type safety issues that affect system stability"
+    priority: critical
+    execution_mode: parallel_where_possible
+    estimated_duration_hours: 22
+    success_criteria:
+      - "All critical complexity reduced to manageable levels"
+      - "Type safety issues eliminated with zero TypeScript warnings"
+      - "System remains fully functional with existing behavior preserved"
+    tasks:
+      - id: REF-001
+        title: "Extract AI Generation Orchestration Logic"
+        type: refactoring
+        effort_hours: 8
+        complexity: complex
+        risk_level: medium
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-002
+        title: "Simplify Roasting Decision Algorithm"
+        type: refactoring
+        effort_hours: 10
+        complexity: complex
+        risk_level: high
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-007
+        title: "Fix Type Safety Issues"
+        type: refactoring
+        effort_hours: 4
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+
+  phase_2_architecture_improvements:
+    name: "High-Impact Architecture Changes"
+    description: "Implement structural improvements and eliminate major duplication patterns"
+    priority: high
+    execution_mode: parallel_with_coordination
+    estimated_duration_hours: 17
+    success_criteria:
+      - "Service architecture improved with clear separation of concerns"
+      - "Major duplication patterns eliminated"
+      - "Configuration management centralized and type-safe"
+    dependencies: 
+      - phase_1_critical_foundation
+    tasks:
+      - id: REF-003
+        title: "Decompose Context Building Logic"
+        type: refactoring
+        effort_hours: 6
+        complexity: medium
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-004
+        title: "Create Service Lifecycle Base Class"
+        type: refactoring
+        effort_hours: 6
+        complexity: medium
+        risk_level: medium
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-005
+        title: "Extract Configuration Factory"
+        type: refactoring
+        effort_hours: 5
+        complexity: medium
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+
+  phase_3_consolidation:
+    name: "Consolidation and Utility Creation"
+    description: "Create reusable utilities and consolidate remaining duplication patterns"
+    priority: medium
+    execution_mode: parallel_execution
+    estimated_duration_hours: 12
+    success_criteria:
+      - "Reusable utility libraries implemented"
+      - "Interface organization improved following ISP"
+      - "All duplication patterns eliminated"
+    dependencies:
+      - phase_2_architecture_improvements
+    tasks:
+      - id: REF-006
+        title: "Implement Generic Data Persistence Layer"
+        type: refactoring
+        effort_hours: 4
+        complexity: medium
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-008
+        title: "Split Large Interface Files"
+        type: refactoring
+        effort_hours: 3
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-009
+        title: "Extract Validation Utility Library"
+        type: refactoring
+        effort_hours: 3
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-010
+        title: "Implement Async Mutex Utility"
+        type: refactoring
+        effort_hours: 2
+        complexity: simple
+        risk_level: medium
+        parallel_safe: true
+        dependencies: []
+
+  phase_4_polish_and_documentation:
+    name: "Polish and Comprehensive Documentation"
+    description: "Complete remaining improvements and create comprehensive documentation"
+    priority: low_to_medium
+    execution_mode: parallel_execution
+    estimated_duration_hours: 45
+    success_criteria:
+      - "Code clarity maximized with named constants"
+      - "Method signatures optimized"
+      - "Comprehensive documentation covering all complex systems"
+    dependencies:
+      - phase_3_consolidation
+    refactoring_tasks:
+      - id: REF-011
+        title: "Extract Magic Numbers to Constants"
+        type: refactoring
+        effort_hours: 2
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: REF-012
+        title: "Optimize Long Parameter Lists"
+        type: refactoring
+        effort_hours: 2
+        complexity: simple
+        risk_level: low
+        parallel_safe: false
+        dependencies: [REF-001]
+    
+    documentation_tasks:
+      - id: DOC-001
+        title: "Document Complex AI Generation Functions"
+        type: documentation
+        effort_hours: 6
+        complexity: medium
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: DOC-002
+        title: "Document Roasting Engine Decision Logic"
+        type: documentation
+        effort_hours: 5
+        complexity: medium
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: DOC-003
+        title: "Document Context Management Architecture"
+        type: documentation
+        effort_hours: 4
+        complexity: medium
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: DOC-004
+        title: "Create Configuration Reference Documentation"
+        type: documentation
+        effort_hours: 4
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: DOC-005
+        title: "Document Error Handling and Recovery Procedures"
+        type: documentation
+        effort_hours: 3
+        complexity: medium
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: DOC-006
+        title: "Document Service Interface Contracts"
+        type: documentation
+        effort_hours: 3
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: DOC-007
+        title: "Create Performance Optimization Guide"
+        type: documentation
+        effort_hours: 2
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+      
+      - id: DOC-008
+        title: "Update Code Comments for Complex Algorithms"
+        type: documentation
+        effort_hours: 1
+        complexity: simple
+        risk_level: low
+        parallel_safe: true
+        dependencies: []
+
+task_execution_matrix:
+  parallel_execution_groups:
+    group_1_critical:
+      - REF-001
+      - REF-002
+      - REF-007
+    
+    group_2_architecture:
+      - REF-003
+      - REF-004
+      - REF-005
+    
+    group_3_utilities:
+      - REF-006
+      - REF-008
+      - REF-009
+      - REF-010
+    
+    group_4a_polish:
+      - REF-011
+    
+    group_4b_doc_complex:
+      - DOC-001
+      - DOC-002
+      - DOC-003
+    
+    group_4c_doc_reference:
+      - DOC-004
+      - DOC-005
+      - DOC-006
+      - DOC-007
+      - DOC-008
+    
+    group_4d_final:
+      - REF-012  # Must wait for REF-001
+
+task_dependencies:
+  explicit_dependencies:
+    REF-012: [REF-001]
+  
+  phase_dependencies:
+    phase_2: [phase_1_complete]
+    phase_3: [phase_2_complete]
+    phase_4: [phase_3_complete]
+
+risk_assessment:
+  high_risk_tasks:
+    - REF-002:
+        risk: "Complex algorithm refactoring with behavioral preservation requirements"
+        mitigation: "Feature flag implementation with original algorithm as fallback"
+        validation: "Probability variance testing within 1% tolerance"
+  
+  medium_risk_tasks:
+    - REF-001:
+        risk: "Large method decomposition affecting critical AI generation flow"
+        mitigation: "Incremental extraction with comprehensive integration testing"
+    - REF-004:
+        risk: "Base class introduction affecting 9+ services"
+        mitigation: "Service-by-service migration with rollback checkpoints"
+    - REF-010:
+        risk: "Concurrency control changes affecting data consistency"
+        mitigation: "Comprehensive race condition testing and deadlock detection"
+
+quality_gates:
+  phase_completion_criteria:
+    automated_checks:
+      - "npm run lint -- --fix (zero warnings)"
+      - "npm run build (successful compilation)"
+      - "npm test (85%+ coverage maintained)"
+      - "TypeScript strict mode validation"
+    
+    manual_verification:
+      - "Integration testing with existing functionality"
+      - "Performance benchmark comparison (<5% degradation)"
+      - "Behavioral compatibility verification"
+      - "Code review completion"
+  
+  rollback_triggers:
+    - "Test coverage drops below 80%"
+    - "Performance degradation exceeds 10%"
+    - "Any behavioral regression detected"
+    - "TypeScript compilation failures"
+
+execution_guidelines:
+  agent_coordination:
+    max_parallel_agents: 6
+    coordination_method: "file_scope_isolation"
+    conflict_resolution: "last_writer_wins_with_merge_validation"
+  
+  file_modification_strategy:
+    scope_isolation:
+      - "Each agent assigned non-overlapping file sections"
+      - "Line range boundaries clearly defined"
+      - "Shared utilities created before dependent tasks"
+    
+    validation_protocol:
+      - "Pre-task: Verify file state matches expectations"
+      - "During-task: Incremental validation of changes"
+      - "Post-task: Comprehensive testing and integration verification"
+
+monitoring_and_reporting:
+  progress_tracking:
+    metrics:
+      - "Tasks completed per phase"
+      - "Code coverage maintained"
+      - "Performance impact measurement"
+      - "Type safety improvement score"
+    
+    reporting_frequency: "After each phase completion"
+    
+  success_metrics:
+    complexity_reduction:
+      - "GeminiService cyclomatic complexity: 22 → <10"
+      - "RoastingEngine cyclomatic complexity: 25 → <8"
+      - "ContextManager method length: 87 → <20 lines"
+    
+    duplication_elimination:
+      - "Service lifecycle duplication: 135 lines → 0"
+      - "File I/O duplication: 69 lines → 0"
+      - "Mutex handling duplication: 32 lines → 0"
+    
+    type_safety_improvement:
+      - "Unsafe type casting: 9+ instances → 0"
+      - "TypeScript warnings: current → 0"
+      - "Interface coverage: 95% → 100%"
+    
+    documentation_coverage:
+      - "JSDoc coverage: 68% → 100% for public APIs"
+      - "Complex algorithm documentation: comprehensive"
+      - "Configuration reference: complete"
+
+delivery_timeline:
+  total_duration: "4 weeks (96 hours)"
+  
+  week_1: 
+    focus: "Critical Foundation"
+    tasks: [REF-001, REF-002, REF-007]
+    deliverables: ["Type-safe service factory", "Decomposed AI generation", "Simplified roasting algorithm"]
+  
+  week_2:
+    focus: "Architecture Improvements"
+    tasks: [REF-003, REF-004, REF-005]
+    deliverables: ["Context builder pattern", "Service base class", "Configuration factory"]
+  
+  week_3:
+    focus: "Utilities and Interface Organization"
+    tasks: [REF-006, REF-008, REF-009, REF-010]
+    deliverables: ["Data persistence layer", "Split interfaces", "Validation utilities", "Mutex manager"]
+  
+  week_4:
+    focus: "Polish and Documentation"
+    tasks: [REF-011, REF-012, DOC-001 through DOC-008]
+    deliverables: ["Named constants", "Optimized parameters", "Comprehensive documentation"]
+
+final_validation:
+  acceptance_criteria:
+    - "Zero critical or high-priority technical debt remaining"
+    - "All SOLID principles violations addressed"
+    - "Code duplication reduced by >90%"
+    - "Documentation coverage at 100% for public APIs"
+    - "Type safety score improved to 100%"
+    - "Performance maintained within 5% of baseline"
+  
+  deployment_readiness:
+    - "All quality gates passed"
+    - "Comprehensive test suite updated and passing"
+    - "Documentation reviewed and approved"
+    - "Rollback procedures tested and documented"

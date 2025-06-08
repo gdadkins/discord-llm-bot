@@ -417,7 +417,7 @@ class ConfigurationManager extends EventEmitter {
       'INCLUDE_THOUGHTS': ['gemini', 'thinking', 'includeInResponse'],
       'ENABLE_CODE_EXECUTION': ['features', 'codeExecution'],
       'ENABLE_STRUCTURED_OUTPUT': ['features', 'structuredOutput'],
-      'LOG_LEVEL': ['monitoring', 'logLevel']
+      'LOG_LEVEL': ['features', 'monitoring', 'logLevel']
     };
 
     for (const [envVar, configPath] of Object.entries(envMappings)) {
@@ -472,7 +472,7 @@ class ConfigurationManager extends EventEmitter {
         logger.info('Environment overrides applied to default config');
         
         logger.info('Saving default configuration...');
-        await this.saveConfiguration('system', 'Initial configuration creation');
+        await this.saveConfigurationInternal('system', 'Initial configuration creation');
         logger.info('Created default configuration file');
       }
 
@@ -649,40 +649,44 @@ class ConfigurationManager extends EventEmitter {
   async saveConfiguration(modifiedBy: string, reason?: string): Promise<void> {
     const release = await this.mutex.acquire();
     try {
-      // Update metadata
-      this.currentConfig.lastModified = new Date().toISOString();
-      this.currentConfig.modifiedBy = modifiedBy;
-      this.currentConfig.version = this.generateVersion();
-
-      // Validate before saving
-      const validation = this.validateConfiguration(this.currentConfig);
-      if (!validation.valid) {
-        throw new Error(`Configuration validation failed: ${validation.errors?.join(', ')}`);
-      }
-
-      // Save current configuration
-      await fs.writeJSON(this.configPath, this.currentConfig, { spaces: 2 });
-
-      // Save version history
-      await this.saveVersionHistory();
-
-      // Log the save action
-      await this.logConfigurationChange({
-        timestamp: this.currentConfig.lastModified,
-        version: this.currentConfig.version,
-        modifiedBy,
-        changeType: 'update',
-        path: [],
-        oldValue: null,
-        newValue: this.currentConfig,
-        reason,
-        source: 'command'
-      });
-
-      logger.info(`Configuration saved by ${modifiedBy}: ${reason || 'No reason provided'}`);
+      await this.saveConfigurationInternal(modifiedBy, reason);
     } finally {
       release();
     }
+  }
+
+  private async saveConfigurationInternal(modifiedBy: string, reason?: string): Promise<void> {
+    // Update metadata
+    this.currentConfig.lastModified = new Date().toISOString();
+    this.currentConfig.modifiedBy = modifiedBy;
+    this.currentConfig.version = this.generateVersion();
+
+    // Validate before saving
+    const validation = this.validateConfiguration(this.currentConfig);
+    if (!validation.valid) {
+      throw new Error(`Configuration validation failed: ${validation.errors?.join(', ')}`);
+    }
+
+    // Save current configuration
+    await fs.writeJSON(this.configPath, this.currentConfig, { spaces: 2 });
+
+    // Save version history
+    await this.saveVersionHistory();
+
+    // Log the save action
+    await this.logConfigurationChange({
+      timestamp: this.currentConfig.lastModified,
+      version: this.currentConfig.version,
+      modifiedBy,
+      changeType: 'update',
+      path: [],
+      oldValue: null,
+      newValue: this.currentConfig,
+      reason,
+      source: 'command'
+    });
+
+    logger.info(`Configuration saved by ${modifiedBy}: ${reason || 'No reason provided'}`);
   }
 
   private generateVersion(): string {
