@@ -153,3 +153,95 @@ The `/status` command was updated to work with simplified service structure:
 - Cache system working
 
 The bot can handle production workload while enterprise features are being re-implemented incrementally.
+
+## Session: January 9, 2025 - Duplicate Message Responses
+
+### Problem Summary
+Bot was sending 6 different responses to a single user mention:
+- Multiple normal responses ("Got it! Testing...", "Message received", etc.)
+- Multiple roast responses (different roast messages)
+- All messages appearing simultaneously in Discord channel
+
+### Root Cause Analysis
+**Primary Issue**: The `respondCallback` function was being called multiple times:
+1. From within `generateResponse` method when graceful degradation queues messages
+2. Again when the response was returned and the event handler explicitly called `respondCallback(response)`
+
+**Code Flow**:
+```typescript
+// In eventHandlers.ts
+const response = await geminiService.generateResponse(
+  prompt, userId, serverId, 
+  respondCallback,  // Callback passed here
+  messageContext, member
+);
+
+// If response is returned, callback is called again
+if (response) {
+  await respondCallback(response);  // DUPLICATE CALL
+}
+```
+
+### Solution Implemented
+
+#### 1. Response Tracking
+Added `responseSent` flag to prevent duplicate sends:
+```typescript
+let responseSent = false;
+
+const respondCallback = async (responseText: string) => {
+  if (responseText && !responseSent) {
+    responseSent = true;
+    // Send message logic
+  }
+};
+```
+
+#### 2. Conditional Response Sending
+Only send response if not already sent:
+```typescript
+if (response && !responseSent) {
+  await respondCallback(response);
+}
+```
+
+#### 3. Debug Logging
+Added unique handler IDs for tracking:
+```typescript
+const handlerId = Math.random().toString(36).substring(7);
+logger.info(`[HANDLER-${handlerId}] Starting message processing`);
+```
+
+### Additional Fixes
+
+#### Gemini API Integration
+Fixed API calls to use correct `@google/genai` package methods:
+```typescript
+const response = await this.ai.models.generateContent({
+  model: 'gemini-2.5-flash-preview-05-20',
+  contents: fullPrompt,
+  config: { temperature, topK, topP, maxOutputTokens }
+});
+```
+
+#### Response Text Extraction
+Enhanced to handle different response formats:
+- Function-based text extraction: `res.text()`
+- String-based text: `res.text`
+- Content parts extraction from candidates
+
+### Files Modified
+- `/src/handlers/eventHandlers.ts` - Added response tracking
+- `/src/services/gemini.ts` - Fixed API integration, added debug logging
+
+### Result
+✅ Bot now sends only one response per mention as expected
+✅ No more duplicate messages
+✅ Roasting mode works correctly (either roast OR normal response, not both)
+
+### Lessons Learned
+1. **Callback Management**: When passing callbacks to async functions, ensure they're not called multiple times
+2. **Response Patterns**: Consider whether callbacks are for immediate response (queuing) or fallback only
+3. **Debug Logging**: Unique identifiers for concurrent operations help trace execution flow
+
+See [DUPLICATE_MESSAGE_FIX_REPORT.md](DUPLICATE_MESSAGE_FIX_REPORT.md) for detailed analysis.
