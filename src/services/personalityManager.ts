@@ -1,8 +1,10 @@
-import { Mutex } from 'async-mutex';
 import { logger } from '../utils/logger';
-import { DataStore } from '../utils/DataStore';
+import { DataStore, DataValidator } from '../utils/DataStore';
+import { dataStoreFactory } from '../utils/DataStoreFactory';
 import { BaseService } from './base/BaseService';
 import type { IService } from './interfaces';
+import { PersonalityValidators } from '../utils/validation';
+import { MutexManager, createMutexManager } from '../utils/MutexManager';
 
 interface PersonalityData {
   descriptions: string[];
@@ -22,7 +24,7 @@ interface PersonalityStorage {
 }
 
 export class PersonalityManager extends BaseService implements IService {
-  private mutex = new Mutex();
+  private mutexManager: MutexManager;
   private personalities: PersonalityStorage = {};
   private readonly dataStore: DataStore<PersonalityStorage>;
   private readonly MAX_DESCRIPTIONS_PER_USER = 20;
@@ -30,7 +32,32 @@ export class PersonalityManager extends BaseService implements IService {
 
   constructor(storageFile = './data/user-personalities.json') {
     super();
-    this.dataStore = new DataStore<PersonalityStorage>(storageFile, {});
+    
+    // Initialize mutex manager with monitoring
+    this.mutexManager = createMutexManager('PersonalityManager', {
+      enableDeadlockDetection: true,
+      enableStatistics: true
+    });
+    
+    // Create validator for personality storage
+    const personalityValidator: DataValidator<PersonalityStorage> = (data: unknown): data is PersonalityStorage => {
+      if (typeof data !== 'object' || !data) return false;
+      
+      const storage = data as PersonalityStorage;
+      return Object.values(storage).every(personalityData => 
+        Array.isArray(personalityData.descriptions) &&
+        typeof personalityData.lastUpdated === 'string' &&
+        typeof personalityData.updatedBy === 'string' &&
+        typeof personalityData.createdAt === 'string' &&
+        Array.isArray(personalityData.changeHistory)
+      );
+    };
+    
+    // Use factory to create state store optimized for personality data
+    this.dataStore = dataStoreFactory.createStateStore<PersonalityStorage>(
+      storageFile,
+      personalityValidator
+    );
   }
 
   protected getServiceName(): string {
@@ -53,8 +80,7 @@ export class PersonalityManager extends BaseService implements IService {
     description: string,
     updatedBy: string,
   ): Promise<{ success: boolean; message: string }> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const validation = this.validateDescription(description);
       if (!validation.valid) {
         return { success: false, message: validation.message };
@@ -123,9 +149,7 @@ export class PersonalityManager extends BaseService implements IService {
         success: true,
         message: `Added personality description: "${description}"`,
       };
-    } finally {
-      release();
-    }
+    }, { operationName: 'addPersonalityDescription', timeout: 15000 });
   }
 
   async removePersonalityDescription(
@@ -133,8 +157,7 @@ export class PersonalityManager extends BaseService implements IService {
     description: string,
     updatedBy: string,
   ): Promise<{ success: boolean; message: string }> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const existingData = this.personalities[targetUserId];
       if (!existingData || !existingData.descriptions.includes(description)) {
         return {
@@ -165,17 +188,14 @@ export class PersonalityManager extends BaseService implements IService {
         success: true,
         message: `Removed personality description: "${description}"`,
       };
-    } finally {
-      release();
-    }
+    }, { operationName: 'removePersonalityDescription', timeout: 15000 });
   }
 
   async clearPersonality(
     targetUserId: string,
     updatedBy: string,
   ): Promise<{ success: boolean; message: string }> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       if (!this.personalities[targetUserId]) {
         return {
           success: false,
@@ -193,9 +213,7 @@ export class PersonalityManager extends BaseService implements IService {
         success: true,
         message: 'Cleared all personality data for user',
       };
-    } finally {
-      release();
-    }
+    }, { operationName: 'clearPersonality', timeout: 15000 });
   }
 
   getPersonality(userId: string): PersonalityData | null {
@@ -248,22 +266,11 @@ export class PersonalityManager extends BaseService implements IService {
     valid: boolean;
     message: string;
   } {
-    if (typeof description !== 'string') {
-      return { valid: false, message: 'Description must be a string' };
-    }
-
-    if (description.trim().length === 0) {
-      return { valid: false, message: 'Description cannot be empty' };
-    }
-
-    if (description.length > this.MAX_DESCRIPTION_LENGTH) {
-      return {
-        valid: false,
-        message: `Description too long (max ${this.MAX_DESCRIPTION_LENGTH} characters)`,
-      };
-    }
-
-    return { valid: true, message: '' };
+    const result = PersonalityValidators.description(description, this.MAX_DESCRIPTION_LENGTH);
+    return {
+      valid: result.valid,
+      message: result.errors.join(', ')
+    };
   }
 
 

@@ -195,6 +195,7 @@ class ConfigurationManager extends EventEmitter {
   private configSchemas: Map<string, object> = new Map();
   private configDataStore: DataStore<BotConfiguration>;
   private versionDataStores: Map<string, DataStore<ConfigurationVersion>> = new Map();
+  private auditLogDataStore: DataStore<ConfigurationChange[]>;
 
   // Default configuration
   private readonly defaultConfig: BotConfiguration = {
@@ -355,9 +356,48 @@ class ConfigurationManager extends EventEmitter {
       return this.validateConfiguration(data as BotConfiguration).valid;
     };
     
+    // Create main configuration DataStore using factory config store defaults
     this.configDataStore = dataStoreFactory.createConfigStore<BotConfiguration>(
       this.configPath,
-      configValidator
+      configValidator,
+      {
+        maxRetries: 5,
+        retryDelayMs: 200,
+        compressionThreshold: 2048 // Compress main config if larger than 2KB
+      }
+    );
+    
+    // Initialize audit log DataStore with configuration change validation
+    const auditLogValidator: DataValidator<ConfigurationChange[]> = (data: unknown): data is ConfigurationChange[] => {
+      if (!Array.isArray(data)) {
+        return false;
+      }
+      
+      return data.every(change => 
+        typeof change === 'object' &&
+        change !== null &&
+        typeof change.timestamp === 'string' &&
+        typeof change.version === 'string' &&
+        typeof change.modifiedBy === 'string' &&
+        ['create', 'update', 'reload', 'rollback'].includes(change.changeType) &&
+        Array.isArray(change.path) &&
+        ['file', 'command', 'environment', 'api'].includes(change.source)
+      );
+    };
+    
+    this.auditLogDataStore = dataStoreFactory.createCustomStore<ConfigurationChange[]>(
+      this.auditLogPath.replace('.log', '.json'),
+      {
+        validator: auditLogValidator,
+        maxBackups: 10,
+        maxRetries: 5,
+        retryDelayMs: 200,
+        createDirectories: true,
+        fileMode: 0o644,
+        enableDebugLogging: false,
+        compressionEnabled: true,
+        compressionThreshold: 4096 // Compress audit log if larger than 4KB
+      }
     );
   }
 
@@ -718,49 +758,31 @@ class ConfigurationManager extends EventEmitter {
 
     const versionFile = path.join(this.versionsPath, `${this.currentConfig.version}.json`);
     
-    // Create or get DataStore for this version file
+    // Create or get DataStore for this version file with compression enabled
     const versionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
       if (typeof data !== 'object' || !data) return false;
       const v = data as ConfigurationVersion;
       return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
     };
     
-    const versionDataStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
+    // Create DataStore with compression enabled for version files
+    const versionDataStore = dataStoreFactory.createCustomStore<ConfigurationVersion>(
       versionFile,
-      versionValidator
+      {
+        validator: versionValidator,
+        maxBackups: 2, // Reduced backups for version files
+        compressionEnabled: true,
+        compressionThreshold: 1024, // Compress files larger than 1KB
+        maxRetries: 3,
+        createDirectories: true
+      }
     );
     
     await versionDataStore.save(version);
     this.versionDataStores.set(version.version, versionDataStore);
 
-    // Clean up old versions (keep last 50)
-    const versions = await this.getVersionHistory();
-    if (versions.length > 50) {
-      const versionsToDelete = versions.slice(50);
-      for (const versionToDelete of versionsToDelete) {
-        const versionFilePath = path.join(this.versionsPath, `${versionToDelete.version}.json`);
-        // Use DataStore to delete if we have it cached
-        const cachedStore = this.versionDataStores.get(versionToDelete.version);
-        if (cachedStore) {
-          await cachedStore.delete(true);
-          this.versionDataStores.delete(versionToDelete.version);
-        } else {
-          // Create a temporary DataStore for this version file to delete it properly
-          const tempVersionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
-            if (typeof data !== 'object' || !data) return false;
-            const v = data as ConfigurationVersion;
-            return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
-          };
-          
-          const tempDataStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
-            versionFilePath,
-            tempVersionValidator
-          );
-          
-          await tempDataStore.delete(true).catch(() => {}); // Ignore errors
-        }
-      }
-    }
+    // Optimized cleanup using cached DataStore instances
+    await this.cleanupOldVersions();
   }
 
   private generateConfigHash(config: BotConfiguration): string {
@@ -770,46 +792,128 @@ class ConfigurationManager extends EventEmitter {
     return crypto.createHash('sha256').update(configString).digest('hex');
   }
 
+  /**
+   * Create a standardized DataStore for version files
+   */
+  private createVersionDataStore(versionFile: string): DataStore<ConfigurationVersion> {
+    const versionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
+      if (typeof data !== 'object' || !data) return false;
+      const v = data as ConfigurationVersion;
+      return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
+    };
+    
+    return dataStoreFactory.createCustomStore<ConfigurationVersion>(
+      versionFile,
+      {
+        validator: versionValidator,
+        maxBackups: 2,
+        compressionEnabled: true,
+        compressionThreshold: 1024, // Compress files larger than 1KB
+        maxRetries: 3,
+        createDirectories: true
+      }
+    );
+  }
+
+  /**
+   * Optimized cleanup of old version files using DataStore
+   */
+  private async cleanupOldVersions(): Promise<void> {
+    try {
+      const versions = await this.getVersionHistory();
+      const maxVersions = 50;
+      
+      if (versions.length <= maxVersions) {
+        return;
+      }
+      
+      const versionsToDelete = versions.slice(maxVersions);
+      logger.info(`Cleaning up ${versionsToDelete.length} old version files`);
+      
+      // Use batch operations for efficient cleanup
+      const cleanupPromises = versionsToDelete.map(async (versionToDelete) => {
+        try {
+          const cachedStore = this.versionDataStores.get(versionToDelete.version);
+          
+          if (cachedStore) {
+            // Use cached DataStore for deletion
+            await cachedStore.delete(true); // Include backups
+            this.versionDataStores.delete(versionToDelete.version);
+            logger.debug(`Deleted cached version: ${versionToDelete.version}`);
+          } else {
+            // Create temporary DataStore for deletion
+            const versionFilePath = path.join(this.versionsPath, `${versionToDelete.version}.json`);
+            const tempDataStore = this.createVersionDataStore(versionFilePath);
+            await tempDataStore.delete(true); // Include backups
+            logger.debug(`Deleted uncached version: ${versionToDelete.version}`);
+          }
+        } catch (error) {
+          logger.warn(`Failed to delete version ${versionToDelete.version}:`, error);
+        }
+      });
+      
+      // Execute cleanup operations in parallel with concurrency limit
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < cleanupPromises.length; i += BATCH_SIZE) {
+        const batch = cleanupPromises.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(batch);
+      }
+      
+      logger.info(`Version cleanup completed. Kept ${maxVersions} most recent versions`);
+    } catch (error) {
+      logger.error('Failed to cleanup old versions:', error);
+    }
+  }
+
   async getVersionHistory(): Promise<ConfigurationVersion[]> {
     try {
-      const files = await fs.readdir(this.versionsPath);
       const versions: ConfigurationVersion[] = [];
-
-      for (const file of files) {
-        if (file.endsWith('.json')) {
+      
+      // First, try to load versions from cached DataStore instances
+      for (const [versionName, dataStore] of this.versionDataStores) {
+        try {
+          const versionData = await dataStore.load();
+          if (versionData) {
+            versions.push(versionData);
+          }
+        } catch (error) {
+          logger.warn(`Failed to read cached version ${versionName}:`, error);
+          // Remove invalid cached store
+          this.versionDataStores.delete(versionName);
+        }
+      }
+      
+      // Discover additional version files not in cache using directory scan
+      // This is needed for versions created outside current session
+      try {
+        const files = await fs.readdir(this.versionsPath);
+        const uncachedFiles = files.filter(file => {
+          if (!file.endsWith('.json')) return false;
+          const versionName = path.basename(file, '.json');
+          return !this.versionDataStores.has(versionName);
+        });
+        
+        // Process uncached files with efficient DataStore creation
+        for (const file of uncachedFiles) {
           try {
             const versionFile = path.join(this.versionsPath, file);
             const versionName = path.basename(file, '.json');
             
-            // Try to use cached DataStore first
-            let versionData: ConfigurationVersion | null = null;
-            const cachedStore = this.versionDataStores.get(versionName);
-            
-            if (cachedStore) {
-              versionData = await cachedStore.load();
-            } else {
-              // Create new DataStore for reading
-              const versionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
-                if (typeof data !== 'object' || !data) return false;
-                const v = data as ConfigurationVersion;
-                return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
-              };
-              
-              const tempStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
-                versionFile,
-                versionValidator
-              );
-              
-              versionData = await tempStore.load();
-            }
+            // Create DataStore for uncached version file
+            const versionDataStore = this.createVersionDataStore(versionFile);
+            const versionData = await versionDataStore.load();
             
             if (versionData) {
               versions.push(versionData);
+              // Cache the DataStore for future use
+              this.versionDataStores.set(versionName, versionDataStore);
             }
           } catch (error) {
             logger.warn(`Failed to read version file ${file}:`, error);
           }
         }
+      } catch (dirError) {
+        logger.warn('Failed to scan versions directory:', dirError);
       }
 
       // Sort by timestamp (newest first)
@@ -823,45 +927,49 @@ class ConfigurationManager extends EventEmitter {
   async rollbackToVersion(version: string, modifiedBy: string, reason?: string): Promise<void> {
     const release = await this.mutex.acquire();
     try {
-      const versionFile = path.join(this.versionsPath, `${version}.json`);
-      
-      // Check if cached DataStore exists
+      // Optimized version loading using cached store or standardized creation
       let versionData: ConfigurationVersion | null = null;
       const cachedStore = this.versionDataStores.get(version);
       
       if (cachedStore) {
         versionData = await cachedStore.load();
       } else {
-        // Create new DataStore for reading
-        const versionValidator: DataValidator<ConfigurationVersion> = (data: unknown): data is ConfigurationVersion => {
-          if (typeof data !== 'object' || !data) return false;
-          const v = data as ConfigurationVersion;
-          return !!v.version && !!v.timestamp && !!v.configuration && !!v.hash;
-        };
-        
-        const tempStore = dataStoreFactory.createConfigStore<ConfigurationVersion>(
-          versionFile,
-          versionValidator
-        );
-        
+        // Create DataStore using standardized helper
+        const versionFile = path.join(this.versionsPath, `${version}.json`);
+        const tempStore = this.createVersionDataStore(versionFile);
         versionData = await tempStore.load();
+        
+        // Cache the DataStore for future use
+        if (versionData) {
+          this.versionDataStores.set(version, tempStore);
+        }
       }
       
       if (!versionData) {
-        throw new Error(`Version ${version} not found`);
+        throw new Error(`Version ${version} not found or corrupted`);
+      }
+
+      // Validate version data integrity
+      const expectedHash = this.generateConfigHash(versionData.configuration);
+      if (versionData.hash !== expectedHash) {
+        throw new Error(`Version ${version} has invalid hash. Data may be corrupted.`);
       }
 
       const oldVersion = this.currentConfig.version;
       
-      // Apply the rollback
-      this.currentConfig = versionData.configuration;
+      // Apply the rollback with new version identifier
+      this.currentConfig = { ...versionData.configuration };
       this.currentConfig.lastModified = new Date().toISOString();
       this.currentConfig.modifiedBy = modifiedBy;
+      this.currentConfig.version = this.generateVersion(); // Generate new version for rollback
 
-      // Save the rolled back configuration using DataStore
+      // Save the rolled back configuration using DataStore with atomic write
       await this.configDataStore.save(this.currentConfig);
 
-      // Log the rollback
+      // Create version history entry for the rollback
+      await this.saveVersionHistory();
+
+      // Log the rollback operation
       await this.logConfigurationChange({
         timestamp: this.currentConfig.lastModified,
         version: this.currentConfig.version,
@@ -869,21 +977,42 @@ class ConfigurationManager extends EventEmitter {
         changeType: 'rollback',
         path: [],
         oldValue: oldVersion,
-        newValue: this.currentConfig.version,
-        reason,
+        newValue: version, // The version we rolled back to
+        reason: reason || `Rolled back to version ${version}`,
         source: 'command'
       });
 
       this.emit('config:rollback', oldVersion, this.currentConfig.version);
-      logger.info(`Configuration rolled back from ${oldVersion} to ${version} by ${modifiedBy}`);
+      logger.info(`Configuration rolled back from ${oldVersion} to ${version} by ${modifiedBy}. New version: ${this.currentConfig.version}`);
     } finally {
       release();
     }
   }
 
   private async logConfigurationChange(change: ConfigurationChange): Promise<void> {
-    const logEntry = JSON.stringify(change) + '\n';
-    await fs.appendFile(this.auditLogPath, logEntry);
+    try {
+      // Load existing audit log or initialize empty array
+      const existingLog = await this.auditLogDataStore.load() || [];
+      
+      // Add new change to the log
+      const updatedLog = [...existingLog, change];
+      
+      // Save updated log with atomic write operation
+      await this.auditLogDataStore.save(updatedLog);
+      
+      logger.debug(`Logged configuration change: ${change.changeType} at ${change.path.join('.')}`);
+    } catch (error) {
+      logger.error('Failed to log configuration change:', error);
+      // Fallback to original fs method for backward compatibility
+      try {
+        const logEntry = JSON.stringify(change) + '\n';
+        await fs.appendFile(this.auditLogPath, logEntry);
+        logger.warn('Used fallback file logging for configuration change');
+      } catch (fallbackError) {
+        logger.error('Fallback logging also failed:', fallbackError);
+        throw fallbackError;
+      }
+    }
   }
 
   private async logConfigurationChanges(changes: ConfigurationChange[], source: string, reason?: string): Promise<void> {
@@ -896,28 +1025,76 @@ class ConfigurationManager extends EventEmitter {
 
   async getAuditLog(limit = 100): Promise<ConfigurationChange[]> {
     try {
+      // Try to load from DataStore first
+      const auditLog = await this.auditLogDataStore.load();
+      
+      if (auditLog && Array.isArray(auditLog)) {
+        // Return the last N entries, newest first
+        const limitedLog = auditLog.slice(-limit).reverse();
+        logger.debug(`Retrieved ${limitedLog.length} audit log entries from DataStore`);
+        return limitedLog;
+      }
+      
+      // Fallback to legacy file format for backward compatibility
+      logger.info('DataStore audit log empty, attempting legacy file format migration');
+      return await this.migrateLegacyAuditLog(limit);
+      
+    } catch (error) {
+      logger.error('Failed to read audit log from DataStore:', error);
+      
+      // Fallback to legacy file format
+      try {
+        logger.warn('Falling back to legacy audit log format');
+        return await this.migrateLegacyAuditLog(limit);
+      } catch (fallbackError) {
+        logger.error('Legacy audit log fallback also failed:', fallbackError);
+        return [];
+      }
+    }
+  }
+  
+  /**
+   * Migrate legacy audit log format to DataStore format
+   * @param limit - Number of entries to return
+   * @returns Array of configuration changes
+   */
+  private async migrateLegacyAuditLog(limit = 100): Promise<ConfigurationChange[]> {
+    try {
       if (!await fs.pathExists(this.auditLogPath)) {
         return [];
       }
 
       const logContent = await fs.readFile(this.auditLogPath, 'utf-8');
-      const lines = logContent.trim().split('\n');
+      const lines = logContent.trim().split('\n').filter(line => line.trim());
       const changes: ConfigurationChange[] = [];
 
-      // Parse the last N lines
-      const startIndex = Math.max(0, lines.length - limit);
-      for (let i = startIndex; i < lines.length; i++) {
+      // Parse all lines
+      for (let i = 0; i < lines.length; i++) {
         try {
           const change = JSON.parse(lines[i]);
           changes.push(change);
         } catch (error) {
-          logger.warn(`Failed to parse audit log line ${i}:`, error);
+          logger.warn(`Failed to parse legacy audit log line ${i}:`, error);
         }
       }
 
-      return changes.reverse(); // Newest first
+      // Save migrated data to DataStore
+      if (changes.length > 0) {
+        try {
+          await this.auditLogDataStore.save(changes);
+          logger.info(`Successfully migrated ${changes.length} audit log entries to DataStore`);
+        } catch (saveError) {
+          logger.warn('Failed to save migrated audit log to DataStore:', saveError);
+        }
+      }
+
+      // Return the last N entries, newest first
+      const limitedChanges = changes.slice(-limit).reverse();
+      logger.debug(`Retrieved ${limitedChanges.length} audit log entries from legacy format`);
+      return limitedChanges;
+      
     } catch (error) {
-      logger.error('Failed to read audit log:', error);
+      logger.error('Failed to migrate legacy audit log:', error);
       return [];
     }
   }

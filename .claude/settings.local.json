@@ -1,31 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm uninstall:*)",
-      "Bash(npm install:*)",
-      "Bash(test:*)",
-      "Bash(mkdir:*)",
-      "Bash(npm run build:*)",
+      "mcp__sequential-thinking__sequentialthinking",
       "Bash(npm run lint)",
-      "Bash(ls:*)",
-      "Bash(npm run dev:*)",
-      "Bash(npm run format:*)",
-      "Bash(npm run lint:*)",
-      "WebFetch(domain:ai.google.dev)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(rg:*)",
-      "Bash(npx tsc:*)",
-      "Bash(npm test:*)",
-      "Bash(node:*)",
-      "Bash(node:*)",
-      "Bash(rm:*)",
-      "Bash(npx eslint:*)",
-      "Bash(npm audit:*)",
-      "Bash(npm outdated)",
-      "Bash(touch:*)",
-      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"fs\\.(writeFile|readFile|writeJSON|readJSON|outputJSON|readJson|writeJson|remove)\" /mnt/c/github/discord/discord-llm-bot/src/services/configurationManager.ts -n)",
-      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"fs\\.(writeFile|readFile|writeJSON|readJSON|outputJSON|readJson|writeJson|remove)\" /mnt/c/github/discord/discord-llm-bot/src/services/configurationManager.ts -n -A2 -B2)"
+      "Bash(npm run build:*)",
+      "Bash(npm run lint:*)"
     ],
     "deny": []
   }

@@ -1,6 +1,7 @@
 import { Mutex } from 'async-mutex';
 import { logger } from '../utils/logger';
 import type { HealthMonitor, HealthMetrics } from './healthMonitor';
+import { DEGRADATION_CONSTANTS, GENERAL_CONSTANTS } from '../config/constants';
 
 interface QueuedMessage {
   id: string;
@@ -93,20 +94,20 @@ export class GracefulDegradation {
   constructor() {
     this.config = {
       // Circuit breaker settings
-      maxFailures: parseInt(process.env.DEGRADATION_MAX_FAILURES || '5'),
-      resetTimeoutMs: parseInt(process.env.DEGRADATION_RESET_TIMEOUT_MS || '60000'), // 1 minute
-      halfOpenMaxRetries: parseInt(process.env.DEGRADATION_HALF_OPEN_RETRIES || '3'),
+      maxFailures: parseInt(process.env.DEGRADATION_MAX_FAILURES || String(DEGRADATION_CONSTANTS.DEFAULT_MAX_FAILURES)),
+      resetTimeoutMs: parseInt(process.env.DEGRADATION_RESET_TIMEOUT_MS || String(DEGRADATION_CONSTANTS.DEFAULT_RESET_TIMEOUT_MS)), // 1 minute
+      halfOpenMaxRetries: parseInt(process.env.DEGRADATION_HALF_OPEN_RETRIES || String(DEGRADATION_CONSTANTS.DEFAULT_HALF_OPEN_RETRIES)),
       
       // Health degradation triggers
-      memoryThresholdMB: parseInt(process.env.DEGRADATION_MEMORY_THRESHOLD_MB || '400'),
-      errorRateThreshold: parseFloat(process.env.DEGRADATION_ERROR_RATE_THRESHOLD || '10.0'),
-      responseTimeThresholdMs: parseInt(process.env.DEGRADATION_RESPONSE_TIME_THRESHOLD_MS || '10000'),
+      memoryThresholdMB: parseInt(process.env.DEGRADATION_MEMORY_THRESHOLD_MB || String(DEGRADATION_CONSTANTS.DEFAULT_MEMORY_THRESHOLD_MB)),
+      errorRateThreshold: parseFloat(process.env.DEGRADATION_ERROR_RATE_THRESHOLD || String(DEGRADATION_CONSTANTS.DEFAULT_ERROR_RATE_THRESHOLD)),
+      responseTimeThresholdMs: parseInt(process.env.DEGRADATION_RESPONSE_TIME_THRESHOLD_MS || String(DEGRADATION_CONSTANTS.DEFAULT_RESPONSE_TIME_THRESHOLD_MS)),
       
       // Queue management
-      maxQueueSize: parseInt(process.env.DEGRADATION_MAX_QUEUE_SIZE || '100'),
-      maxQueueTimeMs: parseInt(process.env.DEGRADATION_MAX_QUEUE_TIME_MS || '300000'), // 5 minutes
-      retryIntervalMs: parseInt(process.env.DEGRADATION_RETRY_INTERVAL_MS || '30000'), // 30 seconds
-      maxRetries: parseInt(process.env.DEGRADATION_MAX_RETRIES || '3'),
+      maxQueueSize: parseInt(process.env.DEGRADATION_MAX_QUEUE_SIZE || String(DEGRADATION_CONSTANTS.DEFAULT_MAX_QUEUE_SIZE)),
+      maxQueueTimeMs: parseInt(process.env.DEGRADATION_MAX_QUEUE_TIME_MS || String(DEGRADATION_CONSTANTS.DEFAULT_MAX_QUEUE_TIME_MS)), // 5 minutes
+      retryIntervalMs: parseInt(process.env.DEGRADATION_RETRY_INTERVAL_MS || String(DEGRADATION_CONSTANTS.DEFAULT_RETRY_INTERVAL_MS)), // 30 seconds
+      maxRetries: parseInt(process.env.DEGRADATION_MAX_RETRIES || String(DEGRADATION_CONSTANTS.DEFAULT_MAX_RETRIES)),
       
       // Fallback features
       enableCachedResponses: process.env.DEGRADATION_ENABLE_CACHED_RESPONSES !== 'false',
@@ -157,7 +158,26 @@ export class GracefulDegradation {
     logger.info('HealthMonitor integration enabled for graceful degradation');
   }
 
-  // Circuit breaker wrapper for Gemini API calls
+  /**
+   * Circuit breaker wrapper for API calls with automatic failure tracking and recovery
+   * 
+   * Implements the Circuit Breaker pattern to prevent cascading failures by:
+   * - Monitoring service failure rates
+   * - Transitioning between CLOSED, OPEN, and HALF-OPEN states
+   * - Providing fast failure when services are down
+   * - Automatically attempting recovery
+   * 
+   * @template T - Return type of the operation
+   * @param operation - The async operation to execute with protection
+   * @param serviceName - Which service this operation targets ('gemini' | 'discord')
+   * @returns Promise resolving to operation result
+   * @throws Error when circuit breaker is OPEN or operation fails
+   * 
+   * Circuit States:
+   * - CLOSED: Normal operation, monitoring for failures
+   * - OPEN: Rejecting requests immediately, waiting for reset timeout
+   * - HALF-OPEN: Testing recovery with limited retries
+   */
   async executeWithCircuitBreaker<T>(
     operation: () => Promise<T>,
     serviceName: 'gemini' | 'discord'
@@ -200,7 +220,25 @@ export class GracefulDegradation {
     }
   }
 
-  // Main degradation decision point
+  /**
+   * Central degradation decision engine that evaluates system health
+   * 
+   * Analyzes multiple factors to determine if the system should enter degraded mode:
+   * - Circuit breaker states for both Gemini and Discord services
+   * - Health monitor metrics (memory, error rate, response time)
+   * - Queue pressure and backlog
+   * - Service availability status
+   * 
+   * Severity Levels:
+   * - HIGH: Critical failures, use maintenance responses
+   * - MEDIUM: Service issues, queue messages or use fallbacks
+   * - LOW: Normal operation
+   * 
+   * @returns Promise resolving to degradation assessment
+   * @returns shouldDegrade - Whether system should enter degraded mode
+   * @returns reason - Human-readable explanation of the decision
+   * @returns severity - Impact level for determining response strategy
+   */
   async shouldDegrade(): Promise<{
     shouldDegrade: boolean;
     reason: string;
@@ -247,7 +285,7 @@ export class GracefulDegradation {
       }
       
       // Check queue pressure
-      if (this.messageQueue.length > this.config.maxQueueSize * 0.8) {
+      if (this.messageQueue.length > this.config.maxQueueSize * DEGRADATION_CONSTANTS.QUEUE_PRESSURE_THRESHOLD) {
         return {
           shouldDegrade: true,
           reason: `Message queue pressure: ${this.messageQueue.length}/${this.config.maxQueueSize}`,
@@ -407,7 +445,26 @@ export class GracefulDegradation {
     return this.messageQueue.length;
   }
 
-  // Manually trigger recovery attempt
+  /**
+   * Manually trigger recovery attempts for services in failed state
+   * 
+   * Provides administrative control to force recovery attempts outside
+   * of the normal automatic recovery cycle. Useful for:
+   * - Immediate recovery after known issues are resolved
+   * - Testing service health after maintenance
+   * - Resetting circuit breakers after configuration changes
+   * 
+   * Recovery Process:
+   * 1. Validates current service state
+   * 2. Attempts service-specific health checks
+   * 3. Updates circuit breaker state on success
+   * 4. Records recovery metrics
+   * 5. Logs recovery attempt results
+   * 
+   * @param serviceName - Optional specific service to recover ('gemini' | 'discord')
+   *                     If not provided, attempts recovery for all services
+   * @returns Promise that resolves when recovery attempts complete
+   */
   async triggerRecovery(serviceName?: 'gemini' | 'discord'): Promise<void> {
     logger.info(`Manual recovery triggered${serviceName ? ` for ${serviceName}` : ' for all services'}`);
     
@@ -430,6 +487,20 @@ export class GracefulDegradation {
     };
   }
 
+  /**
+   * Records successful operation and manages circuit breaker state transitions
+   * 
+   * Success Recording Process:
+   * 1. Updates last success timestamp
+   * 2. Increments consecutive success counter
+   * 3. Evaluates state transition conditions
+   * 4. Transitions HALF-OPEN → CLOSED after sufficient successes
+   * 5. Resets failure counters on full recovery
+   * 6. Updates overall system status
+   * 
+   * @param serviceName - Service that completed successfully
+   * @private
+   */
   private async recordSuccess(serviceName: 'gemini' | 'discord'): Promise<void> {
     const release = await this.stateMutex.acquire();
     try {
@@ -455,6 +526,22 @@ export class GracefulDegradation {
     }
   }
 
+  /**
+   * Records operation failure and manages circuit breaker state transitions
+   * 
+   * Failure Recording Process:
+   * 1. Increments failure counter
+   * 2. Updates last failure timestamp
+   * 3. Resets consecutive success counter
+   * 4. Evaluates if failure threshold exceeded
+   * 5. Transitions CLOSED/HALF-OPEN → OPEN when threshold reached
+   * 6. Updates overall system status
+   * 7. Logs failure details for monitoring
+   * 
+   * @param serviceName - Service that failed
+   * @param error - Error that caused the failure
+   * @private
+   */
   private async recordFailure(serviceName: 'gemini' | 'discord', error: unknown): Promise<void> {
     const release = await this.stateMutex.acquire();
     try {
@@ -488,12 +575,30 @@ export class GracefulDegradation {
     }
   }
 
+  /**
+   * Evaluates health metrics to determine degradation requirements
+   * 
+   * Health Assessment Criteria:
+   * - Memory Usage: Critical when exceeding configured threshold
+   * - Error Rate: Medium severity when above acceptable rate
+   * - Response Time: Medium severity when P95 exceeds threshold
+   * - API Health: High severity when services report unhealthy
+   * 
+   * Thresholds (configurable via environment):
+   * - Memory: DEFAULT_MEMORY_THRESHOLD_MB (400MB)
+   * - Error Rate: DEFAULT_ERROR_RATE_THRESHOLD (10%)
+   * - Response Time: DEFAULT_RESPONSE_TIME_THRESHOLD_MS (10s)
+   * 
+   * @param metrics - Current health metrics from HealthMonitor
+   * @returns Degradation assessment based on health status
+   * @private
+   */
   private assessHealthBasedDegradation(metrics: HealthMetrics): {
     shouldDegrade: boolean;
     reason: string;
     severity: 'low' | 'medium' | 'high';
   } {
-    const memoryUsageMB = metrics.memoryUsage.rss / (1024 * 1024);
+    const memoryUsageMB = metrics.memoryUsage.rss / GENERAL_CONSTANTS.BYTES_TO_MB;
     
     // Critical memory usage
     if (memoryUsageMB > this.config.memoryThresholdMB) {
@@ -554,6 +659,24 @@ export class GracefulDegradation {
     }, this.config.resetTimeoutMs);
   }
 
+  /**
+   * Processes queued messages during system recovery
+   * 
+   * Queue Processing Strategy:
+   * 1. Checks if system is still too degraded to process
+   * 2. Processes messages in priority order (high → medium → low)
+   * 3. Validates message expiration before processing
+   * 4. Integrates with actual service calls when available
+   * 5. Handles retry logic for failed messages
+   * 6. Removes expired messages with user notification
+   * 
+   * Batch Processing:
+   * - Processes up to MAX_BATCH_PROCESS_SIZE messages per cycle
+   * - Maintains message ordering within priority levels
+   * - Provides user feedback on processing status
+   * 
+   * @private
+   */
   private async processQueue(): Promise<void> {
     if (this.messageQueue.length === 0) return;
     
@@ -566,7 +689,7 @@ export class GracefulDegradation {
     const release = await this.queueMutex.acquire();
     try {
       // Process high priority messages first
-      const messagesToProcess = this.messageQueue.splice(0, Math.min(5, this.messageQueue.length));
+      const messagesToProcess = this.messageQueue.splice(0, Math.min(DEGRADATION_CONSTANTS.MAX_BATCH_PROCESS_SIZE, this.messageQueue.length));
       
       for (const message of messagesToProcess) {
         try {
@@ -609,6 +732,28 @@ export class GracefulDegradation {
     }
   }
 
+  /**
+   * Attempts to recover a specific failed service
+   * 
+   * Recovery Process:
+   * 1. Records recovery attempt metrics
+   * 2. Executes service-specific recovery strategy
+   * 3. Logs success/failure for monitoring
+   * 4. Updates recovery statistics
+   * 
+   * Service-Specific Recovery:
+   * - Gemini: Health check with API validation
+   * - Discord: Connection status and webhook validation
+   * 
+   * Recovery Metrics Tracked:
+   * - Total attempts
+   * - Success rate
+   * - Average recovery time
+   * - Last attempt timestamp
+   * 
+   * @param serviceName - Service to attempt recovery for
+   * @private
+   */
   private async attemptServiceRecovery(serviceName: 'gemini' | 'discord'): Promise<void> {
     logger.info(`Attempting recovery for ${serviceName} service`);
     
@@ -644,10 +789,10 @@ export class GracefulDegradation {
 
   private async simulateHealthCheck(serviceName: string): Promise<void> {
     // Simulate a basic health check
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, DEGRADATION_CONSTANTS.HEALTH_CHECK_DELAY_MS));
     
     // For demonstration, we'll have a 50% success rate
-    if (Math.random() < 0.5) {
+    if (Math.random() < DEGRADATION_CONSTANTS.HEALTH_CHECK_SUCCESS_RATE) {
       throw new Error(`Health check failed for ${serviceName}`);
     }
   }
@@ -688,15 +833,15 @@ export class GracefulDegradation {
   }
 
   private estimateWaitTime(position: number): string {
-    const averageProcessingTime = 30; // seconds
+    const averageProcessingTime = DEGRADATION_CONSTANTS.AVERAGE_PROCESSING_TIME_SECONDS; // seconds
     const estimatedSeconds = position * averageProcessingTime;
     
-    if (estimatedSeconds < 60) {
+    if (estimatedSeconds < DEGRADATION_CONSTANTS.SECONDS_PER_MINUTE) {
       return `${estimatedSeconds} seconds`;
-    } else if (estimatedSeconds < 3600) {
-      return `${Math.ceil(estimatedSeconds / 60)} minutes`;
+    } else if (estimatedSeconds < DEGRADATION_CONSTANTS.SECONDS_PER_HOUR) {
+      return `${Math.ceil(estimatedSeconds / DEGRADATION_CONSTANTS.SECONDS_PER_MINUTE)} minutes`;
     } else {
-      return `${Math.ceil(estimatedSeconds / 3600)} hours`;
+      return `${Math.ceil(estimatedSeconds / DEGRADATION_CONSTANTS.SECONDS_PER_HOUR)} hours`;
     }
   }
 

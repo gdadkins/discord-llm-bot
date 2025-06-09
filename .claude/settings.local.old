@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm uninstall:*)",
+      "Bash(npm install:*)",
+      "Bash(test:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run lint)",
+      "Bash(ls:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run format:*)",
+      "Bash(npm run lint:*)",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm test:*)",
+      "Bash(node:*)",
+      "Bash(node:*)",
+      "Bash(rm:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npm audit:*)",
+      "Bash(npm outdated)",
+      "Bash(touch:*)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"fs\\.(writeFile|readFile|writeJSON|readJSON|outputJSON|readJson|writeJson|remove)\" /mnt/c/github/discord/discord-llm-bot/src/services/configurationManager.ts -n)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"fs\\.(writeFile|readFile|writeJSON|readJSON|outputJSON|readJson|writeJson|remove)\" /mnt/c/github/discord/discord-llm-bot/src/services/configurationManager.ts -n -A2 -B2)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"avg_latency|operation_count\" /mnt/c/github/discord/discord-llm-bot/src/services/analyticsManager.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -A 10 -B 5 \"operation_count\" /mnt/c/github/discord/discord-llm-bot/src/services/analyticsManager.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -B 5 -A 5 \"prepare.*perfQuery.*all\" /mnt/c/github/discord/discord-llm-bot/src/services/analyticsManager.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -n \": any\" /mnt/c/github/discord/discord-llm-bot/src/services/analyticsManager.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -n \"import.*DataStore|registeredStores\" /mnt/c/github/discord/discord-llm-bot/src/services/analyticsManager.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -A 10 \"getRegisteredStores\" /mnt/c/github/discord/discord-llm-bot/src/utils/DataStoreFactory.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -A 20 \"getMetrics\" /mnt/c/github/discord/discord-llm-bot/src/utils/DataStore.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -A 15 \"interface DataStoreMetrics\" /mnt/c/github/discord/discord-llm-bot/src/utils/DataStore.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -n \"avgLatency|\\.errors|\\.operations\" /mnt/c/github/discord/discord-llm-bot/src/services/analyticsManager.ts)",
+      "Bash(/home/gary/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg -A 5 \"trackPerformance.*\\(\" /mnt/c/github/discord/discord-llm-bot/src/services/analyticsManager.ts)"
+    ],
+    "deny": []
+  }
+}

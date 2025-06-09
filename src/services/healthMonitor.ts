@@ -2,11 +2,13 @@ import { Mutex } from 'async-mutex';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../utils/logger';
+import { DataStoreMetrics } from '../utils/DataStore';
 import { DataStore, DataValidator } from '../utils/DataStore';
 import { dataStoreFactory } from '../utils/DataStoreFactory';
 import { RateLimiter } from './rateLimiter';
 import { ContextManager } from './contextManager';
 import { GeminiService } from './gemini';
+import { HEALTH_MONITOR_CONSTANTS, TIME_CONSTANTS } from '../config/constants';
 
 export interface HealthMetrics {
   memoryUsage: NodeJS.MemoryUsage;
@@ -103,11 +105,11 @@ export class HealthMonitor {
   private cleanupTimer: NodeJS.Timeout | null = null;
   
   // Configuration
-  private readonly COLLECTION_INTERVAL_MS = 30000; // 30 seconds
-  private readonly RETENTION_DAYS = 7;
-  private readonly MAX_SNAPSHOTS = (this.RETENTION_DAYS * 24 * 60 * 60 * 1000) / this.COLLECTION_INTERVAL_MS; // ~20,160 snapshots
-  private readonly CLEANUP_INTERVAL_MS = 300000; // 5 minutes
-  private readonly MAX_PERFORMANCE_BUFFER = 1000; // Last 1000 operations
+  private readonly COLLECTION_INTERVAL_MS = HEALTH_MONITOR_CONSTANTS.COLLECTION_INTERVAL_MS; // 30 seconds
+  private readonly RETENTION_DAYS = HEALTH_MONITOR_CONSTANTS.RETENTION_DAYS;
+  private readonly MAX_SNAPSHOTS = (this.RETENTION_DAYS * 24 * TIME_CONSTANTS.ONE_HOUR_MS) / this.COLLECTION_INTERVAL_MS; // ~20,160 snapshots
+  private readonly CLEANUP_INTERVAL_MS = HEALTH_MONITOR_CONSTANTS.CLEANUP_INTERVAL_MS; // 5 minutes
+  private readonly MAX_PERFORMANCE_BUFFER = HEALTH_MONITOR_CONSTANTS.MAX_PERFORMANCE_BUFFER; // Last 1000 operations
   
   // Performance tracking
   private performanceBuffer: PerformanceBuffer = {
@@ -120,10 +122,10 @@ export class HealthMonitor {
   
   // Alert configuration and state
   private alertConfig: AlertConfig = {
-    memoryThreshold: parseInt(process.env.HEALTH_MEMORY_THRESHOLD_MB || '500'),
-    errorRateThreshold: parseFloat(process.env.HEALTH_ERROR_RATE_THRESHOLD || '5.0'),
-    responseTimeThreshold: parseInt(process.env.HEALTH_RESPONSE_TIME_THRESHOLD_MS || '5000'),
-    diskSpaceThreshold: parseFloat(process.env.HEALTH_DISK_SPACE_THRESHOLD || '85.0'),
+    memoryThreshold: parseInt(process.env.HEALTH_MEMORY_THRESHOLD_MB || String(HEALTH_MONITOR_CONSTANTS.DEFAULT_MEMORY_THRESHOLD_MB)),
+    errorRateThreshold: parseFloat(process.env.HEALTH_ERROR_RATE_THRESHOLD || String(HEALTH_MONITOR_CONSTANTS.DEFAULT_ERROR_RATE_THRESHOLD)),
+    responseTimeThreshold: parseInt(process.env.HEALTH_RESPONSE_TIME_THRESHOLD_MS || String(HEALTH_MONITOR_CONSTANTS.DEFAULT_RESPONSE_TIME_THRESHOLD_MS)),
+    diskSpaceThreshold: parseFloat(process.env.HEALTH_DISK_SPACE_THRESHOLD || String(HEALTH_MONITOR_CONSTANTS.DEFAULT_DISK_SPACE_THRESHOLD)),
     enabled: process.env.HEALTH_ALERTS_ENABLED === 'true',
   };
   
@@ -146,16 +148,36 @@ export class HealthMonitor {
   private lastGeminiCheck = 0;
   private lastGeminiStatus = false;
   
+  // DataStore health caching to avoid excessive health checks
+  private lastDataStoreHealthCheck = 0;
+  private cachedDataStoreHealth: {
+    healthyStores: number;
+    unhealthyStores: number;
+    errors: Array<{ filePath: string; error: string }>;
+  } | null = null;
+  
+  // Detailed DataStore metrics for alerting
+  private lastDataStoreMetrics: {
+    timestamp: number;
+    stores: Array<{
+      id: string;
+      type: string;
+      filePath: string;
+      metrics: DataStoreMetrics;
+      lastAccessed: Date;
+    }>;
+  } | null = null;
+  
   constructor(dataFile = './data/health-metrics.json') {
     this.dataFile = dataFile;
     
     // Initialize DataStore with compression and TTL
     const validator: DataValidator<HealthMetricsData> = (data: unknown): data is HealthMetricsData => {
       if (!data || typeof data !== 'object') return false;
-      const d = data as any;
+      const d = data as Record<string, unknown>;
       return Array.isArray(d.snapshots) && 
              typeof d.lastSaved === 'number' &&
-             d.alertState && typeof d.alertState === 'object';
+             !!d.alertState && typeof d.alertState === 'object';
     };
     
     this.metricsDataStore = new DataStore<HealthMetricsData>('./data/metrics.json', {
@@ -388,33 +410,81 @@ export class HealthMonitor {
     };
     
     try {
-      // Get aggregated metrics from DataStore factory
-      const aggregated = dataStoreFactory.getAggregatedMetrics();
+      // Get aggregated metrics from DataStore factory registry
+      const registeredStores = dataStoreFactory.getRegisteredStores();
+      
+      // Calculate average latencies
+      let totalSaveLatency = 0;
+      let totalLoadLatency = 0;
+      let saveOperationCount = 0;
+      let loadOperationCount = 0;
+      
+      const aggregated = {
+        totalStores: registeredStores.length,
+        storesByType: registeredStores.reduce((acc: Record<string, number>, store) => {
+          acc[store.type] = (acc[store.type] || 0) + 1;
+          return acc;
+        }, {}),
+        totalSaveOperations: registeredStores.reduce((sum, store) => {
+          const metrics = store.instance.getMetrics();
+          const saveCount = metrics.saveCount;
+          if (saveCount > 0) {
+            totalSaveLatency += metrics.avgSaveLatency * saveCount;
+            saveOperationCount += saveCount;
+          }
+          return sum + saveCount;
+        }, 0),
+        totalLoadOperations: registeredStores.reduce((sum, store) => {
+          const metrics = store.instance.getMetrics();
+          const loadCount = metrics.loadCount;
+          if (loadCount > 0) {
+            totalLoadLatency += metrics.avgLoadLatency * loadCount;
+            loadOperationCount += loadCount;
+          }
+          return sum + loadCount;
+        }, 0),
+        totalErrors: registeredStores.reduce((sum, store) => {
+          const metrics = store.instance.getMetrics();
+          return sum + metrics.errorCount;
+        }, 0),
+        avgSaveLatency: saveOperationCount > 0 ? totalSaveLatency / saveOperationCount : 0,
+        avgLoadLatency: loadOperationCount > 0 ? totalLoadLatency / loadOperationCount : 0
+      };
+      
       dataStoreMetrics = {
         ...aggregated,
         healthyStores: 0,
         unhealthyStores: 0,
-        totalBytesWritten: 0,
-        totalBytesRead: 0,
+        totalBytesWritten: registeredStores.reduce((sum, store) => {
+          const metrics = store.instance.getMetrics();
+          return sum + metrics.totalBytesWritten;
+        }, 0),
+        totalBytesRead: registeredStores.reduce((sum, store) => {
+          const metrics = store.instance.getMetrics();
+          return sum + metrics.totalBytesRead;
+        }, 0),
       };
       
-      // Perform health checks on all DataStores
-      const healthResults = await dataStoreFactory.healthCheckAll();
-      for (const [path, result] of healthResults) {
-        if (result.health && result.health.healthy) {
-          dataStoreMetrics.healthyStores++;
-        } else {
-          dataStoreMetrics.unhealthyStores++;
-        }
-        
-        // Aggregate bytes from individual store metrics
-        if (result.health && result.health.metrics) {
-          dataStoreMetrics.totalBytesWritten += result.health.metrics.totalBytesWritten;
-          dataStoreMetrics.totalBytesRead += result.health.metrics.totalBytesRead;
-        }
-      }
+      // Perform health checks on all DataStores with caching
+      const healthResults = await this.getCachedDataStoreHealth();
+      dataStoreMetrics.healthyStores = healthResults.healthyStores;
+      dataStoreMetrics.unhealthyStores = healthResults.unhealthyStores;
+      
+      // Store detailed per-store metrics for alerting
+      this.lastDataStoreMetrics = {
+        timestamp: now,
+        stores: registeredStores.map(store => ({
+          id: store.id,
+          type: store.type,
+          filePath: store.filePath,
+          metrics: store.instance.getMetrics(),
+          lastAccessed: store.lastAccessed
+        }))
+      };
+      
     } catch (error) {
       logger.error('Failed to collect DataStore metrics:', error);
+      this.recordError(); // Track this as a system error
     }
     
     return {
@@ -507,27 +577,45 @@ export class HealthMonitor {
       await this.triggerAlert('api_health', `Unhealthy services: ${unhealthyServices.join(', ')}`, metrics);
     }
     
-    // DataStore health alerts
+    // Enhanced DataStore health alerts
     if (metrics.dataStoreMetrics.unhealthyStores > 0) {
+      const unhealthyDetails = this.getUnhealthyDataStoreDetails();
       await this.triggerAlert('datastore_health', 
-        `Unhealthy DataStores: ${metrics.dataStoreMetrics.unhealthyStores} of ${metrics.dataStoreMetrics.totalStores}`, 
+        `Unhealthy DataStores: ${metrics.dataStoreMetrics.unhealthyStores} of ${metrics.dataStoreMetrics.totalStores}${unhealthyDetails}`, 
         metrics);
     }
     
-    // DataStore performance alerts
-    const dataStoreErrorRate = metrics.dataStoreMetrics.totalErrors / 
-      (metrics.dataStoreMetrics.totalSaveOperations + metrics.dataStoreMetrics.totalLoadOperations || 1) * 100;
+    // DataStore performance alerts with enhanced thresholds
+    const totalOperations = metrics.dataStoreMetrics.totalSaveOperations + metrics.dataStoreMetrics.totalLoadOperations;
+    const dataStoreErrorRate = totalOperations > 0 ? (metrics.dataStoreMetrics.totalErrors / totalOperations) * 100 : 0;
     
-    if (dataStoreErrorRate > 5.0) { // 5% error threshold
+    if (dataStoreErrorRate > 5.0 && metrics.dataStoreMetrics.totalErrors > 10) { // 5% error threshold with minimum error count
       await this.triggerAlert('datastore_errors', 
-        `High DataStore error rate: ${dataStoreErrorRate.toFixed(1)}% (${metrics.dataStoreMetrics.totalErrors} errors)`, 
+        `High DataStore error rate: ${dataStoreErrorRate.toFixed(1)}% (${metrics.dataStoreMetrics.totalErrors} errors in ${totalOperations} operations)`, 
         metrics);
     }
     
-    // DataStore latency alerts
-    if (metrics.dataStoreMetrics.avgSaveLatency > 500 || metrics.dataStoreMetrics.avgLoadLatency > 200) {
+    // DataStore latency alerts with type-specific thresholds
+    if (metrics.dataStoreMetrics.avgSaveLatency > 1000 || metrics.dataStoreMetrics.avgLoadLatency > 500) {
+      const slowStores = this.getSlowDataStores();
       await this.triggerAlert('datastore_latency', 
-        `High DataStore latency - Save: ${metrics.dataStoreMetrics.avgSaveLatency.toFixed(0)}ms, Load: ${metrics.dataStoreMetrics.avgLoadLatency.toFixed(0)}ms`, 
+        `High DataStore latency - Save: ${metrics.dataStoreMetrics.avgSaveLatency.toFixed(0)}ms, Load: ${metrics.dataStoreMetrics.avgLoadLatency.toFixed(0)}ms${slowStores}`, 
+        metrics);
+    }
+    
+    // DataStore capacity alerts
+    const totalDataSize = metrics.dataStoreMetrics.totalBytesWritten + metrics.dataStoreMetrics.totalBytesRead;
+    if (totalDataSize > 100 * 1024 * 1024) { // 100MB threshold
+      await this.triggerAlert('datastore_capacity', 
+        `DataStore capacity warning: ${(totalDataSize / (1024 * 1024)).toFixed(1)}MB total data processed`, 
+        metrics);
+    }
+    
+    // DataStore stale access alerts
+    const staleStores = this.getStaleDataStores();
+    if (staleStores.length > 0) {
+      await this.triggerAlert('datastore_stale', 
+        `Stale DataStores detected: ${staleStores.length} stores not accessed in 24h`, 
         metrics);
     }
   }
@@ -632,6 +720,129 @@ export class HealthMonitor {
     if (!metrics.apiHealth.gemini) {
       logger.warn('Gemini API unhealthy - check API key and quotas');
     }
+  }
+
+  /**
+   * Get cached DataStore health to avoid excessive health checks
+   */
+  private async getCachedDataStoreHealth(): Promise<{
+    healthyStores: number;
+    unhealthyStores: number;
+    errors: Array<{ filePath: string; error: string }>;
+  }> {
+    const now = Date.now();
+    const cacheValidityMs = 60000; // 1 minute cache
+
+    if (this.cachedDataStoreHealth && (now - this.lastDataStoreHealthCheck) < cacheValidityMs) {
+      return this.cachedDataStoreHealth;
+    }
+
+    try {
+      const healthResults = await dataStoreFactory.performHealthCheck();
+      this.cachedDataStoreHealth = healthResults;
+      this.lastDataStoreHealthCheck = now;
+      return healthResults;
+    } catch (error) {
+      logger.error('DataStore health check failed:', error);
+      // Return cached result if available, otherwise default
+      return this.cachedDataStoreHealth || {
+        healthyStores: 0,
+        unhealthyStores: 0,
+        errors: [{ filePath: 'health-check', error: 'Health check failed' }]
+      };
+    }
+  }
+
+  /**
+   * Get details about unhealthy DataStores for alerting
+   */
+  private getUnhealthyDataStoreDetails(): string {
+    if (!this.cachedDataStoreHealth || this.cachedDataStoreHealth.errors.length === 0) {
+      return '';
+    }
+
+    const errorSummary = this.cachedDataStoreHealth.errors
+      .slice(0, 3) // Limit to 3 for brevity
+      .map(error => `${error.filePath}: ${error.error.substring(0, 50)}`)
+      .join(', ');
+
+    const remaining = this.cachedDataStoreHealth.errors.length - 3;
+    const suffix = remaining > 0 ? ` (+${remaining} more)` : '';
+
+    return ` [${errorSummary}${suffix}]`;
+  }
+
+  /**
+   * Get details about slow DataStores for alerting
+   */
+  private getSlowDataStores(): string {
+    if (!this.lastDataStoreMetrics) {
+      return '';
+    }
+
+    const slowStores = this.lastDataStoreMetrics.stores
+      .filter(store => {
+        const metrics = store.metrics;
+        return metrics.avgSaveLatency > 1000 || metrics.avgLoadLatency > 500;
+      })
+      .slice(0, 3) // Limit to 3 for brevity
+      .map(store => {
+        const metrics = store.metrics;
+        return `${store.type}(${store.filePath}): save=${metrics.avgSaveLatency.toFixed(0)}ms, load=${metrics.avgLoadLatency.toFixed(0)}ms`;
+      });
+
+    return slowStores.length > 0 ? ` [${slowStores.join(', ')}]` : '';
+  }
+
+  /**
+   * Get DataStores that haven't been accessed recently
+   */
+  private getStaleDataStores(): Array<{ id: string; type: string; filePath: string; lastAccessed: Date }> {
+    if (!this.lastDataStoreMetrics) {
+      return [];
+    }
+
+    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+
+    return this.lastDataStoreMetrics.stores
+      .filter(store => store.lastAccessed.getTime() < twentyFourHoursAgo)
+      .map(store => ({
+        id: store.id,
+        type: store.type,
+        filePath: store.filePath,
+        lastAccessed: store.lastAccessed
+      }));
+  }
+
+  /**
+   * Get DataStore performance baseline for comparison
+   */
+  getDataStorePerformanceBaseline(): {
+    avgSaveLatency: number;
+    avgLoadLatency: number;
+    errorRate: number;
+    timestamp: number;
+  } | null {
+    if (!this.lastDataStoreMetrics) {
+      return null;
+    }
+
+    const stores = this.lastDataStoreMetrics.stores;
+    if (stores.length === 0) {
+      return null;
+    }
+
+    const totalSaveLatency = stores.reduce((sum, store) => sum + store.metrics.avgSaveLatency, 0);
+    const totalLoadLatency = stores.reduce((sum, store) => sum + store.metrics.avgLoadLatency, 0);
+    const totalOperations = stores.reduce((sum, store) => sum + store.metrics.saveCount + store.metrics.loadCount, 0);
+    const totalErrors = stores.reduce((sum, store) => sum + store.metrics.errorCount, 0);
+
+    return {
+      avgSaveLatency: totalSaveLatency / stores.length,
+      avgLoadLatency: totalLoadLatency / stores.length,
+      errorRate: totalOperations > 0 ? (totalErrors / totalOperations) * 100 : 0,
+      timestamp: this.lastDataStoreMetrics.timestamp
+    };
   }
 
   private startMetricsCollection(): void {
@@ -770,10 +981,7 @@ export class HealthMonitor {
       
       const data: HealthMetricsData = {
         snapshots: aggregatedSnapshots,
-        alertState: {
-          ...serializableAlertState,
-          consecutiveAlerts: serializableAlertState.consecutiveAlerts
-        } as any,
+        alertState: serializableAlertState as unknown as AlertState,
         lastSaved: Date.now(),
       };
       

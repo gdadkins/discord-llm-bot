@@ -2,6 +2,8 @@ import { Mutex } from 'async-mutex';
 import { logger } from '../utils/logger';
 import { DataStore, DataValidator } from '../utils/DataStore';
 import { dataStoreFactory } from '../utils/DataStoreFactory';
+import { validate, batchValidate } from '../utils/validation';
+import { RATE_LIMITER_CONSTANTS } from '../config/constants';
 
 interface RateLimitingConfig {
   rpm: number;
@@ -38,8 +40,8 @@ export class RateLimiter {
   private cachedMinuteWindow = 0;
   private cachedDayWindow = 0;
   private lastWindowUpdate = 0;
-  private readonly FLUSH_INTERVAL_MS = 10000; // Batch writes every 10 seconds
-  private readonly WINDOW_CACHE_MS = 1000; // Cache window calculations for 1 second
+  private readonly FLUSH_INTERVAL_MS = RATE_LIMITER_CONSTANTS.FLUSH_INTERVAL_MS; // Batch writes every 10 seconds
+  private readonly WINDOW_CACHE_MS = RATE_LIMITER_CONSTANTS.WINDOW_CACHE_MS; // Cache window calculations for 1 second
 
   constructor(
     rpmLimit: number,
@@ -47,8 +49,8 @@ export class RateLimiter {
     stateFile = './data/rate-limit.json',
   ) {
     // Use 90% of actual limits for safety margin
-    this.rpmLimit = Math.floor(rpmLimit * 0.9);
-    this.dailyLimit = Math.floor(dailyLimit * 0.9);
+    this.rpmLimit = Math.floor(rpmLimit * RATE_LIMITER_CONSTANTS.SAFETY_MARGIN);
+    this.dailyLimit = Math.floor(dailyLimit * RATE_LIMITER_CONSTANTS.SAFETY_MARGIN);
     this.stateFile = stateFile;
 
     // Initialize with current time windows
@@ -352,48 +354,35 @@ export class RateLimiter {
   }
 
   async validateConfiguration(config: { rateLimiting: RateLimitingConfig }): Promise<{ valid: boolean; errors: string[] }> {
-    const errors: string[] = [];
-
     try {
-      if (config.rateLimiting) {
-        const rateLimitConfig = config.rateLimiting;
-        
-        if (rateLimitConfig.rpm <= 0) {
-          errors.push('Rate limiting RPM must be greater than 0');
-        }
-        if (rateLimitConfig.daily <= 0) {
-          errors.push('Rate limiting daily limit must be greater than 0');
-        }
-        if (rateLimitConfig.rpm > rateLimitConfig.daily / 24) {
-          errors.push('RPM limit cannot exceed daily limit divided by 24 hours');
-        }
-        if (rateLimitConfig.safetyMargin < 0.1 || rateLimitConfig.safetyMargin > 1) {
-          errors.push('Safety margin must be between 0.1 and 1.0');
-        }
-        if (rateLimitConfig.burstSize <= 0) {
-          errors.push('Burst size must be greater than 0');
-        }
-
-        if (rateLimitConfig.retryOptions) {
-          const retryOptions = rateLimitConfig.retryOptions;
-          if (retryOptions.maxRetries < 0 || retryOptions.maxRetries > 10) {
-            errors.push('Max retries must be between 0 and 10');
-          }
-          if (retryOptions.retryDelay < 100 || retryOptions.retryDelay > 10000) {
-            errors.push('Retry delay must be between 100ms and 10000ms');
-          }
-          if (retryOptions.retryMultiplier < 1 || retryOptions.retryMultiplier > 5) {
-            errors.push('Retry multiplier must be between 1 and 5');
-          }
-        }
+      if (!config.rateLimiting) {
+        return { valid: true, errors: [] };
       }
-    } catch (error) {
-      errors.push(`Rate limiter validation error: ${error}`);
-    }
 
-    return {
-      valid: errors.length === 0,
-      errors
-    };
+      const rateLimitConfig = config.rateLimiting;
+      const batch = batchValidate()
+        .add('rpm', validate(rateLimitConfig.rpm, 'RPM').isNumber().numberRange(1).validate())
+        .add('daily', validate(rateLimitConfig.daily, 'Daily limit').isNumber().numberRange(1).validate())
+        .add('safetyMargin', validate(rateLimitConfig.safetyMargin, 'Safety margin').isNumber().numberRange(0.1, 1).validate())
+        .add('burstSize', validate(rateLimitConfig.burstSize, 'Burst size').isNumber().numberRange(1).validate());
+
+      // Custom validation for RPM vs daily limit relationship
+      if (rateLimitConfig.rpm > rateLimitConfig.daily / 24) {
+        batch.add('rpmDailyRatio', { valid: false, errors: ['RPM limit cannot exceed daily limit divided by 24 hours'] });
+      }
+
+      // Validate retry options if present
+      if (rateLimitConfig.retryOptions) {
+        const retryOptions = rateLimitConfig.retryOptions;
+        batch
+          .add('maxRetries', validate(retryOptions.maxRetries, 'Max retries').isNumber().numberRange(0, 10).validate())
+          .add('retryDelay', validate(retryOptions.retryDelay, 'Retry delay').isNumber().numberRange(100, 10000).validate())
+          .add('retryMultiplier', validate(retryOptions.retryMultiplier, 'Retry multiplier').isNumber().numberRange(1, 5).validate());
+      }
+
+      return batch.validateAll();
+    } catch (error) {
+      return { valid: false, errors: [`Rate limiter validation error: ${error}`] };
+    }
   }
 }

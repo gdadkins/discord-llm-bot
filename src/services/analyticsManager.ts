@@ -4,7 +4,8 @@ import * as fs from 'fs/promises';
 import Database from 'better-sqlite3';
 import * as crypto from 'crypto-js';
 import { logger } from '../utils/logger';
-import { dataStoreFactory } from '../utils/DataStoreFactory';
+import { dataStoreFactory, DataStoreRegistryEntry } from '../utils/DataStoreFactory';
+import { DataStoreMetrics } from '../utils/DataStore';
 
 // Database query result interfaces
 interface CommandUsageRow {
@@ -27,6 +28,135 @@ interface PerformanceRow {
   avg_value: number;
   min_value: number;
   max_value: number;
+}
+
+// Extended interface for performance queries with computed fields
+interface ExtendedPerformanceRow {
+  metric: string;
+  avg_latency: number;
+  min_latency: number;
+  max_latency: number;
+  operation_count: number;
+  context: string;
+}
+
+// DataStore factory metrics interfaces
+interface DataStoreFactoryMetrics {
+  totalStores: number;
+  storesByType: Record<string, number>;
+  totalOperations: number;
+  totalErrors: number;
+  avgSaveLatency: number;
+  avgLoadLatency: number;
+  totalBytesProcessed: number;
+  storeDetails: DataStoreDetail[];
+}
+
+interface DataStoreDetail {
+  id: string;
+  type: string;
+  filePath: string;
+  metrics: {
+    operations: number;
+    errors: number;
+    avgLatency: number;
+    dataSize: number;
+    lastOperation: number;
+  };
+  health: {
+    lastAccessed: Date;
+    ageMs: number;
+  };
+}
+
+interface DataStoreInsights {
+  performance: DataStoreInsight[];
+  reliability: DataStoreInsight[];
+  capacity: DataStoreInsight[];
+  recommendations: string[];
+}
+
+interface DataStoreInsight {
+  type: string;
+  message: string;
+  details: Array<{
+    type: string;
+    file: string;
+    latency?: string;
+    errors?: number;
+    size?: string;
+  }>;
+}
+
+interface DataStoreAlert {
+  level: 'warning' | 'critical';
+  type: string;
+  count: number;
+  message: string;
+}
+
+interface DataStoreDashboard {
+  summary: {
+    totalStores: number;
+    storesByType: Record<string, number>;
+    totalOperations: number;
+    totalErrors: number;
+    errorRate: number;
+    avgLatency: {
+      save: number;
+      load: number;
+    };
+    dataVolume: {
+      totalBytes: number;
+      formattedSize: string;
+    };
+  };
+  performance: {
+    byType: Record<string, {
+      save: { avg_latency: number; operation_count: number };
+      load: { avg_latency: number; operation_count: number };
+    }>;
+    historical: Array<{
+      hour: string;
+      metric: string;
+      avg_value: number;
+      min_value: number;
+      max_value: number;
+      count: number;
+    }>;
+  };
+  capacity: {
+    trends: Array<{
+      hour: string;
+      total_bytes: number;
+      active_stores: number;
+    }>;
+    utilization: {
+      status: string;
+      totalBytes: number;
+      formattedSize: string;
+      utilizationPercent: number;
+      avgBytesPerOperation: number;
+      thresholds: {
+        warning: number;
+        critical: number;
+      };
+    };
+  };
+  health: {
+    storeDetails: DataStoreDetail[];
+    alerts: DataStoreAlert[];
+  };
+  insights: DataStoreInsights;
+  trends: Array<{
+    hour: string;
+    metric: string;
+    avg_value: number;
+    min_value: number;
+    max_value: number;
+    count: number;
+  }>;
+  currentMetrics: DataStoreFactoryMetrics;
 }
 
 
@@ -72,7 +202,7 @@ export interface ErrorEvent {
 export interface PerformanceEvent {
   id?: number;
   timestamp: number;
-  metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate';
+  metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate' | 'datastore_save_time' | 'datastore_load_time';
   value: number;
   context?: string;
 }
@@ -550,7 +680,7 @@ export class AnalyticsManager {
   }
 
   // Performance Tracking
-  async trackPerformance(metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate', value: number, context?: string): Promise<void> {
+  async trackPerformance(metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate' | 'datastore_save_time' | 'datastore_load_time', value: number, context?: string): Promise<void> {
     if (!this.config.enabled || !this.database) return;
 
     const release = await this.mutex.acquire();
@@ -593,7 +723,7 @@ export class AnalyticsManager {
       // Also track aggregate metrics
       if (operation !== 'error') {
         await this.trackPerformance(
-          operation === 'save' ? 'datastore_save_time' as any : 'datastore_load_time' as any,
+          operation === 'save' ? ('datastore_save_time' as const) : ('datastore_load_time' as const),
           latency,
           storeType
         );
@@ -778,54 +908,123 @@ export class AnalyticsManager {
     return recommendations;
   }
 
-  // DataStore Analytics Dashboard
-  async getDataStoreDashboard(startDate: Date, endDate: Date): Promise<any> {
+  // Enhanced DataStore Analytics Dashboard
+  async getDataStoreDashboard(startDate: Date, endDate: Date): Promise<DataStoreDashboard | null> {
     if (!this.config.enabled || !this.database) return null;
 
     const release = await this.mutex.acquire();
     try {
-      // Get DataStore performance metrics
+      // Get DataStore performance metrics from database
       const perfQuery = `
         SELECT 
           metric,
           AVG(value) as avg_latency,
           MIN(value) as min_latency,
           MAX(value) as max_latency,
-          COUNT(*) as operation_count
+          COUNT(*) as operation_count,
+          context
         FROM performance_events
         WHERE timestamp BETWEEN ? AND ?
-          AND metric IN ('datastore_save_latency', 'datastore_load_latency')
-        GROUP BY metric
+          AND (metric LIKE 'datastore_%' OR metric IN ('datastore_save_time', 'datastore_load_time'))
+        GROUP BY metric, context
       `;
       
       const perfResults = this.database.prepare(perfQuery).all(
         startDate.getTime(), 
         endDate.getTime()
-      ) as PerformanceRow[];
+      ) as ExtendedPerformanceRow[];
       
-      // Get error metrics
+      // Get error metrics by store type
       const errorQuery = `
         SELECT 
-          COUNT(*) as error_count
+          COUNT(*) as error_count,
+          context
         FROM performance_events
         WHERE timestamp BETWEEN ? AND ?
           AND metric = 'datastore_error_rate'
+        GROUP BY context
       `;
       
-      const errorResult = this.database.prepare(errorQuery).get(
+      const errorResults = this.database.prepare(errorQuery).all(
         startDate.getTime(), 
         endDate.getTime()
-      ) as { error_count: number };
+      ) as Array<{ error_count: number; context: string }>;
       
-      // Get DataStore metrics from factory
-      const factoryMetrics = dataStoreFactory.getAggregatedMetrics();
+      // Get current DataStore metrics from factory registry
+      const registeredStores = dataStoreFactory.getRegisteredStores();
+      const currentTime = Date.now();
       
-      // Calculate trends
+      const factoryMetrics = {
+        totalStores: registeredStores.length,
+        storesByType: registeredStores.reduce((acc: Record<string, number>, store: DataStoreRegistryEntry) => {
+          acc[store.type] = (acc[store.type] || 0) + 1;
+          return acc;
+        }, {}),
+        totalOperations: registeredStores.reduce((sum: number, store: DataStoreRegistryEntry) => {
+          const metrics = store.instance.getMetrics();
+          return sum + metrics.saveCount + metrics.loadCount;
+        }, 0),
+        totalErrors: registeredStores.reduce((sum: number, store: DataStoreRegistryEntry) => {
+          const metrics = store.instance.getMetrics();
+          return sum + metrics.errorCount;
+        }, 0),
+        avgSaveLatency: this.calculateWeightedAverage(registeredStores, 'avgSaveLatency', 'saveCount'),
+        avgLoadLatency: this.calculateWeightedAverage(registeredStores, 'avgLoadLatency', 'loadCount'),
+        totalBytesProcessed: registeredStores.reduce((sum: number, store: DataStoreRegistryEntry) => {
+          const metrics = store.instance.getMetrics();
+          return sum + metrics.totalBytesWritten + metrics.totalBytesRead;
+        }, 0),
+        storeDetails: registeredStores.map(store => {
+          const metrics = store.instance.getMetrics();
+          return {
+            id: store.id,
+            type: store.type,
+            filePath: store.filePath.split('/').pop() || store.filePath, // Just filename for brevity
+            metrics: {
+              operations: metrics.saveCount + metrics.loadCount,
+              errors: metrics.errorCount,
+              avgLatency: (metrics.avgSaveLatency + metrics.avgLoadLatency) / 2,
+              dataSize: metrics.totalBytesWritten + metrics.totalBytesRead,
+              lastOperation: metrics.lastOperationTime
+            },
+            health: {
+              lastAccessed: store.lastAccessed,
+              ageMs: currentTime - store.created.getTime()
+            }
+          };
+        })
+      };
+      
+      // Calculate capacity utilization trends
+      const capacityQuery = `
+        SELECT 
+          strftime('%Y-%m-%d %H:00:00', timestamp/1000, 'unixepoch') as hour,
+          SUM(CASE WHEN context LIKE '%bytes%' THEN value ELSE 0 END) as total_bytes,
+          COUNT(DISTINCT context) as active_stores
+        FROM performance_events
+        WHERE timestamp BETWEEN ? AND ?
+          AND metric LIKE 'datastore_%'
+        GROUP BY hour
+        ORDER BY hour
+      `;
+      
+      const capacityTrends = this.database.prepare(capacityQuery).all(
+        startDate.getTime(), 
+        endDate.getTime()
+      ) as Array<{
+        hour: string;
+        total_bytes: number;
+        active_stores: number;
+      }>;
+      
+      // Calculate hourly trends by operation type
       const hourlyQuery = `
         SELECT 
           strftime('%Y-%m-%d %H:00:00', timestamp/1000, 'unixepoch') as hour,
           metric,
           AVG(value) as avg_value,
+          MIN(value) as min_value,
+          MAX(value) as max_value,
           COUNT(*) as count
         FROM performance_events
         WHERE timestamp BETWEEN ? AND ?
@@ -837,29 +1036,48 @@ export class AnalyticsManager {
       const hourlyTrends = this.database.prepare(hourlyQuery).all(
         startDate.getTime(), 
         endDate.getTime()
-      );
+      ) as Array<{
+        hour: string;
+        metric: string;
+        avg_value: number;
+        min_value: number;
+        max_value: number;
+        count: number;
+      }>;
+      
+      // Calculate performance insights
+      const insights = this.calculateDataStoreInsights(perfResults, errorResults, factoryMetrics);
       
       return {
         summary: {
           totalStores: factoryMetrics.totalStores,
           storesByType: factoryMetrics.storesByType,
-          totalOperations: factoryMetrics.totalSaveOperations + factoryMetrics.totalLoadOperations,
-          errorRate: errorResult?.error_count || 0,
-          performance: {
-            save: perfResults.find(r => r.metric === 'datastore_save_latency') || {
-              avg_latency: 0,
-              min_latency: 0,
-              max_latency: 0,
-              operation_count: 0
-            },
-            load: perfResults.find(r => r.metric === 'datastore_load_latency') || {
-              avg_latency: 0,
-              min_latency: 0,
-              max_latency: 0,
-              operation_count: 0
-            }
+          totalOperations: factoryMetrics.totalOperations,
+          totalErrors: factoryMetrics.totalErrors,
+          errorRate: factoryMetrics.totalOperations > 0 ? 
+            (factoryMetrics.totalErrors / factoryMetrics.totalOperations) * 100 : 0,
+          avgLatency: {
+            save: factoryMetrics.avgSaveLatency,
+            load: factoryMetrics.avgLoadLatency
+          },
+          dataVolume: {
+            totalBytes: factoryMetrics.totalBytesProcessed,
+            formattedSize: this.formatBytes(factoryMetrics.totalBytesProcessed)
           }
         },
+        performance: {
+          byType: this.groupPerformanceByType(perfResults),
+          historical: hourlyTrends
+        },
+        capacity: {
+          trends: capacityTrends,
+          utilization: this.calculateCapacityUtilization(factoryMetrics)
+        },
+        health: {
+          storeDetails: factoryMetrics.storeDetails,
+          alerts: this.generateDataStoreAlerts(factoryMetrics)
+        },
+        insights,
         trends: hourlyTrends,
         currentMetrics: factoryMetrics
       };
@@ -1181,6 +1399,306 @@ export class AnalyticsManager {
     if (cleanedSessions > 0) {
       logger.debug(`Cleaned up ${cleanedSessions} inactive sessions`);
     }
+  }
+
+  // Enhanced DataStore Analytics Helper Methods
+
+  /**
+   * Calculate weighted average for DataStore metrics
+   */
+  private calculateWeightedAverage(stores: DataStoreRegistryEntry[], metricKey: keyof DataStoreMetrics, weightKey: keyof DataStoreMetrics): number {
+    let totalWeightedValue = 0;
+    let totalWeight = 0;
+
+    for (const store of stores) {
+      const metrics = store.instance.getMetrics();
+      const value = metrics[metricKey] || 0;
+      const weight = metrics[weightKey] || 0;
+      
+      if (weight > 0) {
+        totalWeightedValue += value * weight;
+        totalWeight += weight;
+      }
+    }
+
+    return totalWeight > 0 ? totalWeightedValue / totalWeight : 0;
+  }
+
+  /**
+   * Group performance results by store type
+   */
+  private groupPerformanceByType(perfResults: ExtendedPerformanceRow[]): Record<string, {
+    save: { avg_latency: number; operation_count: number };
+    load: { avg_latency: number; operation_count: number };
+  }> {
+    const grouped: Record<string, {
+      save: { avg_latency: number; operation_count: number };
+      load: { avg_latency: number; operation_count: number };
+    }> = {};
+
+    for (const result of perfResults) {
+      const storeType = result.context || 'unknown';
+      if (!grouped[storeType]) {
+        grouped[storeType] = {
+          save: { avg_latency: 0, operation_count: 0 },
+          load: { avg_latency: 0, operation_count: 0 }
+        };
+      }
+
+      if (result.metric.includes('save')) {
+        grouped[storeType].save = {
+          avg_latency: result.avg_latency,
+          operation_count: result.operation_count
+        };
+      } else if (result.metric.includes('load')) {
+        grouped[storeType].load = {
+          avg_latency: result.avg_latency,
+          operation_count: result.operation_count
+        };
+      }
+    }
+
+    return grouped;
+  }
+
+  /**
+   * Calculate capacity utilization metrics
+   */
+  private calculateCapacityUtilization(factoryMetrics: DataStoreFactoryMetrics): {
+    status: string;
+    totalBytes: number;
+    formattedSize: string;
+    utilizationPercent: number;
+    avgBytesPerOperation: number;
+    thresholds: {
+      warning: number;
+      critical: number;
+    };
+  } {
+    const totalBytes = factoryMetrics.totalBytesProcessed;
+    const totalOperations = factoryMetrics.totalOperations;
+    
+    // Define capacity thresholds
+    const warningThreshold = 75 * 1024 * 1024; // 75MB
+    const criticalThreshold = 100 * 1024 * 1024; // 100MB
+    
+    let status = 'healthy';
+    if (totalBytes > criticalThreshold) {
+      status = 'critical';
+    } else if (totalBytes > warningThreshold) {
+      status = 'warning';
+    }
+
+    return {
+      status,
+      totalBytes,
+      formattedSize: this.formatBytes(totalBytes),
+      utilizationPercent: totalBytes > 0 ? Math.min((totalBytes / criticalThreshold) * 100, 100) : 0,
+      avgBytesPerOperation: totalOperations > 0 ? totalBytes / totalOperations : 0,
+      thresholds: {
+        warning: warningThreshold,
+        critical: criticalThreshold
+      }
+    };
+  }
+
+  /**
+   * Generate DataStore performance insights
+   */
+  private calculateDataStoreInsights(
+    perfResults: ExtendedPerformanceRow[], 
+    errorResults: Array<{ error_count: number; context: string }>, 
+    factoryMetrics: DataStoreFactoryMetrics
+  ): DataStoreInsights {
+    const insights: DataStoreInsights = {
+      performance: [],
+      reliability: [],
+      capacity: [],
+      recommendations: []
+    };
+
+    // Performance insights
+    const slowStores = factoryMetrics.storeDetails
+      .filter((store: DataStoreDetail) => store.metrics.avgLatency > 500)
+      .sort((a: DataStoreDetail, b: DataStoreDetail) => b.metrics.avgLatency - a.metrics.avgLatency);
+
+    if (slowStores.length > 0) {
+      insights.performance.push({
+        type: 'latency_warning',
+        message: `${slowStores.length} DataStore(s) have high average latency`,
+        details: slowStores.slice(0, 3).map((store: DataStoreDetail) => ({
+          type: store.type,
+          file: store.filePath,
+          latency: `${store.metrics.avgLatency.toFixed(0)}ms`
+        }))
+      });
+    }
+
+    // Reliability insights
+    const errorStores = factoryMetrics.storeDetails
+      .filter((store: DataStoreDetail) => store.metrics.errors > 0)
+      .sort((a: DataStoreDetail, b: DataStoreDetail) => b.metrics.errors - a.metrics.errors);
+
+    if (errorStores.length > 0) {
+      insights.reliability.push({
+        type: 'error_warning',
+        message: `${errorStores.length} DataStore(s) have recorded errors`,
+        details: errorStores.slice(0, 3).map((store: DataStoreDetail) => ({
+          type: store.type,
+          file: store.filePath,
+          errors: store.metrics.errors
+        }))
+      });
+    }
+
+    // Capacity insights
+    const largeStores = factoryMetrics.storeDetails
+      .filter((store: DataStoreDetail) => store.metrics.dataSize > 1024 * 1024) // 1MB+
+      .sort((a: DataStoreDetail, b: DataStoreDetail) => b.metrics.dataSize - a.metrics.dataSize);
+
+    if (largeStores.length > 0) {
+      insights.capacity.push({
+        type: 'size_info',
+        message: `${largeStores.length} DataStore(s) have processed significant data`,
+        details: largeStores.slice(0, 3).map((store: DataStoreDetail) => ({
+          type: store.type,
+          file: store.filePath,
+          size: this.formatBytes(store.metrics.dataSize)
+        }))
+      });
+    }
+
+    // Generate recommendations
+    insights.recommendations = this.generateDataStoreRecommendations(factoryMetrics);
+
+    return insights;
+  }
+
+  /**
+   * Generate DataStore alerts for health monitoring
+   */
+  private generateDataStoreAlerts(factoryMetrics: DataStoreFactoryMetrics): DataStoreAlert[] {
+    const alerts: DataStoreAlert[] = [];
+
+    // High latency alerts
+    const highLatencyStores = factoryMetrics.storeDetails
+      .filter((store: DataStoreDetail) => store.metrics.avgLatency > 1000);
+
+    if (highLatencyStores.length > 0) {
+      alerts.push({
+        level: 'warning',
+        type: 'high_latency',
+        count: highLatencyStores.length,
+        message: `${highLatencyStores.length} store(s) with latency > 1000ms`
+      });
+    }
+
+    // Error rate alerts
+    const errorStores = factoryMetrics.storeDetails
+      .filter((store: DataStoreDetail) => {
+        const totalOperations = store.metrics.operations;
+        const errorRate = totalOperations > 0 ? 
+          (store.metrics.errors / totalOperations) * 100 : 0;
+        return errorRate > 5; // 5% error rate threshold
+      });
+
+    if (errorStores.length > 0) {
+      alerts.push({
+        level: 'critical',
+        type: 'high_error_rate',
+        count: errorStores.length,
+        message: `${errorStores.length} store(s) with error rate > 5%`
+      });
+    }
+
+    // Stale store alerts
+    const staleThreshold = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
+    const staleStores = factoryMetrics.storeDetails
+      .filter((store: DataStoreDetail) => store.health.lastAccessed.getTime() < staleThreshold);
+
+    if (staleStores.length > 0) {
+      alerts.push({
+        level: 'warning',
+        type: 'stale_stores',
+        count: staleStores.length,
+        message: `${staleStores.length} store(s) not accessed in 24h`
+      });
+    }
+
+    return alerts;
+  }
+
+  /**
+   * Generate DataStore recommendations
+   */
+  private generateDataStoreRecommendations(factoryMetrics: DataStoreFactoryMetrics): string[] {
+    const recommendations: string[] = [];
+
+    // Analyze overall performance
+    const totalOperations = factoryMetrics.totalOperations;
+    const totalErrors = factoryMetrics.totalErrors;
+    const errorRate = totalOperations > 0 ? (totalErrors / totalOperations) * 100 : 0;
+
+    if (errorRate > 5) {
+      recommendations.push('Consider investigating DataStore error patterns and implementing retry mechanisms');
+    }
+
+    if (factoryMetrics.avgSaveLatency > 500) {
+      recommendations.push('DataStore save operations are slow - consider enabling compression or optimizing data structures');
+    }
+
+    if (factoryMetrics.avgLoadLatency > 200) {
+      recommendations.push('DataStore load operations are slow - consider caching frequently accessed data');
+    }
+
+    // Analyze by type
+    const typeStats: Record<string, {
+      count: number;
+      totalLatency: number;
+      totalErrors: number;
+      totalOps: number;
+    }> = {};
+    for (const store of factoryMetrics.storeDetails) {
+      if (!typeStats[store.type]) {
+        typeStats[store.type] = { count: 0, totalLatency: 0, totalErrors: 0, totalOps: 0 };
+      }
+      typeStats[store.type].count++;
+      typeStats[store.type].totalLatency += store.metrics.avgLatency;
+      typeStats[store.type].totalErrors += store.metrics.errors;
+      typeStats[store.type].totalOps += store.metrics.operations;
+    }
+
+    for (const [type, stats] of Object.entries(typeStats)) {
+      const avgLatency = stats.totalLatency / stats.count;
+      const typeErrorRate = stats.totalOps > 0 ? (stats.totalErrors / stats.totalOps) * 100 : 0;
+
+      if (avgLatency > 1000) {
+        recommendations.push(`${type} stores are performing slowly (${avgLatency.toFixed(0)}ms avg) - consider type-specific optimizations`);
+      }
+
+      if (typeErrorRate > 10) {
+        recommendations.push(`${type} stores have high error rates (${typeErrorRate.toFixed(1)}%) - review configuration and usage patterns`);
+      }
+    }
+
+    if (recommendations.length === 0) {
+      recommendations.push('DataStore performance is within acceptable parameters');
+    }
+
+    return recommendations;
+  }
+
+  /**
+   * Format bytes to human readable string
+   */
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   // Public API Methods

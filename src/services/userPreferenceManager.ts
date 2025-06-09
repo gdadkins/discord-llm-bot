@@ -1,6 +1,7 @@
-import { Mutex } from 'async-mutex';
 import { logger } from '../utils/logger';
-import { DataStore } from '../utils/DataStore';
+import { DataStore, DataValidator } from '../utils/DataStore';
+import { dataStoreFactory } from '../utils/DataStoreFactory';
+import { MutexManager, createMutexManager } from '../utils/MutexManager';
 
 export interface UserPreferences {
   userId: string;
@@ -69,7 +70,7 @@ interface UserPreferenceStorage {
 }
 
 export class UserPreferenceManager {
-  private mutex = new Mutex();
+  private mutexManager: MutexManager;
   private preferences: UserPreferenceStorage = {};
   private scheduledCommandTimers = new Map<string, NodeJS.Timeout>();
   private bulkOperations = new Map<string, BulkOperation>();
@@ -79,10 +80,22 @@ export class UserPreferenceManager {
   private readonly maxBulkOperations = 10;
 
   constructor(storageFile = './data/user-preferences.json') {
-    this.dataStore = new DataStore<UserPreferenceStorage>(storageFile, {
-      maxBackups: 3,
-      validator: this.validateUserPreferenceStorage.bind(this)
+    // Initialize mutex manager with monitoring
+    this.mutexManager = createMutexManager('UserPreferenceManager', {
+      enableDeadlockDetection: true,
+      enableStatistics: true
     });
+    
+    // Create validator for user preference storage
+    const userPreferenceValidator: DataValidator<UserPreferenceStorage> = (data: unknown): data is UserPreferenceStorage => {
+      return this.validateUserPreferenceStorage(data);
+    };
+    
+    // Use factory to create state store optimized for user preferences
+    this.dataStore = dataStoreFactory.createStateStore<UserPreferenceStorage>(
+      storageFile,
+      userPreferenceValidator
+    );
   }
 
   async initialize(): Promise<void> {
@@ -154,8 +167,7 @@ export class UserPreferenceManager {
   }
 
   async setUserPreferences(userId: string, serverId: string, preferences: Partial<UserPreferences>): Promise<void> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const key = `${userId}-${serverId}`;
       const existing = this.preferences[key] || await this.getUserPreferences(userId, serverId);
       
@@ -169,14 +181,11 @@ export class UserPreferenceManager {
 
       await this.savePreferences();
       logger.info(`Updated preferences for user ${userId} in server ${serverId}`);
-    } finally {
-      release();
-    }
+    }, { operationName: 'setUserPreferences', timeout: 15000 });
   }
 
   async updatePreference(userId: string, serverId: string, key: keyof UserPreferences['preferences'], value: unknown): Promise<boolean> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const userKey = `${userId}-${serverId}`;
       const existing = this.preferences[userKey] || await this.getUserPreferences(userId, serverId);
       
@@ -188,15 +197,12 @@ export class UserPreferenceManager {
         return true;
       }
       return false;
-    } finally {
-      release();
-    }
+    }, { operationName: 'updatePreference', timeout: 15000 });
   }
 
   // Command Alias Management
   async setCommandAlias(userId: string, serverId: string, alias: string, command: string): Promise<boolean> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const key = `${userId}-${serverId}`;
       const existing = this.preferences[key] || await this.getUserPreferences(userId, serverId);
       
@@ -212,14 +218,11 @@ export class UserPreferenceManager {
       
       logger.info(`Set alias '${alias}' -> '${command}' for user ${userId} in server ${serverId}`);
       return true;
-    } finally {
-      release();
-    }
+    }, { operationName: 'setCommandAlias', timeout: 15000 });
   }
 
   async removeCommandAlias(userId: string, serverId: string, alias: string): Promise<boolean> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const key = `${userId}-${serverId}`;
       const existing = this.preferences[key];
       
@@ -233,9 +236,7 @@ export class UserPreferenceManager {
       
       logger.info(`Removed alias '${alias}' for user ${userId} in server ${serverId}`);
       return true;
-    } finally {
-      release();
-    }
+    }, { operationName: 'removeCommandAlias', timeout: 15000 });
   }
 
   resolveCommandAlias(userId: string, serverId: string, input: string): string {
@@ -263,8 +264,7 @@ export class UserPreferenceManager {
       return;
     }
 
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const key = `${userId}-${serverId}`;
       const existing = this.preferences[key] || await this.getUserPreferences(userId, serverId);
       
@@ -284,9 +284,7 @@ export class UserPreferenceManager {
       existing.lastUpdated = Date.now();
       this.preferences[key] = existing;
       await this.savePreferences();
-    } finally {
-      release();
-    }
+    }, { operationName: 'addToCommandHistory', timeout: 15000 });
   }
 
   async getCommandHistory(userId: string, serverId: string, limit?: number): Promise<CommandHistoryEntry[]> {
@@ -302,8 +300,7 @@ export class UserPreferenceManager {
   }
 
   async clearCommandHistory(userId: string, serverId: string): Promise<void> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const key = `${userId}-${serverId}`;
       const existing = this.preferences[key];
       
@@ -312,15 +309,12 @@ export class UserPreferenceManager {
         existing.lastUpdated = Date.now();
         await this.savePreferences();
       }
-    } finally {
-      release();
-    }
+    }, { operationName: 'clearCommandHistory', timeout: 15000 });
   }
 
   // Scheduled Command Management
   async scheduleCommand(userId: string, serverId: string, command: ScheduledCommand): Promise<boolean> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const key = `${userId}-${serverId}`;
       const existing = this.preferences[key] || await this.getUserPreferences(userId, serverId);
       
@@ -336,14 +330,11 @@ export class UserPreferenceManager {
       this.scheduleCommandExecution(command);
       logger.info(`Scheduled command '${command.command}' for user ${userId} in server ${serverId}`);
       return true;
-    } finally {
-      release();
-    }
+    }, { operationName: 'scheduleCommand', timeout: 15000 });
   }
 
   async removeScheduledCommand(userId: string, serverId: string, commandId: string): Promise<boolean> {
-    const release = await this.mutex.acquire();
-    try {
+    return this.mutexManager.withMutex(async () => {
       const key = `${userId}-${serverId}`;
       const existing = this.preferences[key];
       
@@ -369,9 +360,7 @@ export class UserPreferenceManager {
       
       logger.info(`Removed scheduled command ${commandId} for user ${userId} in server ${serverId}`);
       return true;
-    } finally {
-      release();
-    }
+    }, { operationName: 'removeScheduledCommand', timeout: 15000 });
   }
 
   getScheduledCommands(userId: string, serverId: string): ScheduledCommand[] {

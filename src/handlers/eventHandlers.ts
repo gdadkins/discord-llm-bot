@@ -21,6 +21,9 @@ import { extractRecentEmojis, MessageContext } from '../commands';
 import { RaceConditionManager } from '../utils/raceConditionManager';
 import * as commandHandlers from './commandHandlers';
 
+// Track if handlers are already set up to prevent duplicates
+const handlersSetup = new WeakSet<Client>();
+
 /**
  * Setup all Discord event handlers
  */
@@ -29,10 +32,13 @@ export function setupEventHandlers(
   geminiService: IAIService,
   raceConditionManager: RaceConditionManager
 ): void {
-  // Client ready event
-  client.once(Events.ClientReady, (readyClient) => {
-    logger.info(`Ready! Logged in as ${readyClient.user.tag}`);
-  });
+  // Check if handlers are already set up for this client instance
+  if (handlersSetup.has(client)) {
+    logger.warn('Event handlers already setup for this client instance, skipping...');
+    return;
+  }
+  
+  logger.info('Setting up Discord event handlers...');
 
   // Interaction create event (slash commands)
   client.on(Events.InteractionCreate, async (interaction) => {
@@ -48,6 +54,11 @@ export function setupEventHandlers(
   client.on(Events.MessageCreate, async (message) => {
     await handleMessageCreate(message, client, geminiService, raceConditionManager);
   });
+  
+  // Mark this client as having handlers setup
+  handlersSetup.add(client);
+  
+  logger.info('Discord event handlers setup complete');
 }
 
 /**
@@ -167,17 +178,46 @@ async function handleMessageCreate(
   if (message.author.bot) return;
   
   if (message.mentions.users.has(client.user!.id)) {
+    // Add unique handler ID to track multiple handlers
+    const handlerId = Math.random().toString(36).substring(7);
+    logger.info(`[HANDLER-${handlerId}] Starting message processing`);
+    
+    // First check if we've already seen this exact Message object
+    if (raceConditionManager.hasProcessedMessageObject(message)) {
+      logger.warn(`[HANDLER-${handlerId}] DUPLICATE MESSAGE OBJECT DETECTED`, {
+        messageId: message.id,
+        authorId: message.author.id,
+        content: message.content.substring(0, 50)
+      });
+      return;
+    }
+    
     const messageKey = `${message.id}-${message.author.id}`;
     const channelKey = message.channel.id;
     const userKey = message.author.id;
     
-    // Prevent duplicate processing
+    // Log message details for debugging
+    logger.info(`Processing message: ID=${message.id}, Author=${message.author.id}, Content="${message.content.substring(0, 50)}..."`, {
+      messageId: message.id,
+      authorId: message.author.id,
+      messageKey,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Prevent duplicate processing by key (includes timestamp check)
     if (raceConditionManager.hasProcessedMessage(messageKey)) {
-      logger.debug(`Skipping duplicate message processing: ${messageKey}`);
+      logger.warn(`DUPLICATE MESSAGE DETECTED BY KEY: ${messageKey}`, {
+        messageId: message.id,
+        authorId: message.author.id,
+        content: message.content.substring(0, 50)
+      });
       return;
     }
     
+    // Mark both the object and key as processed
+    raceConditionManager.markMessageObjectProcessed(message);
     raceConditionManager.markMessageProcessed(messageKey);
+    logger.info(`Message marked as processed: ${messageKey}`);
     
     // Ensure user has processing mutex
     const userMutex = raceConditionManager.getUserMutex(userKey);
@@ -242,9 +282,13 @@ async function handleMessageCreate(
           logger.debug('Failed to build complete message context:', contextError);
         }
         
+        // Track if response has been sent to avoid duplicates
+        let responseSent = false;
+        
         // Create response callback for graceful degradation
         const respondCallback = async (responseText: string) => {
-          if (responseText) {
+          if (responseText && !responseSent) {
+            responseSent = true;
             const chunks = splitMessage(responseText, 2000);
             
             // Send first chunk as reply
@@ -270,8 +314,8 @@ async function handleMessageCreate(
         
         stopTyping();
         
-        // Only send response if it's not empty (empty means it was queued)
-        if (response) {
+        // Only send response if it's not empty and hasn't been sent already
+        if (response && !responseSent) {
           await respondCallback(response);
         }
       } catch (error) {

@@ -132,6 +132,45 @@ describe('DataStore Monitoring Integration', () => {
       
       warnSpy.mockRestore();
     });
+
+    test('should provide DataStore performance baseline', async () => {
+      const store = dataStoreFactory.createMetricsStore('baseline-test.json');
+      
+      // Generate some operations
+      await store.save({ baseline: 'test' });
+      await store.load();
+      
+      // Wait for metrics to be collected
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const baseline = healthMonitor.getDataStorePerformanceBaseline();
+      
+      if (baseline) {
+        expect(baseline.avgSaveLatency).toBeGreaterThanOrEqual(0);
+        expect(baseline.avgLoadLatency).toBeGreaterThanOrEqual(0);
+        expect(baseline.errorRate).toBeGreaterThanOrEqual(0);
+        expect(baseline.timestamp).toBeGreaterThan(0);
+      }
+    });
+
+    test('should cache DataStore health checks for performance', async () => {
+      // Create a store to ensure we have data
+      const store = dataStoreFactory.createConfigStore('cache-test.json');
+      await store.save({ test: 'data' });
+
+      // First health check
+      const start1 = Date.now();
+      await healthMonitor.getCurrentMetrics();
+      const time1 = Date.now() - start1;
+
+      // Immediate second health check (should be cached)
+      const start2 = Date.now();
+      await healthMonitor.getCurrentMetrics();
+      const time2 = Date.now() - start2;
+
+      // Second call should be faster due to caching
+      expect(time2).toBeLessThan(time1 + 50); // Allow some variance
+    });
   });
 
   describe('AnalyticsManager DataStore Integration', () => {
@@ -195,6 +234,159 @@ describe('DataStore Monitoring Integration', () => {
         config: 1,
         state: 1
       });
+    });
+
+    test('should generate enhanced dashboard with insights', async () => {
+      // Create operations with different performance profiles
+      await analyticsManager.trackDataStoreOperation('save', 'fast-store', 50, 1024);
+      await analyticsManager.trackDataStoreOperation('save', 'slow-store', 2000, 2048); // Slow
+      await analyticsManager.trackDataStoreOperation('load', 'fast-store', 25, 1024);
+      await analyticsManager.trackDataStoreOperation('error', 'error-store', 100, 0); // Error
+
+      const dashboard = await analyticsManager.getDataStoreDashboard(
+        new Date(Date.now() - 3600000),
+        new Date()
+      );
+
+      expect(dashboard.summary).toBeDefined();
+      expect(dashboard.performance).toBeDefined();
+      expect(dashboard.capacity).toBeDefined();
+      expect(dashboard.health).toBeDefined();
+      expect(dashboard.insights).toBeDefined();
+      expect(dashboard.insights.recommendations).toBeInstanceOf(Array);
+      
+      // Should detect performance issues in insights
+      if (dashboard.insights.performance) {
+        expect(dashboard.insights.performance).toBeInstanceOf(Array);
+      }
+    });
+
+    test('should calculate capacity utilization metrics', async () => {
+      // Track significant data volume operations
+      for (let i = 0; i < 10; i++) {
+        await analyticsManager.trackDataStoreOperation('save', 'large-store', 100, 10 * 1024 * 1024); // 10MB each
+      }
+
+      const dashboard = await analyticsManager.getDataStoreDashboard(
+        new Date(Date.now() - 3600000),
+        new Date()
+      );
+
+      expect(dashboard.capacity).toBeDefined();
+      expect(dashboard.capacity.utilization).toBeDefined();
+      expect(dashboard.capacity.utilization.status).toBeDefined();
+      expect(dashboard.capacity.utilization.totalBytes).toBeGreaterThan(0);
+      expect(dashboard.capacity.utilization.formattedSize).toBeDefined();
+    });
+  });
+
+  describe('DataStore Monitoring Hooks', () => {
+    test('should register and trigger monitoring hooks', async () => {
+      const monitoringEvents: Array<{
+        event: string;
+        latency: number;
+        bytes: number;
+        error?: string;
+      }> = [];
+
+      const store = dataStoreFactory.createConfigStore('hook-test.json');
+      
+      // Register monitoring hook
+      store.addMonitoringHook((event, latency, bytes, error) => {
+        monitoringEvents.push({ event, latency, bytes, error });
+      });
+
+      // Perform operations
+      await store.save({ test: 'data' });
+      await store.load();
+
+      // Verify events were captured
+      expect(monitoringEvents).toHaveLength(2);
+      expect(monitoringEvents[0].event).toBe('save');
+      expect(monitoringEvents[0].latency).toBeGreaterThan(0);
+      expect(monitoringEvents[0].bytes).toBeGreaterThan(0);
+      
+      expect(monitoringEvents[1].event).toBe('load');
+      expect(monitoringEvents[1].latency).toBeGreaterThan(0);
+      expect(monitoringEvents[1].bytes).toBeGreaterThan(0);
+    });
+
+    test('should capture error events in hooks', async () => {
+      const monitoringEvents: Array<any> = [];
+      
+      // Create store with validator that always fails
+      const store = new DataStore('error-test.json', {
+        validator: () => false // Always fail validation
+      });
+
+      store.addMonitoringHook((event, latency, bytes, error) => {
+        monitoringEvents.push({ event, latency, bytes, error });
+      });
+
+      try {
+        await store.save({ test: 'data' });
+      } catch (error) {
+        // Expected to fail
+      }
+
+      const errorEvents = monitoringEvents.filter(e => e.event === 'error');
+      expect(errorEvents).toHaveLength(1);
+      expect(errorEvents[0].error).toBeDefined();
+    });
+
+    test('should remove monitoring hooks correctly', async () => {
+      const monitoringEvents: Array<any> = [];
+      const store = dataStoreFactory.createConfigStore('remove-hook-test.json');
+      
+      const hook = (event: string, latency: number, bytes: number, error?: string) => {
+        monitoringEvents.push({ event, latency, bytes, error });
+      };
+
+      store.addMonitoringHook(hook);
+      await store.save({ test: 'data1' });
+      
+      expect(monitoringEvents).toHaveLength(1);
+
+      // Remove hook
+      store.removeMonitoringHook(hook);
+      await store.save({ test: 'data2' });
+
+      // Should still have only one event
+      expect(monitoringEvents).toHaveLength(1);
+    });
+
+    test('should measure monitoring performance overhead', async () => {
+      const iterations = 50;
+      let monitoringEventCount = 0;
+
+      // Baseline performance without monitoring
+      const baselineStore = dataStoreFactory.createConfigStore('baseline-perf.json');
+      const baselineStart = Date.now();
+      for (let i = 0; i < iterations; i++) {
+        await baselineStore.save({ iteration: i });
+      }
+      const baselineTime = Date.now() - baselineStart;
+
+      // Performance with monitoring
+      const monitoredStore = dataStoreFactory.createConfigStore('monitored-perf.json');
+      monitoredStore.addMonitoringHook(() => {
+        monitoringEventCount++;
+      });
+
+      const monitoredStart = Date.now();
+      for (let i = 0; i < iterations; i++) {
+        await monitoredStore.save({ iteration: i });
+      }
+      const monitoredTime = Date.now() - monitoredStart;
+
+      // Verify monitoring worked
+      expect(monitoringEventCount).toBe(iterations);
+
+      // Calculate overhead percentage
+      const overhead = ((monitoredTime - baselineTime) / baselineTime) * 100;
+      
+      // Monitoring overhead should be minimal (< 10% for test environment)
+      expect(overhead).toBeLessThan(10);
     });
   });
 

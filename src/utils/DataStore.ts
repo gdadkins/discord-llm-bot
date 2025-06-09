@@ -285,6 +285,9 @@ export class DataStore<T> {
   // Batch transaction support
   private currentBatch: BatchTransaction<T> | null = null;
   private batchMutex = new Mutex();
+  
+  // Monitoring and analytics integration
+  private monitoringHooks: Array<(event: string, latency: number, bytes: number, error?: string) => void> = [];
 
   /**
    * Create a new DataStore instance
@@ -347,6 +350,9 @@ export class DataStore<T> {
           const loadTime = Date.now() - startTime;
           this.updateLoadMetrics(loadTime, content.length);
 
+          // Emit monitoring event for analytics collection
+          this.emitMonitoringEvent('load', loadTime, content.length);
+
           this.debugLog(`Successfully loaded data from: ${this.filePath}`);
           return data as T;
         } catch (error) {
@@ -363,6 +369,9 @@ export class DataStore<T> {
           }
 
           this.metrics.errorCount++;
+          // Emit error event for monitoring
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.emitMonitoringEvent('error', Date.now() - startTime, 0, errorMessage);
           throw error;
         }
       });
@@ -423,6 +432,9 @@ export class DataStore<T> {
           const saveTime = Date.now() - startTime;
           this.updateSaveMetrics(saveTime, content.length);
           
+          // Emit monitoring event for analytics collection
+          this.emitMonitoringEvent('save', saveTime, content.length);
+          
           this.debugLog(`Successfully saved data to: ${this.filePath}`);
         } catch (error) {
           // Clean up temp file if it exists
@@ -432,6 +444,8 @@ export class DataStore<T> {
             // Ignore cleanup errors
           }
           this.metrics.errorCount++;
+          // Emit error event for monitoring
+          this.emitMonitoringEvent('error', Date.now() - startTime, 0, error instanceof Error ? error.message : String(error));
           throw error;
         }
 
@@ -1085,6 +1099,37 @@ export class DataStore<T> {
   private releaseConnection(entry: PoolEntry): void {
     entry.busy = false;
     entry.lastUsed = Date.now();
+  }
+
+  /**
+   * Add monitoring hook for analytics collection
+   */
+  addMonitoringHook(hook: (event: string, latency: number, bytes: number, error?: string) => void): void {
+    this.monitoringHooks.push(hook);
+  }
+
+  /**
+   * Remove monitoring hook
+   */
+  removeMonitoringHook(hook: (event: string, latency: number, bytes: number, error?: string) => void): void {
+    const index = this.monitoringHooks.indexOf(hook);
+    if (index > -1) {
+      this.monitoringHooks.splice(index, 1);
+    }
+  }
+
+  /**
+   * Emit monitoring event to all registered hooks
+   */
+  private emitMonitoringEvent(event: string, latency: number, bytes: number, error?: string): void {
+    for (const hook of this.monitoringHooks) {
+      try {
+        hook(event, latency, bytes, error);
+      } catch (hookError) {
+        // Don't let monitoring hooks break the main operation
+        this.debugLog(`Monitoring hook error: ${hookError}`);
+      }
+    }
   }
 }
 

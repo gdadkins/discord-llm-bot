@@ -194,6 +194,64 @@ export class GeminiService implements IAIService {
 
   // Error message handling delegated to retry handler service
 
+  /**
+   * Generates an AI response using Gemini API with comprehensive context integration and degradation handling.
+   * 
+   * This method orchestrates the complete AI generation pipeline including:
+   * - Degradation status checking with automatic fallback mechanisms
+   * - Intelligent caching with bypass detection for dynamic prompts
+   * - Rate limiting with quota management
+   * - Context aggregation from multiple sources (conversation, personality, server culture)
+   * - Retry logic with exponential backoff
+   * - Circuit breaker protection for API resilience
+   * 
+   * The algorithm follows this flow:
+   * 1. Check system degradation status (high severity = queue message, medium = try fallback)
+   * 2. Evaluate cache strategy (bypass for real-time queries, use for static content)
+   * 3. Validate rate limits with user-specific quotas
+   * 4. Execute AI generation with retry wrapper (3 attempts, 2x backoff multiplier)
+   * 5. Store conversation history and cache successful responses
+   * 6. Handle circuit breaker errors with graceful fallback responses
+   * 
+   * @param prompt - The user's input message to process. Must be 1-100,000 characters.
+   * @param userId - Discord user ID for context, rate limiting, and conversation tracking. Format: Discord snowflake (17-19 digits)
+   * @param serverId - Optional Discord server ID for server-specific context and culture. Format: Discord snowflake
+   * @param respond - Optional callback function for immediate response delivery during queue operations
+   * @param messageContext - Optional Discord message metadata including channel info, thread status, and message references
+   * @param member - Optional Discord guild member object for role-based context and permissions
+   * @param guild - Optional Discord guild object for server culture and community context
+   * 
+   * @returns Promise resolving to the generated AI response text (1-4000 characters typically)
+   * 
+   * @throws {Error} When prompt is empty, exceeds length limits, rate limits are exceeded, or API fails after retries
+   * @throws {Error} 'Please provide a valid message.' - Empty or whitespace-only prompt
+   * @throws {Error} 'Your message is too long. Please break it into smaller parts.' - Prompt exceeds 100,000 chars
+   * @throws {Error} Rate limit error messages with specific quota information
+   * 
+   * @example
+   * // Basic usage with minimal context
+   * const response = await geminiService.generateResponse(
+   *   "What's the weather like?",
+   *   "123456789012345678"
+   * );
+   * 
+   * @example
+   * // Full context usage with server and member data
+   * const response = await geminiService.generateResponse(
+   *   "Tell me about this server's culture",
+   *   user.id,
+   *   guild.id,
+   *   async (msg) => await channel.send(msg), // Queue callback
+   *   {
+   *     channelName: "general",
+   *     channelType: "GUILD_TEXT",
+   *     isThread: false,
+   *     messageId: "987654321098765432"
+   *   },
+   *   member,
+   *   guild
+   * );
+   */
   async generateResponse(
     prompt: string,
     userId: string,
@@ -203,6 +261,7 @@ export class GeminiService implements IAIService {
     member?: GuildMember,
     guild?: Guild
   ): Promise<string> {
+    logger.info(`[DEBUG] generateResponse called for user ${userId}, prompt: "${prompt.substring(0, 50)}..."`);
 
     // Check degradation status first
     const degradationStatus = await this.gracefulDegradation.shouldDegrade();
@@ -291,6 +350,64 @@ export class GeminiService implements IAIService {
     });
   }
 
+  /**
+   * Performs the core AI generation process with comprehensive context building and prompt engineering.
+   * 
+   * This is the primary AI generation engine that handles:
+   * - Dynamic personality selection based on roasting probability calculations
+   * - Multi-source context aggregation from 8+ different context providers
+   * - Intelligent prompt engineering with adaptive truncation strategies
+   * - Circuit breaker protected API execution with automatic failover
+   * - Response validation and processing pipeline
+   * 
+   * The context aggregation strategy prioritizes:
+   * 1. Conversation history (most recent 10-50 messages depending on length)
+   * 2. Server super-context (running gags, culture, memorable moments)
+   * 3. User personality context (roasting preferences, interaction patterns)
+   * 4. Discord metadata (roles, permissions, channel context)
+   * 5. System status (queue size, API quotas, performance metrics)
+   * 6. Temporal context (current date/time for accuracy)
+   * 
+   * Prompt engineering follows a hierarchical structure:
+   * - Base instruction (roasting vs helpful mode)
+   * - Contextual layers (server → user → conversation → system)
+   * - Input validation with smart truncation (preserves critical context)
+   * - Length optimization (2M char limit with graceful degradation)
+   * 
+   * @param prompt - User's input message after initial validation. Range: 1-100,000 characters
+   * @param userId - Discord user ID for personalization and tracking. Must be valid Discord snowflake
+   * @param serverId - Optional server ID for community context. Discord snowflake format
+   * @param messageContext - Optional message metadata for channel-specific responses
+   * @param member - Optional guild member for role-based context and permissions
+   * @param guild - Optional guild object for server culture and community dynamics
+   * 
+   * @returns Promise resolving to processed AI response text ready for Discord delivery
+   * 
+   * @throws {Error} When context aggregation fails, API circuit breaker is open, or response processing fails
+   * @throws {Error} Context building errors (invalid user/server data)
+   * @throws {Error} API errors from Gemini service (rate limits, safety filters, technical failures)
+   * @throws {Error} Response processing errors (empty responses, malformed data)
+   * 
+   * @example
+   * // Internal usage for roasting personality
+   * const response = await this.performAIGeneration(
+   *   "How's everyone doing?",
+   *   "123456789012345678",
+   *   "987654321098765432",
+   *   { channelName: "general", channelType: "GUILD_TEXT", isThread: false },
+   *   member,
+   *   guild
+   * );
+   * // Triggers roasting engine, builds server context, includes conversation history
+   * 
+   * @example
+   * // Internal usage for helpful mode (no server context)
+   * const response = await this.performAIGeneration(
+   *   "Explain quantum computing",
+   *   "123456789012345678"
+   * );
+   * // Uses helpful instruction, minimal context, focuses on information delivery
+   */
   private async performAIGeneration(
     prompt: string,
     userId: string,
@@ -299,6 +416,8 @@ export class GeminiService implements IAIService {
     member?: GuildMember,
     guild?: Guild
   ): Promise<string> {
+    logger.info(`[DEBUG] performAIGeneration called for user ${userId}`);
+    
     // Determine roasting personality
     const shouldRoastNow = this.roastingEngine.shouldRoast(userId, prompt, serverId);
     
@@ -440,12 +559,23 @@ export class GeminiService implements IAIService {
    * Executes the Gemini API call with circuit breaker protection
    */
   private async executeGeminiAPICall(fullPrompt: string) {
+    logger.info(`[DEBUG] executeGeminiAPICall called, prompt length: ${fullPrompt.length}`);
+    
     return await this.gracefulDegradation.executeWithCircuitBreaker(
       async () => {
-        return await this.ai.models.generateContent({
+        // Using the @google/genai package API
+        const response = await this.ai.models.generateContent({
           model: 'gemini-2.5-flash-preview-05-20',
           contents: fullPrompt,
+          config: {
+            temperature: parseFloat(process.env.GEMINI_TEMPERATURE || '0.7'),
+            topK: parseInt(process.env.GEMINI_TOP_K || '40'),
+            topP: parseFloat(process.env.GEMINI_TOP_P || '0.95'),
+            maxOutputTokens: parseInt(process.env.GEMINI_MAX_TOKENS || '2048')
+          }
         });
+        
+        return response;
       },
       'gemini'
     );
@@ -510,6 +640,60 @@ export class GeminiService implements IAIService {
     return fullPrompt;
   }
 
+  /**
+   * Processes and validates Gemini API responses with comprehensive safety and error handling.
+   * 
+   * This method implements a robust response processing pipeline that handles:
+   * - Prompt-level blocking detection (safety filters applied before generation)
+   * - Response candidate validation (ensures content was generated)
+   * - Finish reason analysis (distinguishes between recoverable and fatal errors)
+   * - Content safety filtering (SAFETY, BLOCKLIST, PROHIBITED_CONTENT, SPII)
+   * - Text extraction and validation (ensures non-empty, valid content)
+   * 
+   * The processing algorithm follows Google's safety framework:
+   * 1. Check promptFeedback for pre-generation blocks (return user-friendly message)
+   * 2. Validate candidates array exists and contains responses
+   * 3. Analyze finishReason to determine response quality:
+   *    - STOP: Successful completion (proceed to text extraction)
+   *    - SAFETY/BLOCKLIST/PROHIBITED/SPII: Return user-friendly message (no retry)
+   *    - MAX_TOKENS/RECITATION/OTHER: Throw error to trigger retry logic
+   * 4. Extract and validate text content (non-empty, proper encoding)
+   * 5. Log success metrics for monitoring and optimization
+   * 
+   * Safety-first approach prioritizes user experience:
+   * - Blocked content returns helpful guidance instead of generic errors
+   * - Technical issues trigger automatic retries when appropriate
+   * - Malformed responses are caught early to prevent downstream failures
+   * 
+   * @param response - Raw response object from Gemini API containing candidates, safety data, and metadata
+   * @returns Validated and extracted text content ready for Discord message delivery
+   * 
+   * @throws {Error} 'No response received from Gemini API' - Null or undefined response
+   * @throws {Error} 'No response candidates generated' - Empty candidates array
+   * @throws {Error} 'Empty response text' - Valid structure but no text content
+   * @throws {Error} 'Response blocked: [reason]' - Recoverable finish reasons that should trigger retry
+   * 
+   * @example
+   * // Processing successful response
+   * const response = {
+   *   candidates: [{
+   *     finishReason: 'STOP',
+   *     content: { parts: [{ text: 'Hello! How can I help you today?' }] }
+   *   }],
+   *   text: 'Hello! How can I help you today?'
+   * };
+   * const result = this.processGeminiResponse(response);
+   * // Returns: "Hello! How can I help you today?"
+   * 
+   * @example
+   * // Processing blocked response (safety filter)
+   * const blockedResponse = {
+   *   promptFeedback: { blockReason: 'SAFETY' },
+   *   candidates: []
+   * };
+   * const result = this.processGeminiResponse(blockedResponse);
+   * // Returns: "Your request was blocked by safety filters. Try rephrasing with different language."
+   */
   private processGeminiResponse(response: unknown): string {
     // Comprehensive response validation
     if (!response) {
@@ -563,8 +747,22 @@ export class GeminiService implements IAIService {
       throw new Error(`Response blocked: ${candidate.finishReason}`);
     }
 
-    // Extract text content
-    const text = res.text as string;
+    // Extract text content from the response
+    let text = '';
+    
+    // Try to get text from the response object
+    if (res.text && typeof res.text === 'function') {
+      text = res.text();
+    } else if (res.text && typeof res.text === 'string') {
+      text = res.text;
+    } else if (candidate.content) {
+      // Extract from content parts
+      const content = candidate.content as Record<string, unknown>;
+      const parts = content.parts as Array<Record<string, unknown>>;
+      if (parts && parts.length > 0) {
+        text = parts.map(part => part.text || '').join('');
+      }
+    }
 
     if (!text || text.trim() === '') {
       logger.warn('Empty text in response');

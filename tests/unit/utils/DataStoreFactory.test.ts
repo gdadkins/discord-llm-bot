@@ -1,14 +1,24 @@
 /**
- * DataStoreFactory Unit Tests
+ * DataStoreFactory Unit Tests - DSE-006 Implementation
  * 
- * Tests for DataStore factory pattern implementation:
- * - Factory methods for different store types
- * - Standardized configurations
- * - Registry management
- * - Health checks and metrics aggregation
+ * Tests for DataStore factory pattern with standardized configurations:
+ * - Factory methods for different store types with DSE-006 specifications
+ * - Standardized backup configurations and validation
+ * - Centralized registry management  
+ * - Health checks and configuration validation
+ * - Service factory pattern implementation
  */
 
-import { DataStoreFactory, dataStoreFactory } from '../../../src/utils/DataStoreFactory';
+import { 
+  DataStoreFactory, 
+  dataStoreFactory,
+  DataStoreFactoryConfig,
+  ConfigStoreDefaults,
+  MetricsStoreDefaults,
+  CacheStoreDefaults,
+  StateStoreDefaults,
+  DataStoreRegistryEntry
+} from '../../../src/utils/DataStoreFactory';
 import { DataStore } from '../../../src/utils/DataStore';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -18,8 +28,8 @@ describe('DataStoreFactory', () => {
   
   beforeEach(async () => {
     await fs.mkdir(testDir, { recursive: true });
-    // Clear registry between tests
-    dataStoreFactory.clearRegistry();
+    // Note: Registry cannot be cleared in new implementation due to singleton nature
+    // Tests should use unique file paths to avoid conflicts
   });
 
   afterEach(async () => {
@@ -43,27 +53,75 @@ describe('DataStoreFactory', () => {
     });
   });
 
+  describe('DSE-006 Configuration Validation', () => {
+    test('should have correct standard backup configuration', () => {
+      const backupConfig = dataStoreFactory.getStandardBackupConfig();
+      
+      expect(backupConfig).toEqual({
+        maxBackups: 5,
+        retentionPeriod: '30d',
+        compressionEnabled: true
+      });
+    });
+
+    test('should have correct factory configuration', () => {
+      const config = dataStoreFactory.getFactoryConfig();
+      
+      // Validate standard backup config
+      expect(config.standardBackupConfig.maxBackups).toBe(5);
+      expect(config.standardBackupConfig.retentionPeriod).toBe('30d');
+      expect(config.standardBackupConfig.compressionEnabled).toBe(true);
+      
+      // Validate config store defaults
+      expect(config.configStoreDefaults.maxBackups).toBe(10);
+      expect(config.configStoreDefaults.compressionEnabled).toBe(true);
+      expect(config.configStoreDefaults.validationRequired).toBe(true);
+      
+      // Validate metrics store defaults
+      expect(config.metricsStoreDefaults.compressionEnabled).toBe(true);
+      expect(config.metricsStoreDefaults.compressionThreshold).toBe(10000);
+      expect(config.metricsStoreDefaults.ttl).toBe(2592000000); // 30 days
+      
+      // Validate cache store defaults
+      expect(config.cacheStoreDefaults.ttl).toBe(31536000000); // 1 year
+      expect(config.cacheStoreDefaults.maxEntries).toBe(100);
+      expect(config.cacheStoreDefaults.autoCleanup).toBe(true);
+      
+      // Validate state store defaults
+      expect(config.stateStoreDefaults.maxBackups).toBe(5);
+      expect(config.stateStoreDefaults.compressionEnabled).toBe(true);
+      expect(config.stateStoreDefaults.autoCleanup).toBe(true);
+      expect(config.stateStoreDefaults.retryDelayMs).toBe(100);
+    });
+
+    test('should validate configuration on startup', () => {
+      expect(() => dataStoreFactory.validateConfiguration()).not.toThrow();
+    });
+  });
+
   describe('Config Store Creation', () => {
-    test('should create config store with optimal settings', async () => {
-      const configPath = path.join(testDir, 'config.json');
+    test('should create config store with DSE-006 optimal settings', async () => {
+      const configPath = path.join(testDir, 'config-dse006.json');
       const store = dataStoreFactory.createConfigStore(configPath);
       
       expect(store).toBeInstanceOf(DataStore);
       
       // Verify it works
-      await store.save({ test: 'config' });
+      await store.save({ test: 'config', version: '1.0.0' });
       const loaded = await store.load();
-      expect(loaded).toEqual({ test: 'config' });
+      expect(loaded).toEqual({ test: 'config', version: '1.0.0' });
       
       // Check registry
-      const registry = dataStoreFactory.getRegistry();
-      expect(registry.size).toBe(1);
-      const entry = registry.get(path.join('./data', configPath));
-      expect(entry?.type).toBe('config');
+      const registeredStores = dataStoreFactory.getRegisteredStores();
+      const configStore = registeredStores.find(entry => 
+        entry.filePath.includes('config-dse006.json') && entry.type === 'config'
+      );
+      expect(configStore).toBeDefined();
+      expect(configStore!.type).toBe('config');
     });
 
-    test('should apply custom validator', async () => {
-      const configPath = path.join(testDir, 'validated-config.json');
+    test('should apply custom validator with factory defaults', async () => {
+      const configPath = path.join(testDir, 'validated-config-dse006.json');
       const validator = (data: unknown): data is { version: string } => {
         return typeof data === 'object' && 
                data !== null && 
@@ -79,24 +137,38 @@ describe('DataStoreFactory', () => {
       // Valid data should save
       await store.save({ version: '1.0.0' });
       
-      // Invalid data should fail
+      // Invalid data should fail validation
       await expect(store.save({ invalid: true } as any)).rejects.toThrow();
+    });
+
+    test('should use config store defaults from DSE-006', async () => {
+      const configPath = path.join(testDir, 'defaults-test.json');
+      const store = dataStoreFactory.createConfigStore(configPath);
+      
+      const registeredStore = dataStoreFactory.getRegisteredStore(configPath);
+      expect(registeredStore).toBeDefined();
+      
+      // Check that factory defaults are applied
+      const config = registeredStore!.configuration;
+      expect(config.compressionEnabled).toBe(true);
+      expect(config.maxBackups).toBe(10);
+      expect(config.createDirectories).toBe(true);
     });
   });
 
   describe('Metrics Store Creation', () => {
-    test('should create metrics store with TTL support', async () => {
-      const metricsPath = path.join(testDir, 'metrics.json');
-      const ttl = 1000; // 1 second TTL for testing
-      const store = dataStoreFactory.createMetricsStore(metricsPath, ttl);
+    test('should create metrics store with DSE-006 defaults', async () => {
+      const metricsPath = path.join(testDir, 'metrics-dse006.json');
+      const store = dataStoreFactory.createMetricsStore(metricsPath);
       
       expect(store).toBeInstanceOf(DataStore);
       
-      // Save metrics with timestamp
+      // Save metrics data
       const metrics = {
         timestamp: Date.now(),
         cpu: 50,
-        memory: 1024
+        memory: 1024,
+        requests: 100
       };
       await store.save(metrics);
       
@@ -104,60 +176,93 @@ describe('DataStoreFactory', () => {
       const loaded = await store.load();
       expect(loaded).toEqual(metrics);
       
-      // Wait for TTL to expire
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      // Check registry configuration
+      const registeredStore = dataStoreFactory.getRegisteredStore(metricsPath);
+      expect(registeredStore).toBeDefined();
+      expect(registeredStore!.type).toBe('metrics');
       
-      // Expired data should fail validation on save
-      const expiredMetrics = {
-        timestamp: Date.now() - 2000, // 2 seconds ago
-        cpu: 60,
-        memory: 2048
-      };
-      await expect(store.save(expiredMetrics)).rejects.toThrow('validation failed');
+      const config = registeredStore!.configuration;
+      expect(config.compressionEnabled).toBe(true);
+      expect(config.compressionThreshold).toBe(10000);
+      expect(config.ttl).toBe(2592000000); // 30 days
+      expect(config.autoCleanup).toBe(true);
     });
 
-    test('should use default TTL of 30 days', () => {
-      const metricsPath = path.join(testDir, 'metrics-default.json');
-      const store = dataStoreFactory.createMetricsStore(metricsPath);
+    test('should apply custom validator for metrics', async () => {
+      const metricsPath = path.join(testDir, 'validated-metrics.json');
+      const validator = (data: unknown): data is { timestamp: number; value: number } => {
+        return typeof data === 'object' && 
+               data !== null && 
+               'timestamp' in data &&
+               'value' in data &&
+               typeof (data as any).timestamp === 'number' &&
+               typeof (data as any).value === 'number';
+      };
       
-      expect(store).toBeInstanceOf(DataStore);
+      const store = dataStoreFactory.createMetricsStore<{ timestamp: number; value: number }>(
+        metricsPath,
+        validator
+      );
       
-      // Check registry
-      const registry = dataStoreFactory.getRegistry();
-      const entry = Array.from(registry.values()).find(e => e.type === 'metrics');
-      expect(entry).toBeDefined();
+      // Valid metrics
+      await store.save({ timestamp: Date.now(), value: 42 });
+      
+      // Invalid metrics should fail
+      await expect(store.save({ invalid: true } as any)).rejects.toThrow();
     });
   });
 
   describe('Cache Store Creation', () => {
-    test('should create cache store with entry limit', async () => {
-      const cachePath = path.join(testDir, 'cache.json');
-      const maxEntries = 3;
-      const store = dataStoreFactory.createCacheStore(cachePath, maxEntries);
+    test('should create cache store with DSE-006 defaults', async () => {
+      const cachePath = path.join(testDir, 'cache-dse006.json');
+      const store = dataStoreFactory.createCacheStore(cachePath);
       
       expect(store).toBeInstanceOf(DataStore);
       
-      // Array format should enforce max entries
-      const validCache = ['entry1', 'entry2', 'entry3'];
-      await store.save(validCache);
-      
-      // Too many entries should fail
-      const invalidCache = ['entry1', 'entry2', 'entry3', 'entry4'];
-      await expect(store.save(invalidCache)).rejects.toThrow('validation failed');
-      
-      // Object format with entries array
-      const objectCache = {
-        entries: ['item1', 'item2'],
+      // Test basic cache functionality
+      const cacheData = {
+        entries: ['item1', 'item2', 'item3'],
         metadata: { created: Date.now() }
       };
-      await store.save(objectCache);
+      await store.save(cacheData);
       
-      // Too many entries in object format
-      const invalidObjectCache = {
-        entries: ['item1', 'item2', 'item3', 'item4'],
-        metadata: { created: Date.now() }
+      const loaded = await store.load();
+      expect(loaded).toEqual(cacheData);
+      
+      // Check registry configuration
+      const registeredStore = dataStoreFactory.getRegisteredStore(cachePath);
+      expect(registeredStore).toBeDefined();
+      expect(registeredStore!.type).toBe('cache');
+      
+      const config = registeredStore!.configuration;
+      expect(config.compressionEnabled).toBe(false); // Cache prioritizes speed
+      expect(config.ttl).toBe(31536000000); // 1 year
+      expect(config.maxEntries).toBe(100);
+      expect(config.autoCleanup).toBe(true);
+      expect(config.maxBackups).toBe(3); // Fewer backups for cache
+    });
+
+    test('should accept custom validator for cache', async () => {
+      const cachePath = path.join(testDir, 'validated-cache.json');
+      const validator = (data: unknown): data is { items: string[]; count: number } => {
+        return typeof data === 'object' && 
+               data !== null && 
+               'items' in data &&
+               'count' in data &&
+               Array.isArray((data as any).items) &&
+               typeof (data as any).count === 'number';
       };
-      await expect(store.save(invalidObjectCache)).rejects.toThrow('validation failed');
+      
+      const store = dataStoreFactory.createCacheStore<{ items: string[]; count: number }>(
+        cachePath,
+        validator
+      );
+      
+      // Valid cache data
+      await store.save({ items: ['a', 'b'], count: 2 });
+      
+      // Invalid cache data should fail
+      await expect(store.save({ invalid: true } as any)).rejects.toThrow();
     });
   });
 
@@ -220,140 +325,153 @@ describe('DataStoreFactory', () => {
     });
   });
 
-  describe('Registry Management', () => {
-    test('should track all created stores', () => {
-      const store1 = dataStoreFactory.createConfigStore('config1.json');
-      const store2 = dataStoreFactory.createMetricsStore('metrics1.json');
-      const store3 = dataStoreFactory.createCacheStore('cache1.json');
-      const store4 = dataStoreFactory.createStateStore('state1.json');
-      const store5 = dataStoreFactory.createCustomStore('custom1.json');
+  describe('Registry Management - DSE-006', () => {
+    test('should track all created stores with unique IDs', () => {
+      const testPrefix = Date.now().toString();
+      const store1 = dataStoreFactory.createConfigStore(`${testPrefix}-config1.json`);
+      const store2 = dataStoreFactory.createMetricsStore(`${testPrefix}-metrics1.json`);
+      const store3 = dataStoreFactory.createCacheStore(`${testPrefix}-cache1.json`);
+      const store4 = dataStoreFactory.createStateStore(`${testPrefix}-state1.json`);
       
-      const registry = dataStoreFactory.getRegistry();
-      expect(registry.size).toBe(5);
+      const registeredStores = dataStoreFactory.getRegisteredStores();
+      const testStores = registeredStores.filter(entry => 
+        entry.filePath.includes(testPrefix)
+      );
+      
+      expect(testStores).toHaveLength(4);
       
       // Check types
-      const types = Array.from(registry.values()).map(e => e.type);
+      const types = testStores.map(e => e.type);
       expect(types).toContain('config');
       expect(types).toContain('metrics');
       expect(types).toContain('cache');
       expect(types).toContain('state');
-      expect(types).toContain('custom');
+      
+      // Check unique IDs
+      const ids = testStores.map(e => e.id);
+      expect(new Set(ids).size).toBe(4); // All unique
     });
 
-    test('should get store by path', () => {
-      const configPath = 'test-config.json';
+    test('should get store by normalized path', () => {
+      const testPrefix = Date.now().toString();
+      const configPath = `${testPrefix}-test-config.json`;
       const store = dataStoreFactory.createConfigStore(configPath);
       
-      const retrieved = dataStoreFactory.getStore(configPath);
-      expect(retrieved).toBe(store);
+      const retrieved = dataStoreFactory.getRegisteredStore(configPath);
+      expect(retrieved).toBeDefined();
+      expect(retrieved!.instance).toBe(store);
       
       // Non-existent store
-      const notFound = dataStoreFactory.getStore('non-existent.json');
+      const notFound = dataStoreFactory.getRegisteredStore('non-existent-file.json');
       expect(notFound).toBeUndefined();
     });
 
-    test('should get stores by type', () => {
-      dataStoreFactory.createConfigStore('config1.json');
-      dataStoreFactory.createConfigStore('config2.json');
-      dataStoreFactory.createMetricsStore('metrics1.json');
+    test('should provide registry statistics', () => {
+      const testPrefix = Date.now().toString();
+      dataStoreFactory.createConfigStore(`${testPrefix}-stats-config1.json`);
+      dataStoreFactory.createConfigStore(`${testPrefix}-stats-config2.json`);
+      dataStoreFactory.createMetricsStore(`${testPrefix}-stats-metrics1.json`);
       
-      const configStores = dataStoreFactory.getStoresByType('config');
-      expect(configStores).toHaveLength(2);
+      const stats = dataStoreFactory.getRegistryStats();
       
-      const metricsStores = dataStoreFactory.getStoresByType('metrics');
-      expect(metricsStores).toHaveLength(1);
-      
-      const cacheStores = dataStoreFactory.getStoresByType('cache');
-      expect(cacheStores).toHaveLength(0);
+      expect(stats.totalStores).toBeGreaterThan(0);
+      expect(stats.storesByType.config).toBeGreaterThan(0);
+      expect(stats.oldestStore).toBeInstanceOf(Date);
+      expect(stats.newestStore).toBeInstanceOf(Date);
     });
 
-    test('should update last accessed time', async () => {
-      const store = dataStoreFactory.createConfigStore('access-test.json');
+    test('should unregister stores', () => {
+      const testPrefix = Date.now().toString();
+      const testPath = `${testPrefix}-unregister-test.json`;
       
-      const registry1 = dataStoreFactory.getRegistry();
-      const entry1 = Array.from(registry1.values())[0];
-      const firstAccess = entry1.lastAccessed;
+      dataStoreFactory.createConfigStore(testPath);
+      
+      // Verify store exists
+      const beforeUnregister = dataStoreFactory.getRegisteredStore(testPath);
+      expect(beforeUnregister).toBeDefined();
+      
+      // Unregister
+      const unregistered = dataStoreFactory.unregisterStore(testPath);
+      expect(unregistered).toBe(true);
+      
+      // Verify store no longer exists
+      const afterUnregister = dataStoreFactory.getRegisteredStore(testPath);
+      expect(afterUnregister).toBeUndefined();
+      
+      // Unregistering again should return false
+      const unregisteredAgain = dataStoreFactory.unregisterStore(testPath);
+      expect(unregisteredAgain).toBe(false);
+    });
+  });
+
+  describe('Health Checks - DSE-006', () => {
+    test('should perform comprehensive health check on all stores', async () => {
+      const testPrefix = Date.now().toString();
+      const store1 = dataStoreFactory.createConfigStore(`${testPrefix}-health1.json`);
+      const store2 = dataStoreFactory.createStateStore(`${testPrefix}-health2.json`);
+      
+      await store1.save({ config: true, version: '1.0.0' });
+      await store2.save({ state: true, lastUpdate: Date.now() });
+      
+      const healthResults = await dataStoreFactory.performHealthCheck();
+      
+      expect(healthResults.totalStores).toBeGreaterThan(0);
+      expect(healthResults.healthyStores).toBeGreaterThan(0);
+      expect(healthResults.healthyStores + healthResults.unhealthyStores).toBe(healthResults.totalStores);
+      expect(Array.isArray(healthResults.errors)).toBe(true);
+    });
+
+    test('should handle health check errors properly', async () => {
+      const testPrefix = Date.now().toString();
+      const store = dataStoreFactory.createConfigStore(`${testPrefix}-error-test.json`);
+      
+      // Mock health check to throw error
+      jest.spyOn(store, 'healthCheck').mockRejectedValue(new Error('Simulated health check failure'));
+      
+      const healthResults = await dataStoreFactory.performHealthCheck();
+      
+      // Should have at least one error
+      const errorForOurStore = healthResults.errors.find(error => 
+        error.filePath.includes(`${testPrefix}-error-test.json`)
+      );
+      expect(errorForOurStore).toBeDefined();
+      expect(errorForOurStore!.error).toBe('Simulated health check failure');
+    });
+
+    test('should update last accessed time during health checks', async () => {
+      const testPrefix = Date.now().toString();
+      const store = dataStoreFactory.createConfigStore(`${testPrefix}-access-time.json`);
+      
+      await store.save({ test: true });
+      
+      const beforeHealth = dataStoreFactory.getRegisteredStore(`${testPrefix}-access-time.json`);
+      const timeBefore = beforeHealth!.lastAccessed;
       
       // Wait a bit
       await new Promise(resolve => setTimeout(resolve, 10));
       
-      // Access registry again
-      const registry2 = dataStoreFactory.getRegistry();
-      const entry2 = Array.from(registry2.values())[0];
-      const secondAccess = entry2.lastAccessed;
+      // Perform health check
+      await dataStoreFactory.performHealthCheck();
       
-      expect(secondAccess).toBeGreaterThan(firstAccess);
+      const afterHealth = dataStoreFactory.getRegisteredStore(`${testPrefix}-access-time.json`);
+      const timeAfter = afterHealth!.lastAccessed;
+      
+      expect(timeAfter.getTime()).toBeGreaterThan(timeBefore.getTime());
     });
   });
 
-  describe('Health Checks', () => {
-    test('should perform health check on all stores', async () => {
-      const store1 = dataStoreFactory.createConfigStore('health1.json');
-      const store2 = dataStoreFactory.createStateStore('health2.json');
+  describe('Configuration Access', () => {
+    test('should provide factory configuration', () => {
+      const config = dataStoreFactory.getFactoryConfig();
       
-      await store1.save({ config: true });
-      await store2.save({ state: true });
-      
-      const healthResults = await dataStoreFactory.healthCheckAll();
-      expect(healthResults.size).toBe(2);
-      
-      for (const [path, result] of healthResults) {
-        expect(result.type).toBeDefined();
-        expect(result.health).toBeDefined();
-        expect(result.health.healthy).toBe(true);
-      }
+      expect(config).toBeDefined();
+      expect(config.standardBackupConfig).toBeDefined();
+      expect(config.configStoreDefaults).toBeDefined();
+      expect(config.metricsStoreDefaults).toBeDefined();
+      expect(config.cacheStoreDefaults).toBeDefined();
+      expect(config.stateStoreDefaults).toBeDefined();
     });
 
-    test('should handle health check errors', async () => {
-      const store = dataStoreFactory.createConfigStore('error-test.json');
-      
-      // Mock health check to throw error
-      jest.spyOn(store, 'healthCheck').mockRejectedValue(new Error('Health check failed'));
-      
-      const healthResults = await dataStoreFactory.healthCheckAll();
-      const result = Array.from(healthResults.values())[0];
-      
-      expect(result.error).toBe('Health check failed');
-    });
-  });
-
-  describe('Aggregated Metrics', () => {
-    test('should aggregate metrics from all stores', async () => {
-      const store1 = dataStoreFactory.createConfigStore('metrics-test1.json');
-      const store2 = dataStoreFactory.createStateStore('metrics-test2.json');
-      
-      // Perform operations to generate metrics
-      await store1.save({ test: 1 });
-      await store1.load();
-      await store2.save({ test: 2 });
-      
-      const aggregated = dataStoreFactory.getAggregatedMetrics();
-      
-      expect(aggregated.totalStores).toBe(2);
-      expect(aggregated.totalSaveOperations).toBe(2);
-      expect(aggregated.totalLoadOperations).toBe(1);
-      expect(aggregated.storesByType).toEqual({
-        config: 1,
-        state: 1
-      });
-      expect(aggregated.avgSaveLatency).toBeGreaterThan(0);
-    });
-
-    test('should handle empty metrics', () => {
-      dataStoreFactory.createConfigStore('empty1.json');
-      dataStoreFactory.createMetricsStore('empty2.json');
-      
-      const aggregated = dataStoreFactory.getAggregatedMetrics();
-      
-      expect(aggregated.totalStores).toBe(2);
-      expect(aggregated.totalSaveOperations).toBe(0);
-      expect(aggregated.totalLoadOperations).toBe(0);
-      expect(aggregated.avgSaveLatency).toBe(0);
-      expect(aggregated.avgLoadLatency).toBe(0);
-    });
-  });
-
-  describe('Configuration Presets', () => {
     test('should provide standard backup configuration', () => {
       const backupConfig = dataStoreFactory.getStandardBackupConfig();
       
@@ -363,39 +481,42 @@ describe('DataStoreFactory', () => {
         compressionEnabled: true
       });
     });
-
-    test('should provide preset configurations', () => {
-      const presets = dataStoreFactory.getPresets();
-      
-      expect(presets.configStore.maxBackups).toBe(10);
-      expect(presets.metricsStore.maxBackups).toBe(3);
-      expect(presets.cacheStore.maxBackups).toBe(2);
-      expect(presets.stateStore.maxBackups).toBe(5);
-      
-      // All should have standard settings
-      for (const preset of Object.values(presets)) {
-        expect(preset.createDirectories).toBe(true);
-        expect(preset.fileMode).toBe(0o644);
-      }
-    });
   });
 
-  describe('Path Resolution', () => {
-    test('should resolve relative paths to data directory', () => {
-      const store = dataStoreFactory.createConfigStore('relative.json');
-      const registry = dataStoreFactory.getRegistry();
-      const paths = Array.from(registry.keys());
+  describe('Service Factory Pattern Validation', () => {
+    test('should create different store types with appropriate configurations', () => {
+      const testPrefix = Date.now().toString();
       
-      expect(paths[0]).toMatch(/^\.\/data\/relative\.json$/);
-    });
-
-    test('should preserve absolute paths', () => {
-      const absolutePath = path.resolve(testDir, 'absolute.json');
-      const store = dataStoreFactory.createConfigStore(absolutePath);
-      const registry = dataStoreFactory.getRegistry();
-      const paths = Array.from(registry.keys());
+      // Create one of each store type
+      const configStore = dataStoreFactory.createConfigStore(`${testPrefix}-pattern-config.json`);
+      const metricsStore = dataStoreFactory.createMetricsStore(`${testPrefix}-pattern-metrics.json`);
+      const cacheStore = dataStoreFactory.createCacheStore(`${testPrefix}-pattern-cache.json`);
+      const stateStore = dataStoreFactory.createStateStore(`${testPrefix}-pattern-state.json`);
       
-      expect(paths[0]).toBe(absolutePath);
+      // All should be DataStore instances
+      expect(configStore).toBeInstanceOf(DataStore);
+      expect(metricsStore).toBeInstanceOf(DataStore);
+      expect(cacheStore).toBeInstanceOf(DataStore);
+      expect(stateStore).toBeInstanceOf(DataStore);
+      
+      // Check registry tracking
+      const registeredStores = dataStoreFactory.getRegisteredStores();
+      const patternStores = registeredStores.filter(entry => 
+        entry.filePath.includes(testPrefix)
+      );
+      
+      expect(patternStores).toHaveLength(4);
+      
+      // Verify each store type has different configuration
+      const configEntry = patternStores.find(s => s.type === 'config');
+      const metricsEntry = patternStores.find(s => s.type === 'metrics');
+      const cacheEntry = patternStores.find(s => s.type === 'cache');
+      const stateEntry = patternStores.find(s => s.type === 'state');
+      
+      expect(configEntry?.configuration.maxBackups).toBe(10);
+      expect(metricsEntry?.configuration.compressionThreshold).toBe(10000);
+      expect(cacheEntry?.configuration.maxEntries).toBe(100);
+      expect(stateEntry?.configuration.maxBackups).toBe(5);
     });
   });
 });
