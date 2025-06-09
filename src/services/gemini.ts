@@ -261,7 +261,6 @@ export class GeminiService implements IAIService {
     member?: GuildMember,
     guild?: Guild
   ): Promise<string> {
-    logger.info(`[DEBUG] generateResponse called for user ${userId}, prompt: "${prompt.substring(0, 50)}..."`);
 
     // Check degradation status first
     const degradationStatus = await this.gracefulDegradation.shouldDegrade();
@@ -416,7 +415,6 @@ export class GeminiService implements IAIService {
     member?: GuildMember,
     guild?: Guild
   ): Promise<string> {
-    logger.info(`[DEBUG] performAIGeneration called for user ${userId}`);
     
     // Determine roasting personality
     const shouldRoastNow = this.roastingEngine.shouldRoast(userId, prompt, serverId);
@@ -559,7 +557,6 @@ export class GeminiService implements IAIService {
    * Executes the Gemini API call with circuit breaker protection
    */
   private async executeGeminiAPICall(fullPrompt: string) {
-    logger.info(`[DEBUG] executeGeminiAPICall called, prompt length: ${fullPrompt.length}`);
     
     return await this.gracefulDegradation.executeWithCircuitBreaker(
       async () => {

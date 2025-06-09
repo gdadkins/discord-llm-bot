@@ -178,13 +178,9 @@ async function handleMessageCreate(
   if (message.author.bot) return;
   
   if (message.mentions.users.has(client.user!.id)) {
-    // Add unique handler ID to track multiple handlers
-    const handlerId = Math.random().toString(36).substring(7);
-    logger.info(`[HANDLER-${handlerId}] Starting message processing`);
-    
     // First check if we've already seen this exact Message object
     if (raceConditionManager.hasProcessedMessageObject(message)) {
-      logger.warn(`[HANDLER-${handlerId}] DUPLICATE MESSAGE OBJECT DETECTED`, {
+      logger.warn('DUPLICATE MESSAGE OBJECT DETECTED', {
         messageId: message.id,
         authorId: message.author.id,
         content: message.content.substring(0, 50)
