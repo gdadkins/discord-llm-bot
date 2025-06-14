@@ -237,3 +237,78 @@ export interface ConfigurationPaths {
   versionsPath?: string;
   auditLogPath?: string;
 }
+
+// Environment override configuration
+export interface EnvironmentOverrides {
+  [key: string]: string | number | boolean;
+}
+
+// Events
+export interface ConfigurationEvents {
+  'config:changed': (changes: ConfigurationChange[]) => void;
+  'config:validated': (valid: boolean, errors?: string[]) => void;
+  'config:reloaded': (version: string) => void;
+  'config:error': (error: Error) => void;
+  'config:rollback': (fromVersion: string, toVersion: string) => void;
+}
+
+// ============================================================================
+// Component Interfaces
+// ============================================================================
+
+export interface IConfigurationLoader {
+  loadEnvironmentOverrides(): Promise<void>;
+  loadConfiguration(): Promise<BotConfiguration>;
+  applyEnvironmentOverrides(config: BotConfiguration): BotConfiguration;
+  getDefaultConfiguration(): BotConfiguration;
+  getEnvironmentOverrides(): EnvironmentOverrides;
+  saveConfiguration(config: BotConfiguration): Promise<void>;
+}
+
+export interface IConfigurationValidator {
+  validateConfiguration(config: BotConfiguration): { valid: boolean; errors?: string[] };
+  validateEnvironment(): { isValid: boolean; errors: unknown[]; warnings: string[] };
+  validateSchemaEvolution(oldSchema: object, newSchema: object): { isValid: boolean; errors: unknown[]; warnings: string[] };
+  validateMigration(fromConfig: BotConfiguration, toConfig: BotConfiguration): { isValid: boolean; errors: unknown[]; warnings: string[] };
+  clearCache(): void;
+}
+
+export interface IConfigurationMigrator {
+  generateVersion(): string;
+  generateConfigHash(config: BotConfiguration): string;
+  saveVersionHistory(config: BotConfiguration): Promise<void>;
+  getVersionHistory(): Promise<ConfigurationVersion[]>;
+  rollbackToVersion(version: string): Promise<ConfigurationVersion>;
+  migrateConfiguration(fromVersion: string, toVersion: string, migrationFn?: (config: BotConfiguration) => BotConfiguration): Promise<BotConfiguration>;
+  getMigrationStrategies(): Map<string, (config: BotConfiguration) => BotConfiguration>;
+  isVersionCompatible(version: string, targetVersion: string): boolean;
+  getCachedVersionCount(): number;
+}
+
+export interface IConfigurationAuditor {
+  logConfigurationChange(change: ConfigurationChange): Promise<void>;
+  logConfigurationChanges(changes: ConfigurationChange[], source: string, reason?: string): Promise<void>;
+  detectChanges(oldConfig: BotConfiguration, newConfig: BotConfiguration): ConfigurationChange[];
+  getAuditLog(limit?: number): Promise<ConfigurationChange[]>;
+  generateComplianceReport(startDate?: Date, endDate?: Date): Promise<{
+    totalChanges: number;
+    changesByType: Record<string, number>;
+    changesByUser: Record<string, number>;
+    changesBySource: Record<string, number>;
+    criticalChanges: ConfigurationChange[];
+    timeline: { date: string; count: number }[];
+  }>;
+  validateCompliance(config: BotConfiguration): Promise<{
+    compliant: boolean;
+    violations: string[];
+    warnings: string[];
+  }>;
+  getAuditStatistics(): Promise<{
+    totalEntries: number;
+    oldestEntry?: Date;
+    newestEntry?: Date;
+    averageChangesPerDay: number;
+    mostActiveUser?: string;
+    mostCommonChangeType?: string;
+  }>;
+}

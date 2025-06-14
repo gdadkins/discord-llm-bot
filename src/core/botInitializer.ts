@@ -5,15 +5,17 @@
 
 import { Client, GatewayIntentBits } from 'discord.js';
 import { logger } from '../utils/logger';
+import { validateEnvironment as validateEnvWithValidator } from '../utils/ConfigurationValidator';
 import { registerCommands } from '../commands';
 import { ServiceFactory } from '../services/interfaces/serviceFactory';
 import { ServiceRegistry } from '../services/interfaces/serviceRegistry';
 import { ConfigurationFactory } from '../config/ConfigurationFactory';
-import type { IAIService } from '../services/interfaces';
+import type { IAIService, IUserAnalysisService } from '../services/interfaces';
 
 export interface BotServices {
   client: Client;
   geminiService: IAIService;
+  userAnalysisService: IUserAnalysisService;
   serviceRegistry: ServiceRegistry;
 }
 
@@ -37,7 +39,7 @@ export function createDiscordClient(): Client {
 /**
  * Initializes all bot services using dependency injection
  */
-export async function initializeBotServices(client: Client): Promise<{geminiService: IAIService, serviceRegistry: ServiceRegistry}> {
+export async function initializeBotServices(client: Client): Promise<{geminiService: IAIService, userAnalysisService: IUserAnalysisService, serviceRegistry: ServiceRegistry}> {
   try {
     logger.info('Initializing bot services with dependency injection...');
     
@@ -66,11 +68,13 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
       'conversationManager': [],
       'retryHandler': [],
       'systemContextBuilder': [],
+      'responseProcessingService': [],
+      'userAnalysisService': [],
       'healthMonitor': ['rateLimiter', 'contextManager'],
       'gracefulDegradation': ['healthMonitor'],
       'aiService': ['rateLimiter', 'contextManager', 'personalityManager', 'cacheManager', 
         'gracefulDegradation', 'roastingEngine', 'conversationManager', 
-        'retryHandler', 'systemContextBuilder']
+        'retryHandler', 'systemContextBuilder', 'responseProcessingService']
     };
 
     for (const [name, service] of services) {
@@ -87,6 +91,12 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
       throw new Error('Failed to create AI service');
     }
     
+    // Get the User Analysis service
+    const userAnalysisService = services.get('userAnalysisService') as IUserAnalysisService;
+    if (!userAnalysisService) {
+      throw new Error('Failed to create User Analysis service');
+    }
+    
     // Set Discord client for system context awareness
     geminiService.setDiscordClient(client);
     
@@ -94,7 +104,7 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
     await registerCommands(client);
     
     logger.info('Bot services initialized successfully with dependency injection');
-    return { geminiService, serviceRegistry };
+    return { geminiService, userAnalysisService, serviceRegistry };
   } catch (error) {
     logger.error('Failed to initialize bot services:', error);
     throw error;
@@ -102,23 +112,19 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
 }
 
 /**
- * Validates environment configuration
+ * Validates environment configuration using ConfigurationValidator
  */
 export function validateEnvironment(): void {
-  const requiredEnvVars = [
-    'DISCORD_TOKEN', 
-    'DISCORD_CLIENT_ID'
-  ];
+  // Use the centralized ConfigurationValidator which includes all validation logic
+  validateEnvWithValidator();
   
-  const missing = requiredEnvVars.filter(varName => !process.env[varName]);
-  
-  if (missing.length > 0) {
-    logger.error(`Missing required environment variables: ${missing.join(', ')}`);
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  // Additional validation for Discord-specific requirements
+  const discordToken = process.env.DISCORD_TOKEN;
+  if (!discordToken) {
+    const error = 'DISCORD_TOKEN environment variable is required';
+    logger.error(error);
+    throw new Error(error);
   }
-  
-  // Validate API key using ConfigurationFactory after checking Discord vars
-  ConfigurationFactory.validateApiKey();
 }
 
 /**
@@ -132,6 +138,14 @@ export async function shutdownServices(services: BotServices): Promise<void> {
       await services.serviceRegistry.shutdownAll();
     } catch (error) {
       logger.error('Error shutting down service registry:', error);
+    }
+  }
+  
+  if (services.userAnalysisService) {
+    try {
+      await services.userAnalysisService.shutdown();
+    } catch (error) {
+      logger.error('Error shutting down User Analysis service:', error);
     }
   }
   

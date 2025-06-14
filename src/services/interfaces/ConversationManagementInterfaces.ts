@@ -5,6 +5,7 @@
  */
 
 import type { IService } from './CoreServiceInterfaces';
+import type { TextChannel } from 'discord.js';
 
 // ============================================================================
 // Conversation Management Service Interfaces
@@ -40,7 +41,7 @@ export interface IConversationManager extends IService {
   /**
    * Builds conversation context for a user
    */
-  buildConversationContext(userId: string): string;
+  buildConversationContext(userId: string, messageLimit?: number): string;
   
   /**
    * Clears conversation for a user
@@ -60,4 +61,22 @@ export interface IConversationManager extends IService {
    * Gets active conversation count
    */
   getActiveConversationCount(): number;
+  
+  /**
+   * Fetches message history from a Discord channel
+   */
+  fetchChannelHistory(
+    channel: TextChannel, 
+    limit?: number, 
+    beforeMessageId?: string
+  ): Promise<Message[]>;
+  
+  /**
+   * Imports channel history into a user's conversation
+   */
+  importChannelHistory(
+    userId: string, 
+    channel: TextChannel, 
+    limit?: number
+  ): Promise<number>;
 }

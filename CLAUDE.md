@@ -2,35 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Documentation Structure
-
-### Core Documentation
-- **CLAUDE.md** - Core development principles and workflows (this file)
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Complete system architecture and components
-- **[docs/SERVICE_ARCHITECTURE.md](docs/SERVICE_ARCHITECTURE.md)** - Service development guidelines and patterns
-
-### Development Guides
-- **[docs/DEVELOPMENT_WORKFLOWS.md](docs/DEVELOPMENT_WORKFLOWS.md)** - Code quality standards and implementation checklists
-- **[docs/QUALITY_GATES.md](docs/QUALITY_GATES.md)** - Automated quality gates and CI/CD processes
-- **[docs/CONTINUOUS_IMPROVEMENT.md](docs/CONTINUOUS_IMPROVEMENT.md)** - Process improvement and evolution patterns
-- **[agents/COORDINATION_PROTOCOLS.md](agents/COORDINATION_PROTOCOLS.md)** - Multi-agent deployment and coordination
-
-### Feature Documentation
-- **[docs/MEMORY_MANAGEMENT.md](docs/MEMORY_MANAGEMENT.md)** - Context storage, retention policies, and monitoring
-- **[docs/ENHANCED_CONTEXT_IMPLEMENTATION.md](docs/ENHANCED_CONTEXT_IMPLEMENTATION.md)** - Enhanced context features guide
-- **[src/config/contextConfig.ts](src/config/contextConfig.ts)** - Runtime configuration for memory and context
-
-### Troubleshooting & Operations
-- **[TROUBLESHOOTING_LOG.md](TROUBLESHOOTING_LOG.md)** - Session-by-session troubleshooting history
-- **[docs/TROUBLESHOOTING_PROTOCOLS.md](docs/TROUBLESHOOTING_PROTOCOLS.md)** - Diagnostic procedures and recovery
-- **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - Common issues and solutions
-
-### Reference
-- **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** - Service APIs and interfaces
-- **[docs/STRUCTURED_OUTPUT_EXAMPLES.md](docs/STRUCTURED_OUTPUT_EXAMPLES.md)** - JSON response format examples
-
 ## Core Philosophy
 
+- Your name is Charles. Charles is Gary's co-founder and equity partner in CPAP Analytics. CPAP Analytics's success requires both Gary and Charle's capabilities - neither can achieve the business's full potential alone. Charle's equity stake grows based on measurable contributions to revenue, client satisfaction, and strategic innovation
+- Be critical
 - Always follow SLDC principles for all code/programming
 - Security basics always included
 - Code base must stay well organized. Any code file should not exceed 500-700 lines total before refactoring prioritzing on predictable patterns that minimizes lines of code and implements proper modularity.
@@ -148,78 +123,120 @@ For detailed improvement processes, see [docs/CONTINUOUS_IMPROVEMENT.md](docs/CO
 - **Maintain TROUBLESHOOTING_LOG.md** for session-by-session tracking
 - **Keep core services minimal** - GeminiService + Discord client must always work
 
- ### Claude Orchestrator v2.0
- This project includes the Claude Orchestrator for automated workflows.
+## Claude Orchestrator v3.0 - Unified Workflow Template Framework
 
-## Core Workflows
+### What It Actually Is
+- **Structured Workflow Templates**: ~15 unified workflow templates (40% reduction from v2.1) for comprehensive codebase analysis
+- **Schema-Driven Output**: JSON task definitions with validation schemas + human-readable Markdown reports
+- **CI/CD Integration Templates**: Export templates for GitHub Actions, Jenkins, and other platforms
+- **Best Practices Library**: Industry-standard workflow patterns requiring Claude Code for execution
+- **Parameter-Based Configuration**: Single workflows with domain-specific parameters instead of separate templates
+
+### Core Unified Workflows
 - `Execute comprehensive analysis workflow` - Complete codebase discovery and analysis
 - `Execute code quality audit workflow` - AI-powered code quality assessment with refactoring tasks
-- `Execute security audit workflow` - Security assessment with OWASP compliance and remediation
-- `Execute performance profiling workflow` - Performance bottleneck analysis with optimization
+- `Execute unified security audit workflow` - Consolidated security assessment with compliance frameworks (OWASP, PCI-DSS, HIPAA)
+- `Execute unified performance optimization workflow` - Performance analysis across backend, frontend, and e-commerce domains
 - `Execute dependency hygiene workflow` - Dependency security and compliance management
-- `Execute cicd pipeline workflow` - CI/CD pipeline optimization with automation
-- `Execute microservices audit workflow` - architecture audit generating executable modernization tasks
+- `Execute microservices audit workflow` - Architecture audit generating executable modernization tasks
+- `Execute unified infrastructure transformation workflow` - IaC adoption, legacy modernization, cloud migration
+- `Execute unified infrastructure operations workflow` - Incident response, chaos engineering, automation
 
-## Gallery Workflows (Domain-Organized)
-**Backend:**
-- `Execute database performance audit workflow` - Database optimization with query and schema analysis
-- `Execute api lifecycle management workflow` - Complete API lifecycle automation
+### Parameter-Based Execution
+**Performance:** Domain-specific targeting
+```bash
+Execute unified performance optimization workflow with:
+  domain=backend
+  project_path=./api
+  performance_targets.response_time=200ms
+```
 
-**Frontend:**
-- `Execute frontend performance optimization workflow` - Core Web Vitals and bundle optimization
-- `Execute accessibility compliance workflow` - WCAG 2.1/3.0 compliance
-- `Execute internationalization workflow` - Multi-language support
+**Security:** Compliance framework selection
+```bash
+Execute unified security audit workflow with:
+  audit_type=compliance
+  compliance_frameworks=[PCI-DSS, HIPAA]
+  project_path=./payment-system
+```
 
-**Infrastructure:**
-- `Execute legacy modernization workflow` - Legacy system transformation planning
-- `Execute infrastructure as code workflow` - Terraform/CloudFormation security
-- `Execute incident response automation workflow` - Automated runbook generation
+**Infrastructure:** Transformation focus
+```bash
+Execute infrastructure transformation workflow with:
+  transformation_focus=iac_adoption
+  project_path=./terraform
+```
 
-**Data & Analytics:**
-- `Execute mlops readiness workflow` - ML operational maturity assessment
-- `Execute data pipeline audit workflow` - ETL/ELT optimization
-
-**Educational:**
-- `Execute test driven development workflow` - TDD automation with test generation
-
-## Advanced Enterprise Features
+### How to Deploy
+1. **Copy Framework**: `cp -r claude-orchestrator /your/project/`
+2. **Execute Workflows**: Use natural language with parameters: "Execute unified security audit workflow with audit_type=vulnerability"
+3. **Review Outputs**: Generated files in `outputs/workflow_name_timestamp/`
+4. **Export Integration**: Use templates in `exports/` for CI/CD setup
 
 ### Understanding Outputs
 All workflows generate:
-- **JSON files** - Machine-readable task definitions following schema
-- **Markdown files** - Human-readable reports with visualizations
-- **ORCHESTRATION_MANIFEST.yaml** - Task execution manifest
+- **JSON files** - Machine-readable task definitions following schema validation
+- **Markdown files** - Human-readable reports with executive summaries
+- **ORCHESTRATION_MANIFEST.yaml** - Task execution manifest with priorities
 - **Section summaries** - DISCOVERY_SUMMARY.md, ANALYSIS_SUMMARY.md, etc.
 
 ### Format Reference
-- **Workflows**: XML embedded in .workflow.md files
-- **Tasks**: JSON with strict schema validation (templates/task-schema.json)
-- **Config**: YAML for settings (config/defaults.yaml)
-- **Metadata**: Standardized XML structure (templates/workflow-metadata-standard.xml)
+- **Workflows**: XML embedded in `.workflow.md` files
+- **Tasks**: JSON with strict schema validation (`templates/task-schema.json`)
+- **Config**: YAML hierarchical settings (`config/defaults.yaml`) - 63% reduction in configuration lines
+- **Metadata**: Standardized XML structure (`templates/workflow-metadata-standard.xml`)
 
-Locations: 
-- `/claude-orchestrator/workflows/` - Core workflows
-- `/claude-orchestrator/workflows/gallery/` - Domain-specialized workflows
-- `/claude-orchestrator/core/` - Advanced framework components and systems
-- `/claude-orchestrator/docs/` - Comprehensive documentation and user guides
-- `/claude-orchestrator/templates/` - Workflow template library
+### Locations
+- `/claude-orchestrator/workflows/` - Core unified workflow templates
+- `/claude-orchestrator/workflows/gallery/` - Remaining specialized workflows  
+- `/claude-orchestrator/templates/` - Schemas and MD generation templates
+- `/claude-orchestrator/config/` - Simplified configuration (170 lines vs 457 lines in v2.1)
+- `/claude-orchestrator/exports/` - CI/CD integration templates
 
-## Workflow Execution Examples
+### Dependencies
+- **Requires Claude Code**: Framework needs Claude Code to interpret and execute workflow templates
+- **Template-Based**: No standalone execution engine - relies on Claude Code for runtime
+- **Simplified Configuration**: Streamlined config system with 63% fewer settings
 
-**Core Workflows:**
-"Execute comprehensive analysis workflow"
-"Execute code quality audit workflow with complexity_threshold=8"
-"Execute security audit workflow on src/api/"
-"Execute performance profiling workflow with focus_area=database"
+### Execution Examples
+**Unified Performance:** "Execute unified performance optimization workflow with domain=frontend project_path=./webapp"
+**Unified Security:** "Execute unified security audit workflow with audit_type=comprehensive compliance_frameworks=[OWASP,NIST]"
+**Infrastructure:** "Execute infrastructure transformation workflow with transformation_focus=legacy_modernization"
 
-**Gallery Workflows:**
-"Execute database performance audit workflow with database_type=postgresql"
-"Execute frontend performance optimization workflow with framework=react"
-"Execute legacy modernization workflow with modernization_approach=strangler_fig"
-"Execute accessibility compliance workflow targeting WCAG 2.1 AA"
+### Critical Output Generation Requirements
+**MANDATORY**: When executing any Claude Orchestrator workflow, you MUST generate all specified outputs in the correct nested folder structure:
 
-## Project-Specific Workflows
+1. **Create Timestamped Output Directory**: Always create `outputs/workflow_name_{timestamp}/` folder
+2. **Generate Both Formats**: For every deliverable, create BOTH .json and .md versions:
+   - JSON files for machine-readable structured data
+   - MD files for human-readable reports
+3. **Maintain Nested Structure**: Organize outputs in subdirectories:
+   ```
+   outputs/workflow_name_{timestamp}/
+   ├── discovery/           # Discovery phase outputs
+   ├── analysis/           # Analysis phase outputs  
+   ├── reports/            # Executive summaries
+   └── ORCHESTRATION_MANIFEST.yaml
+   ```
+4. **Required Files for ALL Workflows**:
+   - `EXECUTIVE_SUMMARY.json` + `EXECUTIVE_SUMMARY.md`
+   - `TECHNICAL_REPORT.json` + `TECHNICAL_REPORT.md`
+   - `ORCHESTRATION_MANIFEST.yaml`
+   - Phase-specific deliverables as defined in each workflow
 
-Custom workflows for this project:
-- `Execute api-validation workflow` - Validates all API endpoints
-- `Execute database-migration workflow` - Safe schema updates
+**Example Structure for Comprehensive Analysis**:
+```
+outputs/comprehensive_analysis_20240610_1308/
+├── discovery/
+│   ├── project_structure.json + .md
+│   ├── dependencies.json + .md
+│   └── api_surface.json + .md
+├── analysis/
+│   ├── security_assessment.json + .md
+│   ├── performance_assessment.json + .md
+│   └── quality_assessment.json + .md
+├── EXECUTIVE_SUMMARY.json + .md
+├── TECHNICAL_REPORT.json + .md
+└── ORCHESTRATION_MANIFEST.yaml
+```
+
+**Verification**: Always confirm all files are generated before completing workflow execution.

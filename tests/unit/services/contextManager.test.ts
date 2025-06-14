@@ -6,7 +6,6 @@
 import { ContextManager } from '../../../src/services/contextManager';
 import { BehaviorAnalyzer } from '../../../src/services/behaviorAnalyzer';
 import { ConversationMemoryService } from '../../../src/services/context/ConversationMemoryService';
-import { UserContextService } from '../../../src/services/context/UserContextService';
 import { ChannelContextService } from '../../../src/services/context/ChannelContextService';
 import { SocialDynamicsService } from '../../../src/services/context/SocialDynamicsService';
 import { MemoryOptimizationService } from '../../../src/services/context/MemoryOptimizationService';
@@ -16,7 +15,6 @@ import { GuildMember, Guild } from 'discord.js';
 // Mock all dependencies
 jest.mock('../../../src/services/behaviorAnalyzer');
 jest.mock('../../../src/services/context/ConversationMemoryService');
-jest.mock('../../../src/services/context/UserContextService');
 jest.mock('../../../src/services/context/ChannelContextService');
 jest.mock('../../../src/services/context/SocialDynamicsService');
 jest.mock('../../../src/services/context/MemoryOptimizationService');
@@ -383,11 +381,10 @@ describe('ContextManager', () => {
   });
 
   describe('Cleanup', () => {
-    it('should properly cleanup resources', () => {
-      contextManager.cleanup();
+    it('should properly cleanup resources', async () => {
+      await contextManager.shutdown();
       
       expect(mockBehaviorAnalyzer.cleanup).toHaveBeenCalled();
-      expect((contextManager as any).userContextService.cleanup).toHaveBeenCalled();
       expect((contextManager as any).channelContextService.cleanup).toHaveBeenCalled();
     });
   });

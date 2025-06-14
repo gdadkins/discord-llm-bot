@@ -1,11 +1,12 @@
 /**
- * @file ContextManager - Coordinates between domain-specific context services
+ * @file ContextManager - Orchestrates context building and management
  * @module services/contextManager
  */
 
 import { logger } from '../utils/logger';
+import { BaseService } from './base/BaseService';
 import { GuildMember, Guild } from 'discord.js';
-import { BehaviorAnalyzer, UserBehaviorPattern } from './behaviorAnalyzer';
+import { BehaviorAnalyzer, UserBehaviorPattern } from './analytics/behavior';
 import { 
   ContextItem, 
   RichContext, 
@@ -13,11 +14,22 @@ import {
   SocialGraph, 
   ServerCulture 
 } from './context/types';
+import { 
+  ServerContext, 
+  CrossServerInsights, 
+  SummarizedFact, 
+  CodeSnippet 
+} from './interfaces/ContextManagementInterfaces';
+import { IContextManager } from './interfaces/ContextManagementInterfaces';
 import { ConversationMemoryService } from './context/ConversationMemoryService';
-import { UserContextService } from './context/UserContextService';
 import { ChannelContextService } from './context/ChannelContextService';
 import { SocialDynamicsService } from './context/SocialDynamicsService';
 import { MemoryOptimizationService } from './context/MemoryOptimizationService';
+import { CompositeContextBuilder } from './context/builders/CompositeContextBuilder';
+import { ConversationContextBuilder, ConversationContextOptions } from './context/ConversationContextBuilder';
+import { ServerContextBuilder, ServerContextOptions } from './context/ServerContextBuilder';
+import { UserContextBuilder, UserContextOptions } from './context/UserContextBuilder';
+import { ContextCacheManager } from './context/ContextCacheManager';
 
 // Re-export types for backward compatibility
 export { 
@@ -29,204 +41,96 @@ export {
 };
 
 // ========== CONTEXT BUILDER PATTERN ==========
+// The builder pattern implementation has been refactored into specialized builder classes
+// located in the ./context/builders directory. This provides better separation of concerns
+// and makes the code more maintainable and testable.
 
-interface ContextBuilder {
-  addContext(parts: string[]): this;
-  build(): string[];
-}
-
-class FactsContextBuilder implements ContextBuilder {
-  private context: RichContext;
-  private userId: string;
-  private conversationMemoryService: ConversationMemoryService;
-  private now: number;
-
-  constructor(
-    context: RichContext, 
-    userId: string, 
-    conversationMemoryService: ConversationMemoryService,
-    now: number
-  ) {
-    this.context = context;
-    this.userId = userId;
-    this.conversationMemoryService = conversationMemoryService;
-    this.now = now;
-  }
-
-  addContext(parts: string[]): this {
-    if (this.context.summarizedFacts.length > 0) {
-      parts.push('KEY FACTS & RELATIONSHIPS:\n');
-      const relevantFacts = this.conversationMemoryService.selectRelevantItems(
-        this.context.summarizedFacts, this.userId, 10
-      );
-      relevantFacts.forEach((factItem) => {
-        factItem.accessCount++;
-        factItem.lastAccessed = this.now;
-        parts.push(`- ${factItem.content}\n`);
-      });
-      parts.push('\n');
-    }
-    return this;
-  }
-
-  build(): string[] {
-    return [];
-  }
-}
-
-class BehaviorContextBuilder implements ContextBuilder {
-  private behaviorAnalyzer: BehaviorAnalyzer;
-  private userId: string;
-
-  constructor(behaviorAnalyzer: BehaviorAnalyzer, userId: string) {
-    this.behaviorAnalyzer = behaviorAnalyzer;
-    this.userId = userId;
-  }
-
-  addContext(parts: string[]): this {
-    const behaviorContext = this.behaviorAnalyzer.getBehaviorContext(this.userId);
-    if (behaviorContext) {
-      parts.push(behaviorContext);
-      parts.push('\n');
-    }
-    return this;
-  }
-
-  build(): string[] {
-    return [];
-  }
-}
-
-class EmbarrassingMomentsContextBuilder implements ContextBuilder {
-  private context: RichContext;
-  private userId: string;
-  private conversationMemoryService: ConversationMemoryService;
-  private now: number;
-
-  constructor(
-    context: RichContext, 
-    userId: string, 
-    conversationMemoryService: ConversationMemoryService,
-    now: number
-  ) {
-    this.context = context;
-    this.userId = userId;
-    this.conversationMemoryService = conversationMemoryService;
-    this.now = now;
-  }
-
-  addContext(parts: string[]): this {
-    if (this.context.embarrassingMoments.length > 0) {
-      parts.push('HALL OF SHAME:\n');
-      const relevantMoments = this.conversationMemoryService.selectRelevantItems(
-        this.context.embarrassingMoments, this.userId, 15
-      );
-      relevantMoments.forEach((momentItem) => {
-        momentItem.accessCount++;
-        momentItem.lastAccessed = this.now;
-        parts.push(`- ${momentItem.content}\n`);
-      });
-      parts.push('\n');
-    }
-    return this;
-  }
-
-  build(): string[] {
-    return [];
-  }
-}
-
-class CodeSnippetsContextBuilder implements ContextBuilder {
-  private context: RichContext;
-  private userId: string;
-  private conversationMemoryService: ConversationMemoryService;
-  private now: number;
-
-  constructor(
-    context: RichContext, 
-    userId: string, 
-    conversationMemoryService: ConversationMemoryService,
-    now: number
-  ) {
-    this.context = context;
-    this.userId = userId;
-    this.conversationMemoryService = conversationMemoryService;
-    this.now = now;
-  }
-
-  addContext(parts: string[]): this {
-    const userCode = this.context.codeSnippets.get(this.userId);
-    if (userCode && userCode.length > 0) {
-      parts.push(`${this.userId}'S TERRIBLE CODE HISTORY:\n`);
-      const relevantCode = this.conversationMemoryService.selectRelevantItems(
-        userCode, this.userId, 10
-      );
-      relevantCode.forEach((snippetItem) => {
-        snippetItem.accessCount++;
-        snippetItem.lastAccessed = this.now;
-        parts.push(`${snippetItem.content}\n---\n`);
-      });
-    }
-    return this;
-  }
-
-  build(): string[] {
-    return [];
-  }
-}
-
-class SocialDynamicsContextBuilder implements ContextBuilder {
-  private socialDynamicsService: SocialDynamicsService;
-  private context: RichContext;
-  private userId: string;
-
-  constructor(
-    socialDynamicsService: SocialDynamicsService,
-    context: RichContext,
-    userId: string
-  ) {
-    this.socialDynamicsService = socialDynamicsService;
-    this.context = context;
-    this.userId = userId;
-  }
-
-  addContext(parts: string[]): this {
-    const socialDynamicsContext = this.socialDynamicsService.buildSocialDynamicsContext(this.context, this.userId);
-    if (socialDynamicsContext) {
-      parts.push(socialDynamicsContext);
-    }
-    return this;
-  }
-
-  build(): string[] {
-    return [];
-  }
-}
-
-export class ContextManager {
+export class ContextManager extends BaseService implements IContextManager {
+  // Global context enablement state
+  private globalContextEnabled: boolean = false;
   private serverContext: Map<string, RichContext> = new Map();
-  private behaviorAnalyzer: BehaviorAnalyzer = new BehaviorAnalyzer();
   
-  // Domain services
+  // Core services
+  private behaviorAnalyzer: BehaviorAnalyzer = new BehaviorAnalyzer();
   private conversationMemoryService: ConversationMemoryService;
-  private userContextService: UserContextService;
   private channelContextService: ChannelContextService;
   private socialDynamicsService: SocialDynamicsService;
   private memoryOptimizationService: MemoryOptimizationService;
   
+  // Specialized builders
+  private conversationContextBuilder: ConversationContextBuilder;
+  private serverContextBuilder: ServerContextBuilder;
+  private userContextBuilder: UserContextBuilder;
+  private contextCacheManager: ContextCacheManager;
+  
   // Timers
   private readonly MEMORY_CHECK_INTERVAL = 300000; // 5 minutes
   private readonly SUMMARIZATION_INTERVAL = 1800000; // 30 minutes
-  private memoryCheckTimer: NodeJS.Timeout | null = null;
-  private summarizationTimer: NodeJS.Timeout | null = null;
   
   constructor() {
+    super();
+    
     // Initialize domain services
     this.conversationMemoryService = new ConversationMemoryService();
-    this.userContextService = new UserContextService();
     this.channelContextService = new ChannelContextService();
     this.socialDynamicsService = new SocialDynamicsService();
     this.memoryOptimizationService = new MemoryOptimizationService(this.conversationMemoryService);
+    
+    // Initialize specialized builders
+    this.conversationContextBuilder = new ConversationContextBuilder(
+      this.conversationMemoryService,
+      this.memoryOptimizationService
+    );
+    
+    this.serverContextBuilder = new ServerContextBuilder(
+      this.channelContextService,
+      this.conversationMemoryService
+    );
+    
+    this.userContextBuilder = new UserContextBuilder(
+      this.behaviorAnalyzer,
+      this.socialDynamicsService
+    );
+    
+    this.contextCacheManager = new ContextCacheManager();
+  }
+
+  protected getServiceName(): string {
+    return 'ContextManager';
+  }
+
+  protected async performInitialization(): Promise<void> {
+    // Start memory monitoring
+    this.createInterval('memoryMonitoring', () => {
+      this.performMemoryMaintenance();
+    }, this.MEMORY_CHECK_INTERVAL);
+
+    // Start summarization scheduler
+    this.createInterval('summarization', () => {
+      this.performScheduledSummarization();
+    }, this.SUMMARIZATION_INTERVAL);
+
+    logger.info('ContextManager initialized with memory monitoring and summarization');
+  }
+
+  protected async performShutdown(): Promise<void> {
+    // BaseService automatically clears all timers
+    
+    // Clean up behavioral analyzer
+    this.behaviorAnalyzer.cleanup();
+    
+    // Clean up domain services
+    this.channelContextService.cleanup();
+    
+    // Clean up cache manager
+    this.contextCacheManager.shutdown();
+    
+    // Clear context builders caches
+    this.userContextBuilder.clearAllCaches();
+    this.serverContextBuilder.clearAllCaches();
+    
+    this.serverContext.clear();
+    logger.info('ContextManager shutdown complete');
   }
 
   addEmbarrassingMoment(
@@ -258,11 +162,11 @@ export class ContextManager {
   addCodeSnippet(
     serverId: string,
     userId: string,
+    userMessage: string,
     code: string,
-    description: string,
   ): void {
     const context = this.getOrCreateContext(serverId);
-    const snippetContent = `${description}:\n${code}`;
+    const snippetContent = `${userMessage}:\n${code}`;
     
     // Check for semantic duplicates in user's code snippets
     const userSnippets = context.codeSnippets.get(userId) || [];
@@ -278,186 +182,111 @@ export class ContextManager {
     }
     
     // Add the snippet using the memory service
-    this.conversationMemoryService.addCodeSnippet(context, userId, code, description, semanticHash);
+    this.conversationMemoryService.addCodeSnippet(context, userId, code, userMessage, semanticHash);
     this.memoryOptimizationService.incrementSize(context, snippetContent.length);
     this.memoryOptimizationService.intelligentTrim(context);
   }
 
   /**
-   * Builds comprehensive context by aggregating data from multiple context services
+   * Builds comprehensive context using the new modular builder architecture
    * 
-   * This is the core context aggregation method that orchestrates data collection
-   * from various specialized services using the Builder pattern. The method:
-   * 
-   * 1. Retrieves the RichContext for the specified server
-   * 2. Initializes a context parts array for building the final context string
-   * 3. Uses specialized Context Builder classes to add different types of context:
-   *    - FactsContextBuilder: Adds summarized facts with relevance scoring
-   *    - BehaviorContextBuilder: Adds user behavior patterns and analysis
-   *    - EmbarrassingMomentsContextBuilder: Adds user-specific embarrassing moments
-   *    - CodeSnippetsContextBuilder: Adds code submissions with quality assessment
-   *    - SocialDynamicsContextBuilder: Adds social interaction patterns
-   * 4. Includes cross-server context if enabled for the server
-   * 5. Updates access timestamps and counts for LRU cache management
-   * 
-   * Performance Characteristics:
-   * - Memory usage: O(n) where n is total context items across all categories
-   * - Time complexity: O(k * log k) for relevance sorting, where k is items per category
-   * - Cache-friendly: Uses pre-calculated relevance scores and semantic hashes
-   * 
-   * Memory Optimization Features:
-   * - Limits items per category using selectRelevantItems() method
-   * - Updates LRU access patterns for intelligent trimming
-   * - Leverages semantic hash deduplication to prevent duplicate content
-   * - Uses compression ratio tracking for memory efficiency monitoring
-   * 
-   * Context Lifecycle:
-   * 1. Context retrieval from server-specific storage
-   * 2. Builder pattern instantiation for modular context construction
-   * 3. Relevance-based filtering and sorting of context items
-   * 4. Cross-server context integration (if enabled)
-   * 5. Final string concatenation and return
+   * This method orchestrates multiple specialized builders to create rich context:
+   * - Uses caching for improved performance
+   * - Delegates to specialized builders for different context types
+   * - Maintains backward compatibility with existing API
    * 
    * @param serverId - Discord server ID for context scope
    * @param userId - Target user ID for personalized context
+   * @param maxLength - Maximum context length (optional)
    * @returns Formatted context string for AI consumption
    */
-  buildSuperContext(serverId: string, userId: string): string {
+  buildSuperContext(serverId: string, userId: string, maxLength?: number): string {
     const context = this.serverContext.get(serverId);
     if (!context) return '';
 
-    const parts: string[] = ['DEEP CONTEXT FOR MAXIMUM ROASTING:\n\n'];
-    const now = Date.now();
-
-    // Use builder pattern with fluent chaining for modular context assembly
-    // Each builder is responsible for one category of context data
-    new FactsContextBuilder(context, userId, this.conversationMemoryService, now)
-      .addContext(parts);
-
-    // Cross-server context integration (if enabled for privacy-conscious users)
-    this.addCrossServerContext(parts, context, userId, serverId);
-
-    // Behavioral analysis integration for personality-aware responses
-    new BehaviorContextBuilder(this.behaviorAnalyzer, userId)
-      .addContext(parts);
-
-    // User-specific embarrassing moments with LRU access tracking
-    new EmbarrassingMomentsContextBuilder(context, userId, this.conversationMemoryService, now)
-      .addContext(parts);
-
-    // Code quality assessment and submission history
-    new CodeSnippetsContextBuilder(context, userId, this.conversationMemoryService, now)
-      .addContext(parts);
-
-    // Running gags and server-specific humor patterns
-    this.addRunningGags(parts, context, userId, now);
-
-    // Social dynamics and interaction patterns
-    new SocialDynamicsContextBuilder(this.socialDynamicsService, context, userId)
-      .addContext(parts);
-
-    return parts.join('');
-  }
-
-  /**
-   * Adds cross-server context data when enabled for privacy-conscious users
-   * 
-   * Cross-server context sharing allows the bot to reference user behavior
-   * and history across multiple Discord servers. This feature:
-   * 
-   * - Requires explicit user consent via crossServerEnabled flag
-   * - Provides enhanced context for users active in multiple servers
-   * - Includes sanitized references to avoid sensitive data leaks
-   * - Limited to prevent context overload (max 2 moments, 1 code snippet per server)
-   * 
-   * Privacy Considerations:
-   * - Only includes data from servers where crossServerEnabled = true
-   * - Excludes the current server to avoid redundancy
-   * - Limits content length to prevent sensitive information exposure
-   * - Uses server-agnostic formatting for user privacy
-   * 
-   * @param parts - Context parts array to append cross-server data
-   * @param context - Current server's RichContext for flag checking
-   * @param userId - Target user for cross-server lookup
-   * @param serverId - Current server ID to exclude from cross-server data
-   */
-  private addCrossServerContext(
-    parts: string[], 
-    context: RichContext, 
-    userId: string, 
-    serverId: string
-  ): void {
-    if (context.crossServerEnabled) {
-      const crossServerContext = this.buildCrossServerContext(userId, serverId);
-      if (crossServerContext) {
-        parts.push('CROSS-SERVER INTELLIGENCE:\n');
-        parts.push(crossServerContext);
-        parts.push('\n');
-      }
+    // Check cache first
+    const cacheKey = `super_context_${serverId}_${userId}`;
+    const cached = this.contextCacheManager.getString(cacheKey);
+    if (cached) {
+      return cached;
     }
+
+    // Build context using specialized builders
+    const contextParts: string[] = [];
+    
+    // Add header
+    contextParts.push('DEEP CONTEXT FOR MAXIMUM ROASTING:\n\n');
+    
+    // Use conversation builder for message history and code context
+    const conversationOptions: ConversationContextOptions = {
+      maxMessages: 10,
+      includeCodeContext: true,
+      timeWindow: 24
+    };
+    const conversationContext = this.conversationContextBuilder.buildConversationContext(
+      context, 
+      userId, 
+      conversationOptions
+    );
+    if (conversationContext) {
+      contextParts.push(conversationContext);
+    }
+    
+    // Use user builder for personality and behavior
+    const userOptions: UserContextOptions = {
+      includeBehavior: true,
+      includePersonality: true,
+      includeEmbarrassingMoments: true,
+      maxItems: 5
+    };
+    const userContext = this.userContextBuilder.buildUserContext(
+      userId,
+      context,
+      undefined,
+      userOptions
+    );
+    if (userContext) {
+      contextParts.push(userContext);
+    }
+    
+    // Use legacy composite builder for backward compatibility
+    const legacyBuilder = new CompositeContextBuilder(
+      context,
+      userId,
+      serverId,
+      this.conversationMemoryService,
+      this.behaviorAnalyzer,
+      this.socialDynamicsService,
+      this.serverContext
+    );
+
+    // Add remaining context types through legacy builder
+    const legacyContext = legacyBuilder
+      .addFacts()
+      .addCrossServerContext()
+      .addRunningGags()
+      .addSocialDynamics()
+      .build();
+    
+    if (legacyContext) {
+      contextParts.push(legacyContext);
+    }
+    
+    // Combine all context parts
+    const result = contextParts.join('');
+    
+    // Apply length limit if specified
+    const finalResult = maxLength && result.length > maxLength 
+      ? result.substring(0, maxLength) + '...' 
+      : result;
+    
+    // Cache the result (5 minute TTL)
+    this.contextCacheManager.setString(cacheKey, finalResult, 300000);
+    
+    return finalResult;
   }
 
-  /**
-   * Adds running gags and server-specific humor patterns to context
-   * 
-   * Running gags represent recurring jokes, memes, and humor patterns
-   * specific to each Discord server. This method:
-   * 
-   * - Selects up to 8 most relevant gags using relevance scoring
-   * - Updates LRU access patterns for cache management
-   * - Preserves server culture and community humor context
-   * - Enables consistent personality and humor continuity
-   * 
-   * Relevance Scoring Factors:
-   * - Recent usage frequency (accessCount)
-   * - Time since last reference (lastAccessed)
-   * - Contextual similarity to current conversation
-   * - User-specific interaction history
-   * 
-   * Memory Management:
-   * - Updates access timestamps for LRU eviction policy
-   * - Increments access counters for popularity tracking
-   * - Limited to 8 items to prevent context overflow
-   * 
-   * @param parts - Context parts array to append running gags
-   * @param context - Server's RichContext containing running gags
-   * @param userId - User ID for personalized relevance scoring
-   * @param now - Current timestamp for LRU tracking
-   */
-  private addRunningGags(
-    parts: string[], 
-    context: RichContext, 
-    userId: string, 
-    now: number
-  ): void {
-    // Early return if no running gags exist (optimization to avoid unnecessary processing)
-    if (context.runningGags.length > 0) {
-      parts.push('RUNNING GAGS TO REFERENCE:\n');
-      
-      // Select most relevant gags using conversationMemoryService algorithms
-      // This applies sophisticated relevance scoring based on:
-      // 1. User interaction history (how often this user referenced these gags)
-      // 2. Temporal relevance (recently accessed gags score higher)
-      // 3. Access frequency (popular gags get priority)
-      // Limit to 8 items to prevent context overflow while maintaining humor continuity
-      const relevantGags = this.conversationMemoryService.selectRelevantItems(
-        context.runningGags, userId, 8
-      );
-      
-      relevantGags.forEach((gagItem) => {
-        // Update LRU cache statistics for intelligent memory management
-        // This enables the system to track which gags are actively used
-        gagItem.accessCount++; // Increment popularity counter for future relevance scoring
-        gagItem.lastAccessed = now; // Update timestamp for LRU eviction algorithm
-        
-        // Add formatted gag to context with bullet point for readability
-        parts.push(`- ${gagItem.content}\n`);
-      });
-      
-      // Add spacing for better context formatting and AI parsing
-      parts.push('\n');
-    }
-  }
+
 
   private getOrCreateContext(serverId: string): RichContext {
     // Check if context already exists (O(1) Map lookup)
@@ -493,12 +322,7 @@ export class ContextManager {
       // Initialize size cache for new context (prevents expensive first calculation)
       this.memoryOptimizationService.refreshApproximateSize(newContext);
       
-      // Start memory monitoring if this is the first server (singleton pattern)
-      // This prevents multiple timers from running when multiple servers are active
-      if (this.serverContext.size === 1 && !this.memoryCheckTimer) {
-        this.startMemoryMonitoring(); // Background memory maintenance every 5 minutes
-        this.startSummarizationScheduler(); // Background context compression every 30 minutes
-      }
+      // Timer management is now handled by BaseService during initialization
     }
     
     // Safe non-null assertion since we guarantee context exists above
@@ -531,17 +355,6 @@ export class ContextManager {
     }
   }
 
-  private startMemoryMonitoring(): void {
-    this.memoryCheckTimer = setInterval(() => {
-      this.performMemoryMaintenance();
-    }, this.MEMORY_CHECK_INTERVAL);
-  }
-
-  private startSummarizationScheduler(): void {
-    this.summarizationTimer = setInterval(() => {
-      this.performScheduledSummarization();
-    }, this.SUMMARIZATION_INTERVAL);
-  }
 
   private performMemoryMaintenance(): void {
     const stats = this.getMemoryStats();
@@ -561,12 +374,7 @@ export class ContextManager {
       }
     }
     
-    // Stop monitoring if no servers remain
-    if (this.serverContext.size === 0 && this.memoryCheckTimer) {
-      clearInterval(this.memoryCheckTimer);
-      this.memoryCheckTimer = null;
-      logger.info('Stopped memory monitoring - no active servers');
-    }
+    // Timer cleanup is now handled by BaseService automatically
   }
 
   private isContextEmpty(context: RichContext): boolean {
@@ -652,26 +460,6 @@ export class ContextManager {
     return this.behaviorAnalyzer.getStats();
   }
 
-  public cleanup(): void {
-    if (this.memoryCheckTimer) {
-      clearInterval(this.memoryCheckTimer);
-      this.memoryCheckTimer = null;
-    }
-    if (this.summarizationTimer) {
-      clearInterval(this.summarizationTimer);
-      this.summarizationTimer = null;
-    }
-    
-    // Clean up behavioral analyzer
-    this.behaviorAnalyzer.cleanup();
-    
-    // Clean up domain services
-    this.userContextService.cleanup();
-    this.channelContextService.cleanup();
-    
-    this.serverContext.clear();
-    logger.info('ContextManager cleanup completed');
-  }
 
   /**
    * Performs scheduled background summarization of aging context data
@@ -735,6 +523,7 @@ export class ContextManager {
 
   /**
    * Builds cross-server context by aggregating user data across multiple Discord servers
+   * @deprecated Use CrossServerContextBuilder instead
    * 
    * Cross-Server Context Sharing Architecture:
    * This method implements a privacy-conscious approach to sharing user context
@@ -849,11 +638,12 @@ export class ContextManager {
   /**
    * Manual deduplication of a server's context
    */
-  public deduplicateServerContext(serverId: string): number {
+  public deduplicateServerContext(serverId: string): { removed: number; duplicates: string[] } {
     const context = this.serverContext.get(serverId);
-    if (!context) return 0;
+    if (!context) return { removed: 0, duplicates: [] };
     
-    return this.memoryOptimizationService.deduplicateServerContext(context);
+    const removedCount = this.memoryOptimizationService.deduplicateServerContext(context);
+    return { removed: removedCount, duplicates: [] };
   }
 
   // ========== SOCIAL DYNAMICS TRACKING ==========
@@ -910,50 +700,75 @@ export class ContextManager {
     newestEntry: Date | null;
     serverBreakdown: Map<string, number>;
     } {
-    const userStats = this.userContextService.getDiscordDataStorageStats();
-    const serverBreakdown = new Map(userStats.serverBreakdown);
+    const serverBreakdown = new Map<string, number>();
+    let totalSize = 0;
+    let oldestEntry: Date | null = null;
+    let newestEntry: Date | null = null;
+    let cacheEntries = 0;
     
-    // Add social graph data size
+    // Calculate social graph data size for each server
     this.serverContext.forEach((context, serverId) => {
       const socialGraphSize = this.socialDynamicsService.calculateSocialGraphSize(context);
-      serverBreakdown.set(serverId, (serverBreakdown.get(serverId) || 0) + socialGraphSize);
+      serverBreakdown.set(serverId, socialGraphSize);
+      totalSize += socialGraphSize;
+      cacheEntries += 1;
+      
+      // Track oldest/newest entries based on context items
+      context.embarrassingMoments.forEach(item => {
+        if (!oldestEntry || item.timestamp < oldestEntry.getTime()) {
+          oldestEntry = new Date(item.timestamp);
+        }
+        if (!newestEntry || item.timestamp > newestEntry.getTime()) {
+          newestEntry = new Date(item.timestamp);
+        }
+      });
     });
     
-    const totalSize = userStats.estimatedSizeBytes + 
-      Array.from(serverBreakdown.values()).reduce((acc, size) => acc + size, 0) - 
-      userStats.estimatedSizeBytes;
-    
     return {
-      cacheEntries: userStats.cacheEntries,
+      cacheEntries,
       estimatedSizeBytes: totalSize,
       estimatedSizeMB: Number((totalSize / (1024 * 1024)).toFixed(2)),
-      oldestEntry: userStats.oldestEntry,
-      newestEntry: userStats.newestEntry,
+      oldestEntry,
+      newestEntry,
       serverBreakdown,
     };
   }
   
   /**
    * Clean up old Discord cache entries
+   * @deprecated User context has been removed
    */
-  public cleanupDiscordCache(maxAge?: number): number {
-    return this.userContextService.cleanupDiscordCache(maxAge);
+  public cleanupDiscordCache(_maxAge?: number): number {
+    // User context functionality has been removed
+    return 0;
   }
   
   /**
    * Build Discord user context from a GuildMember
+   * @deprecated User context has been removed
    */
-  public buildDiscordUserContext(member: GuildMember, includeServerData: boolean = false): string {
-    return this.userContextService.buildDiscordUserContext(member, includeServerData);
+  public buildDiscordUserContext(_member: GuildMember, _includeServerData: boolean = false): string {
+    // User context functionality has been removed
+    return '';
   }
 
   // ========== SERVER CULTURE CONTEXT METHODS ==========
 
   /**
-   * Build server culture context from a Guild
+   * Build server culture context from a Guild using the new server builder
    */
   public buildServerCultureContext(guild: Guild): string {
-    return this.channelContextService.buildServerCultureContext(guild);
+    const context = this.getOrCreateContext(guild.id);
+    
+    const serverOptions: ServerContextOptions = {
+      includeChannels: true,
+      includeRoles: true,
+      includeCulture: true,
+      includeRunningGags: true,
+      maxItems: 10
+    };
+    
+    return this.serverContextBuilder.buildServerContext(guild, context, serverOptions);
   }
 
   /**
@@ -980,7 +795,396 @@ export class ContextManager {
   /**
    * Shutdown the service and clean up resources
    */
-  async shutdown(): Promise<void> {
-    this.cleanup();
+  // ========== MISSING INTERFACE METHODS ==========
+
+  /**
+   * Initializes context storage for a server
+   */
+  initializeServerContext(serverId: string): void {
+    this.getOrCreateContext(serverId);
+    logger.info(`Initialized context for server ${serverId}`);
+  }
+
+  /**
+   * Retrieves server context data
+   */
+  getServerContext(serverId: string): ServerContext | undefined {
+    const context = this.serverContext.get(serverId);
+    if (!context) return undefined;
+
+    // Convert RichContext to ServerContext format
+    const embarrassingMomentsMap = new Map<string, string[]>();
+    const codeSnippetsMap = new Map<string, CodeSnippet[]>();
+
+    // Group embarrassing moments by user
+    context.embarrassingMoments.forEach(moment => {
+      const userId = moment.content.split(':')[0]; // Extract user ID from content
+      if (!embarrassingMomentsMap.has(userId)) {
+        embarrassingMomentsMap.set(userId, []);
+      }
+      embarrassingMomentsMap.get(userId)!.push(moment.content);
+    });
+
+    // Convert code snippets to interface format
+    context.codeSnippets.forEach((snippets, userId) => {
+      const convertedSnippets: CodeSnippet[] = snippets.map(snippet => ({
+        timestamp: snippet.timestamp,
+        userMessage: snippet.content.split('\n')[0] || '',
+        code: snippet.content.split('\n').slice(1).join('\n')
+      }));
+      codeSnippetsMap.set(userId, convertedSnippets);
+    });
+
+    // Convert summarized facts to interface format
+    const summarizedFacts: SummarizedFact[] = context.summarizedFacts.map(fact => ({
+      fact: fact.content,
+      timestamp: fact.timestamp,
+      importance: 5, // Default importance
+      userIds: [] // Default empty array
+    }));
+
+    return {
+      serverId,
+      embarrassingMoments: embarrassingMomentsMap,
+      codeSnippets: codeSnippetsMap,
+      runningGags: context.runningGags.map(gag => gag.content),
+      summarizedFacts,
+      lastSummarized: context.lastSummarization,
+      compressionStats: {
+        originalSize: context.approximateSize,
+        compressedSize: Math.floor(context.approximateSize * context.compressionRatio),
+        compressionRatio: context.compressionRatio
+      }
+    };
+  }
+
+  /**
+   * Stores summarized fact with importance weighting
+   */
+  addSummarizedFact(serverId: string, fact: string, importance: number = 5): void {
+    const context = this.getOrCreateContext(serverId);
+    
+    // Check for semantic duplicates
+    const semanticHash = this.memoryOptimizationService.generateSemanticHash(fact);
+    const isDuplicate = this.memoryOptimizationService.findSimilarMessages(
+      context.summarizedFacts,
+      fact
+    ).length > 0;
+    
+    if (isDuplicate) {
+      logger.info('Skipping duplicate summarized fact');
+      return;
+    }
+    
+    // Add the fact using the memory service
+    this.conversationMemoryService.addSummarizedFact(context, fact, importance, semanticHash);
+    this.memoryOptimizationService.incrementSize(context, fact.length);
+    this.memoryOptimizationService.intelligentTrim(context);
+  }
+
+  /**
+   * Bulk operations - summarize and compress context
+   */
+  async summarizeAndCompress(serverId: string): Promise<{ removed: number; kept: number }> {
+    const context = this.serverContext.get(serverId);
+    if (!context) return { removed: 0, kept: 0 };
+    
+    // const initialSize = context.approximateSize; // For future use in logging
+    const initialItemCount = this.conversationMemoryService.countItems(context);
+    const totalInitialItems = initialItemCount.embarrassingMoments + 
+                             initialItemCount.codeSnippets + 
+                             initialItemCount.runningGags + 
+                             initialItemCount.summarizedFacts;
+    
+    // Perform summarization
+    this.memoryOptimizationService.summarizeServerContext(context);
+    
+    const finalItemCount = this.conversationMemoryService.countItems(context);
+    const totalFinalItems = finalItemCount.embarrassingMoments + 
+                           finalItemCount.codeSnippets + 
+                           finalItemCount.runningGags + 
+                           finalItemCount.summarizedFacts;
+    
+    const removed = totalInitialItems - totalFinalItems;
+    const kept = totalFinalItems;
+    
+    logger.info(`Summarization completed for server ${serverId}`, {
+      removed,
+      kept,
+      compressionRatio: context.compressionRatio
+    });
+    
+    return { removed, kept };
+  }
+
+  /**
+   * Builds smart context using AI-powered relevance scoring
+   */
+  buildSmartContext(serverId: string, userId: string, currentMessage: string): string {
+    const context = this.serverContext.get(serverId);
+    if (!context) return '';
+
+    const contextParts: string[] = [];
+    const now = Date.now();
+
+    // Analyze current message for keywords and topics
+    const messageKeywords = currentMessage.toLowerCase().split(/\s+/);
+    const relevantKeywords = ['code', 'error', 'bug', 'help', 'problem', 'issue', 'javascript', 'python', 'react'];
+    const hasCodeContext = messageKeywords.some(word => relevantKeywords.includes(word));
+
+    contextParts.push('SMART CONTEXT ANALYSIS:\n\n');
+
+    // Prioritize relevant facts based on current message
+    if (context.summarizedFacts.length > 0) {
+      const relevantFacts = context.summarizedFacts
+        .filter(fact => {
+          const factContent = fact.content.toLowerCase();
+          return messageKeywords.some(keyword => factContent.includes(keyword));
+        })
+        .slice(0, 5);
+      
+      if (relevantFacts.length > 0) {
+        contextParts.push('RELEVANT FACTS:\n');
+        relevantFacts.forEach(fact => {
+          fact.accessCount++;
+          fact.lastAccessed = now;
+          contextParts.push(`- ${fact.content}\n`);
+        });
+        contextParts.push('\n');
+      }
+    }
+
+    // Include code context if relevant
+    if (hasCodeContext) {
+      const userCode = context.codeSnippets.get(userId);
+      if (userCode && userCode.length > 0) {
+        contextParts.push('RELEVANT CODE HISTORY:\n');
+        const recentCode = userCode
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .slice(0, 3);
+        
+        recentCode.forEach(snippet => {
+          snippet.accessCount++;
+          snippet.lastAccessed = now;
+          contextParts.push(`${snippet.content}\n---\n`);
+        });
+      }
+    }
+
+    // Add recent social dynamics if relevant
+    const socialContext = this.socialDynamicsService.buildSocialDynamicsContext(context, userId);
+    if (socialContext) {
+      contextParts.push(socialContext);
+    }
+
+    return contextParts.join('');
+  }
+
+  /**
+   * Check if global context is enabled
+   */
+  isGlobalContextEnabled(): boolean {
+    return this.globalContextEnabled;
+  }
+
+  /**
+   * Enable global context sharing
+   */
+  enableGlobalContext(): void {
+    this.globalContextEnabled = true;
+    logger.info('Global context sharing enabled');
+  }
+
+  /**
+   * Disable global context sharing
+   */
+  disableGlobalContext(): void {
+    this.globalContextEnabled = false;
+    logger.info('Global context sharing disabled');
+  }
+
+  /**
+   * Get cross-server insights for a user
+   */
+  getCrossServerInsights(userId: string): CrossServerInsights {
+    const globalPatterns: string[] = [];
+    let totalInteractions = 0;
+    let mostActiveServer = '';
+    let maxInteractions = 0;
+
+    for (const [serverId, context] of this.serverContext.entries()) {
+      // Count user interactions in this server
+      let serverInteractions = 0;
+      
+      // Count embarrassing moments
+      const userMoments = context.embarrassingMoments.filter(moment => 
+        moment.content.includes(userId)
+      );
+      serverInteractions += userMoments.length;
+      
+      // Count code snippets
+      const userCode = context.codeSnippets.get(userId);
+      if (userCode) {
+        serverInteractions += userCode.length;
+      }
+      
+      // Track most active server
+      if (serverInteractions > maxInteractions) {
+        maxInteractions = serverInteractions;
+        mostActiveServer = serverId;
+      }
+      
+      totalInteractions += serverInteractions;
+      
+      // Extract patterns from user behavior
+      if (userMoments.length > 0) {
+        globalPatterns.push(`Active in server ${serverId} with ${userMoments.length} memorable moments`);
+      }
+      if (userCode && userCode.length > 0) {
+        globalPatterns.push(`Shared ${userCode.length} code snippets in server ${serverId}`);
+      }
+    }
+
+    return {
+      userId,
+      globalPatterns,
+      serverCount: this.serverContext.size,
+      mostActiveServer: mostActiveServer || undefined,
+      totalInteractions
+    };
+  }
+
+  /**
+   * Get the size of a server's context in bytes
+   */
+  getServerContextSize(serverId: string): number {
+    const context = this.serverContext.get(serverId);
+    if (!context) return 0;
+    
+    return context.approximateSize;
+  }
+
+  /**
+   * Get importance threshold for a server (stub implementation)
+   */
+  getImportanceThreshold(_serverId: string): number {
+    // Default importance threshold
+    return 5;
+  }
+
+  /**
+   * Get health status of the ContextManager service
+   */
+  protected getHealthErrors(): string[] {
+    const errors = super.getHealthErrors();
+
+    try {
+      // Check domain services health
+      if (!this.conversationMemoryService) {
+        errors.push('ConversationMemoryService not initialized');
+      }
+
+      if (!this.channelContextService) {
+        errors.push('ChannelContextService not initialized');
+      }
+
+      if (!this.socialDynamicsService) {
+        errors.push('SocialDynamicsService not initialized');
+      }
+
+      if (!this.memoryOptimizationService) {
+        errors.push('MemoryOptimizationService not initialized');
+      }
+
+      if (!this.behaviorAnalyzer) {
+        errors.push('BehaviorAnalyzer not initialized');
+      }
+
+    } catch (error) {
+      errors.push(`Health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    return errors;
+  }
+
+  protected collectServiceMetrics(): Record<string, unknown> | undefined {
+    const stats = this.getMemoryStats();
+    const cacheStats = this.contextCacheManager.getStats();
+
+    return {
+      context: {
+        totalServers: stats.totalServers,
+        totalMemoryUsage: stats.totalMemoryUsage,
+        averageServerSize: stats.averageServerSize,
+        globalContextEnabled: this.globalContextEnabled,
+        itemCounts: stats.itemCounts,
+        compressionStats: stats.compressionStats
+      },
+      cache: {
+        hitRate: cacheStats.hitRate,
+        missRate: cacheStats.missRate,
+        entryCount: cacheStats.entryCount,
+        totalSize: cacheStats.totalSize
+      }
+    };
+  }
+
+  // ========== NEW BUILDER ACCESS METHODS ==========
+
+  /**
+   * Get the conversation context builder for advanced usage
+   */
+  public getConversationBuilder(): ConversationContextBuilder {
+    return this.conversationContextBuilder;
+  }
+
+  /**
+   * Get the server context builder for advanced usage
+   */
+  public getServerBuilder(): ServerContextBuilder {
+    return this.serverContextBuilder;
+  }
+
+  /**
+   * Get the user context builder for advanced usage
+   */
+  public getUserBuilder(): UserContextBuilder {
+    return this.userContextBuilder;
+  }
+
+  /**
+   * Get the cache manager for advanced cache operations
+   */
+  public getCacheManager(): ContextCacheManager {
+    return this.contextCacheManager;
+  }
+
+  /**
+   * Build enhanced conversation context
+   */
+  public buildConversationContext(
+    serverId: string,
+    userId: string,
+    options?: ConversationContextOptions
+  ): string {
+    const context = this.serverContext.get(serverId);
+    if (!context) return '';
+    
+    return this.conversationContextBuilder.buildConversationContext(context, userId, options);
+  }
+
+  /**
+   * Build enhanced user context with personality mapping
+   */
+  public buildUserContext(
+    serverId: string,
+    userId: string,
+    member?: GuildMember,
+    options?: UserContextOptions
+  ): string {
+    const context = this.serverContext.get(serverId);
+    if (!context) return '';
+    
+    return this.userContextBuilder.buildUserContext(userId, context, member, options);
   }
 }

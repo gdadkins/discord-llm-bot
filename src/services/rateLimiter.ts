@@ -1,9 +1,11 @@
 import { Mutex } from 'async-mutex';
 import { logger } from '../utils/logger';
+import { BaseService } from './base/BaseService';
 import { DataStore, DataValidator } from '../utils/DataStore';
 import { dataStoreFactory } from '../utils/DataStoreFactory';
 import { validate, batchValidate } from '../utils/validation';
 import { RATE_LIMITER_CONSTANTS } from '../config/constants';
+import type { IRateLimiter, RateLimitStatus } from './interfaces/RateLimitingInterfaces';
 
 interface RateLimitingConfig {
   rpm: number;
@@ -24,7 +26,7 @@ interface RateLimitState {
   dayWindowStart: number;
 }
 
-export class RateLimiter {
+export class RateLimiter extends BaseService implements IRateLimiter {
   private stateMutex = new Mutex();
   private ioMutex = new Mutex();
   private state: RateLimitState;
@@ -36,7 +38,6 @@ export class RateLimiter {
   // Performance optimization fields
   private isDirty = false;
   private lastFlushTime = 0;
-  private flushTimer?: NodeJS.Timeout;
   private cachedMinuteWindow = 0;
   private cachedDayWindow = 0;
   private lastWindowUpdate = 0;
@@ -48,6 +49,7 @@ export class RateLimiter {
     dailyLimit: number,
     stateFile = './data/rate-limit.json',
   ) {
+    super();
     // Use 90% of actual limits for safety margin
     this.rpmLimit = Math.floor(rpmLimit * RATE_LIMITER_CONSTANTS.SAFETY_MARGIN);
     this.dailyLimit = Math.floor(dailyLimit * RATE_LIMITER_CONSTANTS.SAFETY_MARGIN);
@@ -77,7 +79,11 @@ export class RateLimiter {
     );
   }
 
-  async initialize(): Promise<void> {
+  protected getServiceName(): string {
+    return 'RateLimiter';
+  }
+
+  protected async performInitialization(): Promise<void> {
     try {
       await this.loadState();
       logger.info('Rate limiter initialized with persisted state');
@@ -87,24 +93,23 @@ export class RateLimiter {
     }
     
     // Start periodic flush timer
-    this.startFlushTimer();
+    this.createInterval('stateFlush', () => {
+      this.performScheduledFlush();
+    }, this.FLUSH_INTERVAL_MS);
   }
   
-  async shutdown(): Promise<void> {
-    // Clear timer and force final flush
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = undefined;
-    }
-    
+  protected async performShutdown(): Promise<void> {
+    // BaseService automatically clears all timers
+    // Force final flush before shutdown
     if (this.isDirty) {
       await this.forceFlush();
     }
   }
 
+
   async checkAndIncrement(): Promise<{
     allowed: boolean;
-    reason?: string;
+    reason: string;
     remaining: { minute: number; daily: number };
   }> {
     const release = await this.stateMutex.acquire();
@@ -136,15 +141,15 @@ export class RateLimiter {
       this.state.requestsToday++;
       this.isDirty = true;
 
-      // Schedule async flush (non-blocking)
-      this.scheduleFlush();
+      // Mark as dirty for next flush cycle
+      // Timer-based flushing will handle persistence
 
       const remaining = this.getRemainingQuotaCached();
       logger.info(
         `Rate limit check passed. Usage: ${this.state.requestsThisMinute}/${this.rpmLimit} per minute, ${this.state.requestsToday}/${this.dailyLimit} daily`,
       );
 
-      return { allowed: true, remaining };
+      return { allowed: true, reason: 'Request allowed', remaining };
     } finally {
       release();
     }
@@ -164,7 +169,7 @@ export class RateLimiter {
     return this.dailyLimit;
   }
 
-  getStatus(_userId: string): { rpm: { used: number; limit: number }; daily: { used: number; limit: number }; nextReset: { minute: number; day: number } } {
+  getStatus(_userId: string): RateLimitStatus {
     this.updateTimeWindowsCached();
     
     const nextMinuteReset = this.state.minuteWindowStart + (60 * 1000); // Next minute
@@ -172,16 +177,14 @@ export class RateLimiter {
     
     return {
       rpm: {
-        used: this.state.requestsThisMinute,
-        limit: this.rpmLimit
+        current: this.state.requestsThisMinute,
+        limit: this.rpmLimit,
+        resetsAt: nextMinuteReset
       },
       daily: {
-        used: this.state.requestsToday,
-        limit: this.dailyLimit
-      },
-      nextReset: {
-        minute: nextMinuteReset,
-        day: nextDayReset
+        current: this.state.requestsToday,
+        limit: this.dailyLimit,
+        resetsAt: nextDayReset
       }
     };
   }
@@ -270,29 +273,9 @@ export class RateLimiter {
     }
   }
   
-  private startFlushTimer(): void {
-    this.flushTimer = setTimeout(() => {
-      this.performScheduledFlush();
-    }, this.FLUSH_INTERVAL_MS);
-  }
-  
-  private scheduleFlush(): void {
-    // If no timer is running and we have dirty data, start one
-    if (!this.flushTimer && this.isDirty) {
-      this.startFlushTimer();
-    }
-  }
-  
   private async performScheduledFlush(): Promise<void> {
-    this.flushTimer = undefined;
-    
     if (this.isDirty) {
       await this.saveState();
-    }
-    
-    // Schedule next flush if still dirty
-    if (this.isDirty) {
-      this.startFlushTimer();
     }
   }
   
@@ -384,5 +367,131 @@ export class RateLimiter {
     } catch (error) {
       return { valid: false, errors: [`Rate limiter validation error: ${error}`] };
     }
+  }
+
+  /**
+   * Updates rate limiting configuration
+   * Required by IRateLimiter interface
+   */
+  updateLimits(rpm: number, daily: number): void {
+    logger.info(`Updating rate limits: RPM ${this.rpmLimit} -> ${rpm}, Daily ${this.dailyLimit} -> ${daily}`);
+    
+    // Apply safety margin to new limits
+    this.rpmLimit = Math.floor(rpm * RATE_LIMITER_CONSTANTS.SAFETY_MARGIN);
+    this.dailyLimit = Math.floor(daily * RATE_LIMITER_CONSTANTS.SAFETY_MARGIN);
+    
+    logger.info(`Rate limits updated with safety margin: RPM ${this.rpmLimit}, Daily ${this.dailyLimit}`);
+  }
+
+  protected getHealthErrors(): string[] {
+    const errors = super.getHealthErrors();
+    
+    // Check if state is properly initialized
+    if (!this.state) {
+      errors.push('Rate limiter state not initialized');
+    }
+    
+    // Check if data store is available
+    if (!this.stateDataStore) {
+      errors.push('Data store not initialized');
+    }
+    
+    // Check for any potential issues with flush operations
+    const timeSinceLastFlush = Date.now() - this.lastFlushTime;
+    if (this.isDirty && timeSinceLastFlush > this.FLUSH_INTERVAL_MS * 3) {
+      errors.push('State has not been persisted recently');
+    }
+    
+    // Check if limits are reasonable
+    if (this.rpmLimit <= 0 || this.dailyLimit <= 0) {
+      errors.push('Invalid rate limits configured');
+    }
+    
+    // Check if daily limit is consistent with RPM limit
+    if (this.rpmLimit > this.dailyLimit / 24) {
+      errors.push('RPM limit exceeds theoretical daily capacity');
+    }
+    
+    return errors;
+  }
+
+  protected collectServiceMetrics(): Record<string, unknown> | undefined {
+    const remaining = this.getRemainingQuotaCached();
+    const timeSinceLastFlush = Date.now() - this.lastFlushTime;
+    
+    return {
+      rateLimiting: {
+        rpmLimit: this.rpmLimit,
+        dailyLimit: this.dailyLimit,
+        currentRpmUsage: this.state?.requestsThisMinute || 0,
+        currentDailyUsage: this.state?.requestsToday || 0,
+        remainingRpm: remaining.minute,
+        remainingDaily: remaining.daily,
+        isDirty: this.isDirty,
+        timeSinceLastFlush: timeSinceLastFlush,
+        flushInterval: this.FLUSH_INTERVAL_MS,
+        stateFile: this.stateFile
+      }
+    };
+  }
+
+  /**
+   * Checks if a video processing request can be made considering token cost
+   * TODO: Implement proper video-specific rate limiting in Phase 2
+   */
+  async checkVideoProcessing(estimatedTokens: number, _userId?: string): Promise<import('./interfaces/RateLimitingInterfaces').VideoRateLimitResult> {
+    // For Phase 1, use standard rate limiting
+    const standardCheck = await this.checkAndIncrement();
+    
+    return {
+      allowed: standardCheck.allowed,
+      reason: standardCheck.reason,
+      tokenCost: estimatedTokens,
+      remaining: {
+        tokens: {
+          hourly: 1000, // Placeholder values for Phase 1
+          daily: 10000
+        },
+        requests: {
+          minute: standardCheck.remaining.minute,
+          hourly: standardCheck.remaining.minute * 60
+        }
+      }
+    };
+  }
+
+  /**
+   * Gets video-specific rate limiting status
+   * TODO: Implement proper video-specific status tracking in Phase 2
+   */
+  getVideoStatus(userId?: string): import('./interfaces/RateLimitingInterfaces').VideoRateLimitStatus {
+    const standardStatus = this.getStatus(userId || '');
+    
+    return {
+      tokens: {
+        hourly: {
+          current: 0, // Placeholder values for Phase 1
+          limit: 1000,
+          resetsAt: Date.now() + 3600000 // 1 hour from now
+        },
+        daily: {
+          current: 0,
+          limit: 10000,
+          resetsAt: Date.now() + 86400000 // 24 hours from now
+        }
+      },
+      requests: {
+        hourly: {
+          current: standardStatus.rpm.current,
+          limit: standardStatus.rpm.limit * 60,
+          resetsAt: standardStatus.rpm.resetsAt
+        },
+        daily: {
+          current: standardStatus.daily.current,
+          limit: standardStatus.daily.limit,
+          resetsAt: standardStatus.daily.resetsAt
+        }
+      }
+    };
   }
 }

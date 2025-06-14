@@ -1,13 +1,15 @@
-import { ChatInputCommandInteraction, EmbedBuilder, ButtonInteraction } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, ButtonInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { logger } from '../utils/logger';
-import { UserPreferenceManager, ScheduledCommand } from '../services/userPreferenceManager';
+import { UserPreferenceManager, ScheduledCommand } from '../services/preferences';
 import { HelpSystem } from '../services/helpSystem';
 import { splitMessage } from '../utils/messageSplitter';
+import { VideoConfiguration, VideoProcessingEstimator, VideoUXHelper } from '../config/videoConfig';
 
 export class UXCommandHandlers {
   constructor(
     private userPreferenceManager: UserPreferenceManager,
-    private helpSystem: HelpSystem
+    private helpSystem: HelpSystem,
+    private videoConfig?: VideoConfiguration
   ) {}
 
   // Preferences Commands
@@ -31,7 +33,7 @@ export class UXCommandHandlers {
 
   private async handlePreferencesView(interaction: ChatInputCommandInteraction, userId: string, serverId: string): Promise<void> {
     try {
-      const preferences = await this.userPreferenceManager.getUserPreferences(userId, serverId);
+      const preferences = await this.userPreferenceManager.getUserPreferencesForServer(userId, serverId);
       
       const embed = new EmbedBuilder()
         .setTitle('⚙️ Your Preferences')
@@ -103,7 +105,7 @@ export class UXCommandHandlers {
   private async handlePreferencesReset(interaction: ChatInputCommandInteraction, userId: string, serverId: string): Promise<void> {
     try {
       // Create new default preferences by setting userId and serverId
-      await this.userPreferenceManager.setUserPreferences(userId, serverId, {
+      await this.userPreferenceManager.setUserPreferencesForServer(userId, serverId, {
         preferences: {
           defaultPersonality: 'helpful' as const,
           preferredResponseStyle: 'detailed' as const,
@@ -149,7 +151,7 @@ export class UXCommandHandlers {
 
   private async handleAliasList(interaction: ChatInputCommandInteraction, userId: string, serverId: string): Promise<void> {
     try {
-      const preferences = await this.userPreferenceManager.getUserPreferences(userId, serverId);
+      const preferences = await this.userPreferenceManager.getUserPreferencesForServer(userId, serverId);
       const aliases = preferences.commandAliases;
 
       if (Object.keys(aliases).length === 0) {
@@ -642,8 +644,16 @@ export class UXCommandHandlers {
       return;
     }
 
-    const embed = this.helpSystem.createCommandEmbed(commandHelp);
+    const embed = this.helpSystem.createCommandEmbed(commandName);
     const components = this.helpSystem.createNavigationButtons('command', commandName);
+
+    if (!embed) {
+      await interaction.reply({ 
+        content: `❌ Could not create help embed for command **${commandName}**.`, 
+        ephemeral: true 
+      });
+      return;
+    }
 
     await interaction.reply({ embeds: [embed], components, ephemeral: true });
   }
@@ -659,8 +669,16 @@ export class UXCommandHandlers {
       return;
     }
 
-    const embed = this.helpSystem.createTopicEmbed(topic);
+    const embed = this.helpSystem.createTopicEmbed(topicId);
     const components = this.helpSystem.createNavigationButtons('topic', topicId);
+
+    if (!embed) {
+      await interaction.reply({ 
+        content: `❌ Could not create help embed for topic **${topicId}**.`, 
+        ephemeral: true 
+      });
+      return;
+    }
 
     await interaction.reply({ embeds: [embed], components, ephemeral: true });
   }
@@ -686,9 +704,11 @@ export class UXCommandHandlers {
         const topic = this.helpSystem.getHelpTopic(topicId);
         
         if (topic) {
-          const embed = this.helpSystem.createTopicEmbed(topic);
+          const embed = this.helpSystem.createTopicEmbed(topicId);
           const components = this.helpSystem.createNavigationButtons('topic', topicId);
-          await interaction.update({ embeds: [embed], components });
+          if (embed) {
+            await interaction.update({ embeds: [embed], components });
+          }
         }
       }
     } catch (error) {
@@ -727,6 +747,215 @@ export class UXCommandHandlers {
     setTimeout(() => {
       logger.info(`Bulk operation ${operationId} execution completed (simulated)`);
     }, 5000);
+  }
+
+  // Video Processing Commands
+  async handleVideoConfirmation(
+    interaction: ChatInputCommandInteraction,
+    videoFile: { name: string; size: number },
+    estimatedDuration: number
+  ): Promise<void> {
+    try {
+      if (!this.videoConfig?.videoSupportEnabled) {
+        await interaction.reply({ 
+          content: '❌ Video processing is currently disabled on this server.', 
+          ephemeral: true 
+        });
+        return;
+      }
+
+      // Validate video file
+      if (!VideoProcessingEstimator.isSupportedFormat(videoFile.name, this.videoConfig)) {
+        const errorMessage = VideoUXHelper.generateUnsupportedFormatMessage(videoFile.name, this.videoConfig);
+        await interaction.reply({ content: errorMessage, ephemeral: true });
+        return;
+      }
+
+      if (!VideoProcessingEstimator.isValidFileSize(videoFile.size, this.videoConfig)) {
+        const fileSizeMB = videoFile.size / (1024 * 1024);
+        const errorMessage = VideoUXHelper.generateFileTooLargeMessage(fileSizeMB, this.videoConfig);
+        await interaction.reply({ content: errorMessage, ephemeral: true });
+        return;
+      }
+
+      if (!VideoProcessingEstimator.isValidDuration(estimatedDuration, this.videoConfig)) {
+        const errorMessage = VideoUXHelper.generateVideoTooLongMessage(estimatedDuration, this.videoConfig);
+        await interaction.reply({ content: errorMessage, ephemeral: true });
+        return;
+      }
+
+      // Calculate cost estimates
+      const estimatedTokens = VideoProcessingEstimator.estimateTokenCost(estimatedDuration);
+      const estimatedProcessingTime = VideoProcessingEstimator.estimateProcessingTime(estimatedDuration);
+      
+      // Check if confirmation is required
+      if (!this.videoConfig.requireVideoConfirmation || 
+          estimatedTokens < this.videoConfig.videoTokenWarningThreshold) {
+        // Process directly if no confirmation needed
+        await this.startVideoProcessing(interaction, videoFile, estimatedDuration);
+        return;
+      }
+
+      // Create confirmation embed and buttons
+      const confirmationMessage = VideoUXHelper.generateConfirmationMessage(
+        estimatedDuration, 
+        estimatedTokens, 
+        estimatedProcessingTime
+      );
+
+      const embed = new EmbedBuilder()
+        .setTitle('🎥 Video Processing Confirmation')
+        .setDescription(confirmationMessage)
+        .setColor(0xFFB347)
+        .setTimestamp();
+
+      const confirmRow = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`video-confirm-${interaction.id}`)
+            .setLabel('✅ Process Video')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`video-cancel-${interaction.id}`)
+            .setLabel('❌ Cancel')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+      await interaction.reply({ 
+        embeds: [embed], 
+        components: [confirmRow], 
+        ephemeral: true 
+      });
+
+      // Store video processing request for later confirmation
+      this.storeVideoProcessingRequest(interaction.id, videoFile, estimatedDuration);
+
+    } catch (error) {
+      logger.error('Error in video confirmation:', error);
+      await interaction.reply({ content: 'Error preparing video for processing.', ephemeral: true });
+    }
+  }
+
+  async handleVideoButtonInteraction(interaction: ButtonInteraction): Promise<void> {
+    try {
+      const customId = interaction.customId;
+      
+      if (customId.startsWith('video-confirm-')) {
+        const requestId = customId.replace('video-confirm-', '');
+        const videoRequest = this.getVideoProcessingRequest(requestId);
+        
+        if (!videoRequest) {
+          await interaction.reply({ 
+            content: '❌ Video processing request has expired. Please try again.', 
+            ephemeral: true 
+          });
+          return;
+        }
+
+        await this.startVideoProcessing(interaction, videoRequest.videoFile, videoRequest.estimatedDuration);
+        this.removeVideoProcessingRequest(requestId);
+        
+      } else if (customId.startsWith('video-cancel-')) {
+        const requestId = customId.replace('video-cancel-', '');
+        this.removeVideoProcessingRequest(requestId);
+        
+        await interaction.update({ 
+          content: '❌ Video processing cancelled.', 
+          embeds: [], 
+          components: [] 
+        });
+      }
+    } catch (error) {
+      logger.error('Error in video button interaction:', error);
+      await interaction.reply({ content: 'Error processing video request.', ephemeral: true });
+    }
+  }
+
+  private async startVideoProcessing(
+    interaction: ChatInputCommandInteraction | ButtonInteraction, 
+    videoFile: { name: string; size: number }, 
+    estimatedDuration: number
+  ): Promise<void> {
+    try {
+      const processingMessage = VideoUXHelper.generateProcessingMessage(estimatedDuration);
+      
+      const embed = new EmbedBuilder()
+        .setTitle('🎬 Processing Video')
+        .setDescription(processingMessage)
+        .setColor(0x00AE86)
+        .setTimestamp()
+        .addFields(
+          { name: 'File', value: videoFile.name, inline: true },
+          { name: 'Size', value: `${(videoFile.size / (1024 * 1024)).toFixed(1)}MB`, inline: true },
+          { name: 'Duration', value: VideoProcessingEstimator.formatDuration(estimatedDuration), inline: true }
+        );
+
+      if (interaction instanceof ChatInputCommandInteraction) {
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+      } else {
+        await interaction.update({ embeds: [embed], components: [] });
+      }
+
+      // In a real implementation, this would trigger the actual video processing
+      logger.info(`Started video processing for file: ${videoFile.name}, duration: ${estimatedDuration}s`);
+      
+    } catch (error) {
+      logger.error('Error starting video processing:', error);
+      const errorMessage = 'Error starting video processing. Please try again.';
+      
+      if (interaction instanceof ChatInputCommandInteraction) {
+        await interaction.reply({ content: errorMessage, ephemeral: true });
+      } else {
+        await interaction.update({ content: errorMessage, embeds: [], components: [] });
+      }
+    }
+  }
+
+  // Video processing request storage (in production, this would use a proper cache/database)
+  private videoProcessingRequests = new Map<string, { 
+    videoFile: { name: string; size: number }; 
+    estimatedDuration: number; 
+    timestamp: number 
+  }>();
+
+  private storeVideoProcessingRequest(
+    requestId: string, 
+    videoFile: { name: string; size: number }, 
+    estimatedDuration: number
+  ): void {
+    this.videoProcessingRequests.set(requestId, {
+      videoFile,
+      estimatedDuration,
+      timestamp: Date.now()
+    });
+
+    // Auto-cleanup after 5 minutes
+    setTimeout(() => {
+      this.videoProcessingRequests.delete(requestId);
+    }, 5 * 60 * 1000);
+  }
+
+  private getVideoProcessingRequest(requestId: string): { 
+    videoFile: { name: string; size: number }; 
+    estimatedDuration: number 
+  } | null {
+    const request = this.videoProcessingRequests.get(requestId);
+    if (!request) return null;
+
+    // Check if request is still valid (5 minutes)
+    if (Date.now() - request.timestamp > 5 * 60 * 1000) {
+      this.videoProcessingRequests.delete(requestId);
+      return null;
+    }
+
+    return {
+      videoFile: request.videoFile,
+      estimatedDuration: request.estimatedDuration
+    };
+  }
+
+  private removeVideoProcessingRequest(requestId: string): void {
+    this.videoProcessingRequests.delete(requestId);
   }
 
   // Track command execution for history

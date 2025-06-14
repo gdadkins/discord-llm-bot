@@ -48,25 +48,6 @@ export interface MemoryStats {
   };
 }
 
-export interface DiscordUserContext {
-  username: string;
-  displayName: string;
-  joinedAt: Date;
-  accountAge: Date;
-  roles: string[];
-  nitroStatus: boolean;
-  presence?: {
-    status: string;
-    activities: string[];
-  };
-  permissions: {
-    isAdmin: boolean;
-    isModerator: boolean;
-    canManageMessages: boolean;
-  };
-  cachedAt: number;
-  ttl: number;
-}
 
 export interface SocialGraph {
   interactions: Map<string, number>;

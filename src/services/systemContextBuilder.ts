@@ -1,4 +1,4 @@
-import type { Client, Guild, GuildMember } from 'discord.js';
+import type { Client, Guild } from 'discord.js';
 import type { MessageContext } from '../commands';
 import type { IService, ServiceHealthStatus } from './interfaces';
 import { logger } from '../utils/logger';
@@ -35,8 +35,6 @@ export interface ISystemContextBuilder extends IService {
   ): string;
   
   buildMessageContext(messageContext: MessageContext): string;
-  
-  buildDiscordUserContext(member: GuildMember): string;
   
   buildServerCultureContext(guild: Guild): string;
   
@@ -128,51 +126,6 @@ export class SystemContextBuilder implements ISystemContextBuilder {
     return contextParts.join('\n');
   }
 
-  buildDiscordUserContext(member: GuildMember, includeServerData: boolean = false): string {
-    const contextParts: string[] = [];
-    
-    // Basic member info
-    contextParts.push('\n\nUser Context:');
-    contextParts.push(`- Display name: ${member.displayName}`);
-    contextParts.push(`- Username: ${member.user.username}`);
-    
-    // Account age
-    const accountAge = Date.now() - member.user.createdTimestamp;
-    const accountDays = Math.floor(accountAge / (1000 * 60 * 60 * 24));
-    contextParts.push(`- Account age: ${accountDays} days`);
-    
-    // Server join date (only if server data requested)
-    if (includeServerData && member.joinedTimestamp) {
-      const joinAge = Date.now() - member.joinedTimestamp;
-      const joinDays = Math.floor(joinAge / (1000 * 60 * 60 * 24));
-      contextParts.push(`- Joined server: ${joinDays} days ago`);
-    }
-    
-    // Roles (exclude @everyone)
-    const roles = member.roles.cache
-      .filter(role => role.name !== '@everyone')
-      .map(role => role.name)
-      .slice(0, 5); // Limit to prevent spam
-    
-    if (roles.length > 0) {
-      contextParts.push(`- Roles: ${roles.join(', ')}`);
-    }
-    
-    // Premium status (only if server data requested)
-    if (includeServerData && member.premiumSinceTimestamp) {
-      const boostDays = Math.floor((Date.now() - member.premiumSinceTimestamp) / (1000 * 60 * 60 * 24));
-      contextParts.push(`- Server booster for ${boostDays} days`);
-    }
-    
-    // Permissions (basic check)
-    if (member.permissions.has('Administrator')) {
-      contextParts.push('- Has Administrator permissions');
-    } else if (member.permissions.has('ManageMessages')) {
-      contextParts.push('- Has Moderator permissions');
-    }
-
-    return contextParts.join('\n');
-  }
 
   buildServerCultureContext(guild: Guild): string {
     const contextParts: string[] = [];

@@ -7,8 +7,8 @@
 
 import type { GuildMember, Guild, Client } from 'discord.js';
 import type { MessageContext } from '../../commands';
-import type { BotConfiguration, FeatureConfig } from './ConfigurationInterfaces';
-import type { IService, ServiceHealthStatus } from './CoreServiceInterfaces';
+import type { BotConfiguration } from './ConfigurationInterfaces';
+import type { IService } from './CoreServiceInterfaces';
 import type { IHealthMonitor } from './HealthMonitoringInterfaces';
 import type { IRateLimiter } from './RateLimitingInterfaces';
 import type { IContextManager } from './ContextManagementInterfaces';
@@ -16,6 +16,7 @@ import type { IRoastingEngine } from './RoastingEngineInterfaces';
 import type { CacheStats, CachePerformance } from './CacheManagementInterfaces';
 import type { DegradationStatus } from './GracefulDegradationInterfaces';
 import type { IPersonalityManager } from './PersonalityManagementInterfaces';
+import type { IConversationManager } from './ConversationManagementInterfaces';
 
 // ============================================================================
 // Core AI Service Interface
@@ -50,7 +51,7 @@ import type { IPersonalityManager } from './PersonalityManagementInterfaces';
  */
 export interface IAITextGenerator extends IService {
   /**
-   * Generates a response to a user prompt
+   * Generates a response to a user prompt with optional multimodal image processing
    * 
    * ## Contract
    * - MUST return a complete response even if streaming fails
@@ -58,12 +59,19 @@ export interface IAITextGenerator extends IService {
    * - MUST incorporate conversation context when available
    * - SHOULD apply personality and mood modifications
    * - MUST sanitize output for Discord message requirements
+   * - MUST handle multimodal inputs (text + images) when provided
    * 
    * ## Context Handling
    * - Uses userId to maintain conversation history
    * - Uses serverId to apply server-specific settings
    * - Incorporates member roles and permissions
    * - Applies guild culture and running gags
+   * 
+   * ## Multimodal Processing
+   * - Supports image attachments for visual understanding
+   * - Images processed alongside text prompt for comprehensive response
+   * - Maintains backward compatibility when no images provided
+   * - Image data passed through base64 encoding with metadata
    * 
    * ## Streaming Behavior
    * - When respond callback provided, sends incremental updates
@@ -78,6 +86,7 @@ export interface IAITextGenerator extends IService {
    * @param messageContext Additional Discord message context
    * @param member Discord member object for role/permission context
    * @param guild Discord guild object for server culture context
+   * @param imageAttachments Optional array of image data for multimodal processing
    * @returns Complete generated response text
    * 
    * @throws {AIServiceError} On generation failure:
@@ -85,19 +94,20 @@ export interface IAITextGenerator extends IService {
    *   - Network connectivity issues
    *   - Invalid input or context
    *   - Service not initialized
+   *   - Image processing errors
    * 
    * @example
    * ```typescript
-   * // Simple generation
+   * // Simple text generation
    * const response = await aiService.generateResponse(
    *   'What is the weather like?',
    *   'user123',
    *   'server456'
    * );
    * 
-   * // With streaming
+   * // With image processing
    * const response = await aiService.generateResponse(
-   *   'Tell me a story',
+   *   'What do you see in this image?',
    *   'user123',
    *   'server456',
    *   async (partialResponse) => {
@@ -105,7 +115,13 @@ export interface IAITextGenerator extends IService {
    *   },
    *   messageContext,
    *   member,
-   *   guild
+   *   guild,
+   *   [{
+   *     url: 'https://example.com/image.jpg',
+   *     mimeType: 'image/jpeg',
+   *     base64Data: 'base64ImageData...',
+   *     filename: 'image.jpg'
+   *   }]
    * );
    * ```
    */
@@ -116,7 +132,14 @@ export interface IAITextGenerator extends IService {
     respond?: (response: string) => Promise<void>,
     messageContext?: MessageContext,
     member?: GuildMember,
-    guild?: Guild
+    guild?: Guild,
+    imageAttachments?: Array<{
+      url: string;
+      mimeType: string;
+      base64Data: string;
+      filename?: string;
+      size?: number;
+    }>
   ): Promise<string>;
 }
 
@@ -149,6 +172,14 @@ export interface IAIConversationManager extends IService {
     totalMessages: number;
     totalContextSize: number;
   };
+  
+  /**
+   * Builds conversation context for a user
+   * @param userId User identifier
+   * @param messageLimit Optional limit on number of messages to include
+   * @returns Formatted conversation context string
+   */
+  buildConversationContext(userId: string, messageLimit?: number): string;
 }
 
 /**
@@ -179,6 +210,7 @@ export interface IAIDependencyManager extends IService {
   getRateLimiter(): IRateLimiter;
   getContextManager(): IContextManager;
   getRoastingEngine(): IRoastingEngine;
+  getConversationManager(): IConversationManager;
 }
 
 /**
@@ -216,6 +248,41 @@ export interface IAIConfigurationManager extends IService {
 }
 
 /**
+ * AI service structured output interface
+ */
+export interface IAIStructuredOutput extends IService {
+  /**
+   * Generates a structured response using JSON mode
+   * 
+   * @param prompt - User prompt requesting structured data
+   * @param structuredOutput - Schema and validation options
+   * @param userId - User ID for context and rate limiting
+   * @param serverId - Optional server ID for context
+   * @param messageContext - Optional message context
+   * @returns Parsed structured response object
+   */
+  generateStructuredResponse<T = unknown>(
+    prompt: string,
+    structuredOutput: import('./GeminiInterfaces').StructuredOutputOptions,
+    userId: string,
+    serverId?: string,
+    messageContext?: MessageContext
+  ): Promise<T>;
+  
+  /**
+   * Parses and validates structured JSON responses
+   * 
+   * @param response - Raw response text from API
+   * @param options - Structured output options including schema
+   * @returns Parsed JSON object or throws error based on fallback behavior
+   */
+  parseStructuredResponse(
+    response: string,
+    options: import('./GeminiInterfaces').StructuredOutputOptions
+  ): Promise<unknown>;
+}
+
+/**
  * Composite AI Service Interface combining all AI service capabilities
  */
 export interface IAIService extends 
@@ -226,7 +293,8 @@ export interface IAIService extends
   IAIDependencyManager,
   IAICacheManager,
   IAIDegradationManager,
-  IAIConfigurationManager {
+  IAIConfigurationManager,
+  IAIStructuredOutput {
 }
 
 // ============================================================================

@@ -19,6 +19,8 @@ import type { IUserPreferenceService } from './UserPreferenceInterfaces';
 import type { IHelpSystemService } from './HelpSystemInterfaces';
 import type { IBehaviorAnalyzer } from './BehaviorAnalysisInterfaces';
 import type { ISystemContextBuilder } from './SystemContextBuilderInterfaces';
+import type { IConversationManager } from './ConversationManagementInterfaces';
+import type { IRetryHandler } from './RetryHandlerInterfaces';
 
 // ============================================================================
 // Service Factory Interface
@@ -46,7 +48,10 @@ export interface IServiceFactory {
   createUserPreferenceService(): IUserPreferenceService;
   createHelpSystemService(config: DiscordConfig): IHelpSystemService;
   createBehaviorAnalyzer(): IBehaviorAnalyzer;
-  createConversationManager(config: FeatureConfig): IService;
-  createRetryHandler(): IService;
+  createConversationManager(config: FeatureConfig): IConversationManager;
+  createRetryHandler(): IRetryHandler;
   createSystemContextBuilder(): ISystemContextBuilder;
 }
+
+// Re-export the ServiceFactory implementation for backward compatibility
+export { ServiceFactory } from './serviceFactory';

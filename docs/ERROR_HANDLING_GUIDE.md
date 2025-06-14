@@ -3,16 +3,18 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Circuit Breaker System](#circuit-breaker-system)
-3. [Graceful Degradation](#graceful-degradation)
-4. [Health Monitoring Integration](#health-monitoring-integration)
-5. [Error Scenarios and Recovery Procedures](#error-scenarios-and-recovery-procedures)
-6. [Message Queue Management](#message-queue-management)
-7. [Fallback Response System](#fallback-response-system)
-8. [Manual Recovery Procedures](#manual-recovery-procedures)
-9. [Error Code Reference](#error-code-reference)
-10. [Monitoring and Observability](#monitoring-and-observability)
-11. [Configuration Reference](#configuration-reference)
+2. [Error Handling Patterns by Layer](#error-handling-patterns-by-layer)
+3. [Circuit Breaker System](#circuit-breaker-system)
+4. [Graceful Degradation](#graceful-degradation)
+5. [Health Monitoring Integration](#health-monitoring-integration)
+6. [Error Scenarios and Recovery Procedures](#error-scenarios-and-recovery-procedures)
+7. [Message Queue Management](#message-queue-management)
+8. [Fallback Response System](#fallback-response-system)
+9. [Manual Recovery Procedures](#manual-recovery-procedures)
+10. [Error Code Reference](#error-code-reference)
+11. [Monitoring and Observability](#monitoring-and-observability)
+12. [Configuration Reference](#configuration-reference)
+13. [Best Practices and Standardization](#best-practices-and-standardization)
 
 ## Overview
 
@@ -25,6 +27,291 @@ The Discord LLM Bot implements a comprehensive error handling and recovery syste
 - **Circuit Breakers**: Per-service failure protection for Gemini and Discord APIs
 - **Message Queue**: Request queuing during degraded states
 - **Fallback System**: Alternative responses when primary services are unavailable
+
+## Error Handling Patterns by Layer
+
+This section documents the comprehensive error handling patterns implemented across all layers of the Discord bot architecture, providing specific examples and file references for each pattern.
+
+### Services Layer Patterns
+
+#### 1. BaseService Template Pattern (`src/services/base/BaseService.ts`)
+
+**Pattern**: Standardized error handling through inheritance with template methods
+- **Lines 85-101**: Template method for initialization with comprehensive try-catch
+- **Lines 106-127**: Template method for shutdown with error continuation
+- **Lines 249-257, 301-308**: Timer creation with error handling and logging
+
+**Key Features**:
+- Standardized error logging with service name context
+- Error propagation with enhanced error messages
+- Graceful degradation during shutdown (continues despite errors)
+- Timer error isolation to prevent cascade failures
+
+**Implementation Example**:
+```typescript
+try {
+  logger.info(`Initializing ${this.getServiceName()}...`);
+  await this.performInitialization();
+  this.isInitialized = true;
+  logger.info(`${this.getServiceName()} initialized successfully`);
+} catch (error) {
+  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  logger.error(`Failed to initialize ${this.getServiceName()}: ${errorMessage}`, error);
+  throw new Error(`${this.getServiceName()} initialization failed: ${errorMessage}`);
+}
+```
+
+#### 2. Retry Handler Service (`src/services/retryHandler.ts`)
+
+**Pattern**: Dedicated retry orchestration with exponential backoff
+- **Lines 72-127**: Core retry execution with configurable retry logic
+- **Lines 129-162**: Categorized retryable error detection
+- **Lines 164-219**: User-friendly error message translation
+
+**Error Categories Handled**:
+- Network errors (timeouts, connection resets, DNS failures)
+- Server errors (5xx HTTP status codes)
+- Rate limiting (429 status codes)
+- Temporary service unavailability
+
+#### 3. Circuit Breaker Pattern (`src/services/gracefulDegradation.ts`)
+
+**Pattern**: Circuit breaker with graceful degradation
+- **Lines 217-257**: Circuit breaker execution wrapper
+- **Lines 599-622**: Success recording with state transitions
+- **Lines 640-658**: Failure recording with threshold management
+
+**Circuit States**:
+- **CLOSED**: Normal operation with failure monitoring
+- **OPEN**: Fast failure with timeout-based recovery
+- **HALF-OPEN**: Testing recovery with limited retries
+
+#### 4. Mutex-Protected Operations (`src/services/rateLimiter.ts`)
+
+**Pattern**: Thread-safe operations with resource protection
+- **Lines 110-156**: Rate limit checking with mutex protection
+- **Lines 264-274**: State persistence with atomic writes
+- **Lines 345-380**: Retry operations with rate limit handling
+
+**Resource Protection**:
+- Mutex acquisition/release with finally blocks
+- Atomic state updates with rollback capabilities
+- I/O operation isolation with separate mutex
+
+#### 5. Self-Healing Monitoring (`src/services/healthMonitor.ts`)
+
+**Pattern**: Proactive monitoring with automated recovery
+- **Lines 539-620**: Alert checking with cooldown management
+- **Lines 642-722**: Self-healing attempt mechanisms
+- **Lines 847-883**: Metrics collection with error isolation
+
+**Self-Healing Mechanisms**:
+- Memory cleanup (cache clearing, garbage collection)
+- Error rate reset (buffer clearing)
+- Performance optimization (cache management)
+- Service reconnection attempts
+
+### Handlers and Events Layer Patterns
+
+#### 1. User-Facing Error Communication (`src/handlers/commandHandlers.ts`)
+
+**Pattern**: Comprehensive try-catch with context-specific user messaging
+- **File:Line**: commandHandlers.ts:99-102, 145-151, 414-417
+- **Approach**: Each command handler wraps operations and provides user-friendly error messages
+
+**Permission Validation Pattern**:
+```typescript
+if (!hasAdminPermissions(interaction)) {
+  await interaction.reply({ 
+    content: 'You need Administrator or Manage Server permissions to use this command!', 
+    ephemeral: true 
+  });
+  return;
+}
+```
+
+**Input Validation Pattern**:
+```typescript
+if (!prompt) {
+  await interaction.reply('Please provide a message!');
+  return;
+}
+```
+
+#### 2. Multi-Layer Error Handling (`src/handlers/eventHandlers.ts`)
+
+**Pattern**: Nested try-catch blocks with specific error recovery
+- **Lines 139-151**: Command execution errors
+- **Lines 1094-1105**: User communication errors
+- **Lines 1106-1114**: Final safety net
+
+**Race Condition Prevention**:
+- **Lines 360-391**: Mutex-based duplicate message prevention with atomic operations
+- Prevents concurrent processing with comprehensive logging
+
+#### 3. API Interaction Error Recovery (`src/handlers/eventHandlers.ts`)
+
+**Pattern**: Graceful degradation with fallback responses
+- **Lines 894-922**: Local analysis fallback when API analysis fails
+- **Lines 926-929**: Continued operation despite analysis failures
+
+**Example**:
+```typescript
+} catch (analysisError) {
+  logger.error('Error generating user analysis:', analysisError);
+  // Fallback: Create basic roast without AI
+  const fallbackRoast = `Oh, ${targetUser.username}... where do I even begin?`;
+  await replyMessage.edit(fallbackRoast);
+}
+```
+
+### Utilities and Core Component Patterns
+
+#### 1. Comprehensive Error Management (`src/utils/DataStore.ts`)
+
+**Pattern**: Full try-catch coverage with typed error handling and recovery
+- **Lines 358-378**: Multi-level error recovery with backup restoration
+- **Lines 810-838**: Retry logic with exponential backoff and jitter
+
+**Error Categories**:
+- ENOENT handling with null returns
+- Syntax error detection with backup recovery
+- Validation failure handling with rollback
+- Monitoring integration with error metrics
+
+**Implementation Example**:
+```typescript
+try {
+  const data = this.config.serialization.deserialize(content);
+  if (!this.config.validator(data)) {
+    throw new Error('Data validation failed during load');
+  }
+  return data as T;
+} catch (error) {
+  if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+    this.debugLog(`File not found: ${this.filePath}`);
+    return null;
+  }
+  if (error instanceof SyntaxError || 
+      (error instanceof Error && error.message.includes('validation failed'))) {
+    logger.warn(`Data file corrupted, attempting backup recovery: ${this.filePath}`);
+    return await this.recoverFromBackup();
+  }
+  this.metrics.errorCount++;
+  throw error;
+}
+```
+
+#### 2. Custom Error Types (`src/utils/MutexManager.ts`)
+
+**Pattern**: Custom error classes with context and timeout handling
+- **Lines 333-338**: MutexTimeoutError with context information
+- **Lines 94-151**: Timeout protection with statistical tracking
+
+**Custom Error Definition**:
+```typescript
+export class MutexTimeoutError extends Error {
+  constructor(message: string, public mutexName: string) {
+    super(message);
+    this.name = 'MutexTimeoutError';
+  }
+}
+```
+
+#### 3. Partial Failure Handling (`src/utils/largeContextHandler.ts`)
+
+**Pattern**: Individual chunk processing with error isolation
+- **Lines 67-86**: Continues processing other chunks if one fails
+- Resource management with automatic cleanup
+
+**Implementation Example**:
+```typescript
+for (let i = 0; i < chunks.length; i++) {
+  try {
+    const result = await processor(chunks[i], i, chunks.length);
+    results.push(result);
+  } catch (error) {
+    logger.error('Error processing chunk', { 
+      chunkIndex: i, 
+      totalChunks: chunks.length, 
+      error 
+    });
+    results.push(''); // Continue with empty result
+  }
+}
+```
+
+#### 4. Silent Error Handling (`src/utils/validation.ts`)
+
+**Pattern**: Catches errors but returns default values without logging
+- **Lines 199-205**: URL validation with silent failure
+- **Note**: This pattern is identified as needing improvement
+
+**Current Implementation** (needs enhancement):
+```typescript
+try {
+  new URL(value);
+  return true;
+} catch {
+  return false; // Silent failure - no logging
+}
+```
+
+### Error Type Classification
+
+#### 1. Discord API Errors
+- **Location**: conversationManager.ts:345-380, gemini.ts:456-485
+- **Types**: Rate limits (code: 50013), permissions, network timeouts
+- **Recovery**: Exponential backoff, permission fallbacks, retry mechanisms
+
+#### 2. Configuration Errors
+- **Location**: configurationManager.ts:608-649, BaseService.ts:96-100
+- **Types**: Schema validation failures, environment variable issues
+- **Recovery**: Default value fallbacks, graceful degradation
+
+#### 3. Service Initialization Errors
+- **Location**: BaseService.ts:85-101, healthMonitor.ts:199-224
+- **Types**: Resource allocation failures, dependency injection issues
+- **Recovery**: Resource cleanup, error propagation with context
+
+#### 4. Runtime Operation Errors
+- **Location**: contextManager.ts:468-487, cacheManager.ts:166-186
+- **Types**: Memory exhaustion, data corruption, timeout failures
+- **Recovery**: Automatic cleanup, cache eviction, timer reset
+
+#### 5. External Service Errors
+- **Location**: gemini.ts:1300-1352, retryHandler.ts:129-162
+- **Types**: API failures, network issues, service unavailability
+- **Recovery**: Circuit breaker patterns, fallback responses, retry logic
+
+### Critical Failure Scenarios Identified
+
+#### High Priority Issues
+
+1. **messageSplitter.ts** - No Error Boundaries
+   - **Risk**: Infinite loops with malformed input
+   - **Impact**: Service hang, memory exhaustion
+   - **Recovery**: Add input validation and timeout protection
+
+2. **validation.ts** - Silent URL Validation
+   - **Risk**: Invalid URLs accepted without error context
+   - **Impact**: Downstream failures with poor debugging
+   - **Recovery**: Add error logging and context reporting
+
+3. **botInitializer.ts** - No Initialization Timeout
+   - **Risk**: Hang during service startup
+   - **Impact**: Bot never becomes available
+   - **Recovery**: Add timeout wrapper with graceful failure
+
+#### Medium Priority Issues
+
+1. **raceConditionManager.ts** - Silent Typing Failures
+   - **Risk**: User experience degradation without visibility
+   - **Recovery**: Add warning-level logging for typing failures
+
+2. **largeContextHandler.ts** - No Disk Space Validation
+   - **Risk**: Failed writes without clear error messaging
+   - **Recovery**: Add disk space checks before write operations
 
 ## Circuit Breaker System
 
@@ -456,6 +743,258 @@ curl -X POST http://localhost:3000/api/test/echo \
   -d '{"message": "test"}'
 ```
 
+## Video Processing Error Handling
+
+### Video Processing Error Categories
+
+Video processing introduces unique error scenarios due to high resource consumption, token costs, and processing time requirements. This section covers comprehensive error handling for video-related operations.
+
+#### 1. Configuration Errors
+
+**VIDEO_SUPPORT_DISABLED**
+- **Cause**: Video processing is disabled in configuration
+- **User Message**: "Video processing is currently disabled on this server."
+- **Recovery**: Admin must enable VIDEO_SUPPORT_ENABLED in environment
+- **Severity**: Low (expected behavior)
+
+**INVALID_VIDEO_CONFIG**
+- **Cause**: Invalid video configuration parameters
+- **User Message**: "Video processing configuration error. Please contact an administrator."
+- **Recovery**: Check and correct video configuration values
+- **Severity**: High (prevents all video processing)
+
+#### 2. File Validation Errors
+
+**UNSUPPORTED_VIDEO_FORMAT**
+- **Cause**: Video file format not in supported list (MP4, MOV, AVI, WebM)
+- **User Message**: "❌ Unsupported video format. Supported formats: MP4, MOV, AVI, WebM"
+- **Recovery**: User must convert video to supported format
+- **Severity**: Low (user correctable)
+
+**VIDEO_FILE_TOO_LARGE**
+- **Cause**: Video file exceeds size limit (default 20MB)
+- **User Message**: "❌ Video file too large (X.XMB). Maximum allowed: 20MB"
+- **Recovery**: User must reduce file size or trim video
+- **Severity**: Low (user correctable)
+
+**VIDEO_DURATION_TOO_LONG**
+- **Cause**: Video duration exceeds limit (default 180 seconds)
+- **User Message**: "❌ Video too long (Xm Ys). Maximum duration: 3m 0s"
+- **Recovery**: User must trim video to shorter duration
+- **Severity**: Low (user correctable)
+
+#### 3. Rate Limiting Errors
+
+**VIDEO_RATE_LIMIT_EXCEEDED**
+- **Cause**: User exceeded video processing rate limits
+- **User Message**: "❌ Video rate limit exceeded. Please wait Xm Ys before processing another video."
+- **Recovery**: User must wait for rate limit reset
+- **Severity**: Medium (prevents processing but protects system)
+
+**VIDEO_TOKEN_LIMIT_EXCEEDED**
+- **Cause**: Estimated token cost exceeds daily/hourly limits
+- **User Message**: "❌ Video would exceed your token limit. Remaining: X,XXX tokens"
+- **Recovery**: User must wait for token limit reset
+- **Severity**: Medium (cost protection)
+
+#### 4. Processing Errors
+
+**VIDEO_PROCESSING_TIMEOUT**
+- **Cause**: Video processing exceeds timeout limit (default 300 seconds)
+- **User Message**: "❌ Video processing timed out. Please try a shorter video."
+- **Recovery**: User should try shorter video or contact admin for timeout adjustment
+- **Severity**: Medium (system protection)
+
+**VIDEO_PROCESSING_FAILED**
+- **Cause**: AI service failed to process video content
+- **User Message**: "❌ Failed to process video. Please try again or contact support."
+- **Recovery**: Automatic retry with exponential backoff, fallback to text response
+- **Severity**: High (service availability)
+
+**VIDEO_ENCODING_ERROR**
+- **Cause**: Video file is corrupted or has encoding issues
+- **User Message**: "❌ Video file appears to be corrupted. Please try a different file."
+- **Recovery**: User must provide valid video file
+- **Severity**: Low (user correctable)
+
+#### 5. YouTube URL Errors
+
+**YOUTUBE_SUPPORT_DISABLED**
+- **Cause**: YouTube URL processing is disabled
+- **User Message**: "❌ YouTube URL processing is currently disabled."
+- **Recovery**: Admin must enable YOUTUBE_URL_SUPPORT_ENABLED
+- **Severity**: Low (expected behavior)
+
+**INVALID_YOUTUBE_URL**
+- **Cause**: Provided URL is not a valid YouTube URL
+- **User Message**: "❌ Invalid YouTube URL format. Please provide a valid YouTube video URL."
+- **Recovery**: User must provide correct YouTube URL
+- **Severity**: Low (user correctable)
+
+**YOUTUBE_VIDEO_UNAVAILABLE**
+- **Cause**: YouTube video is private, deleted, or restricted
+- **User Message**: "❌ YouTube video is unavailable or restricted."
+- **Recovery**: User must provide accessible YouTube video
+- **Severity**: Low (user correctable)
+
+### Video Error Handling Implementation
+
+#### Error Detection and Logging
+```typescript
+// Video processing error wrapper
+async function processVideoWithErrorHandling(
+  videoFile: VideoFile,
+  userId: string
+): Promise<ProcessingResult> {
+  const logger = getLogger('VideoProcessing');
+  
+  try {
+    // Validate video before processing
+    const validation = validateVideoFile(videoFile);
+    if (!validation.valid) {
+      logger.warn('Video validation failed', {
+        userId,
+        filename: videoFile.filename,
+        errors: validation.errors
+      });
+      
+      return {
+        success: false,
+        errorType: 'VALIDATION_ERROR',
+        userMessage: generateValidationErrorMessage(validation.errors),
+        technicalMessage: validation.errors.join('; ')
+      };
+    }
+    
+    // Check rate limits
+    const rateLimitCheck = await checkVideoRateLimit(userId, videoFile.estimatedTokens);
+    if (!rateLimitCheck.allowed) {
+      logger.info('Video rate limit exceeded', {
+        userId,
+        reason: rateLimitCheck.reason,
+        remaining: rateLimitCheck.remaining
+      });
+      
+      return {
+        success: false,
+        errorType: 'RATE_LIMIT_EXCEEDED',
+        userMessage: rateLimitCheck.reason,
+        retryAfter: rateLimitCheck.retryAfter
+      };
+    }
+    
+    // Process video with timeout
+    const processingResult = await processVideoWithTimeout(videoFile);
+    
+    logger.info('Video processing completed successfully', {
+      userId,
+      filename: videoFile.filename,
+      duration: videoFile.duration,
+      tokensUsed: processingResult.tokensUsed
+    });
+    
+    return processingResult;
+    
+  } catch (error) {
+    logger.error('Video processing failed', {
+      userId,
+      filename: videoFile.filename,
+      error: error.message,
+      stack: error.stack
+    });
+    
+    // Determine error type and appropriate response
+    const errorResponse = classifyVideoError(error);
+    
+    // Update health metrics
+    trackVideoProcessingError(errorResponse.errorType);
+    
+    return errorResponse;
+  }
+}
+```
+
+#### User Experience Error Handling
+```typescript
+// User-friendly error message generation
+function generateUserFriendlyVideoError(error: VideoProcessingError): string {
+  const errorMessages = {
+    UNSUPPORTED_FORMAT: (error) => 
+      VideoUXHelper.generateUnsupportedFormatMessage(error.filename, error.config),
+    
+    FILE_TOO_LARGE: (error) => 
+      VideoUXHelper.generateFileTooLargeMessage(error.fileSizeMB, error.config),
+    
+    DURATION_TOO_LONG: (error) => 
+      VideoUXHelper.generateVideoTooLongMessage(error.duration, error.config),
+    
+    RATE_LIMIT_EXCEEDED: (error) => 
+      `❌ Video rate limit exceeded. Please wait ${formatDuration(error.retryAfter)} before processing another video.`,
+    
+    PROCESSING_TIMEOUT: () => 
+      "❌ Video processing timed out. Please try a shorter video or contact support if this persists.",
+    
+    PROCESSING_FAILED: () => 
+      "❌ Failed to process video. Please try again in a moment or contact support if the issue continues."
+  };
+  
+  const messageGenerator = errorMessages[error.type];
+  return messageGenerator ? messageGenerator(error) : "❌ An unexpected error occurred while processing your video.";
+}
+```
+
+#### Monitoring and Alerting
+
+**Key Metrics to Monitor:**
+- Video processing success rate
+- Average processing time per video
+- Token consumption patterns
+- Rate limit hit frequency
+- File validation failure rates
+- YouTube URL processing success rate
+
+**Alert Thresholds:**
+- Video processing failure rate > 10%
+- Average processing time > 90 seconds
+- Rate limit hits > 50 per hour
+- Token consumption > 80% of daily limit
+
+### Recovery Procedures
+
+#### For Administrators
+
+**Video Processing Service Down:**
+1. Check video service configuration
+2. Verify file storage accessibility
+3. Restart video processing service
+4. Monitor error logs for specific failures
+
+**High Token Consumption:**
+1. Review recent video processing requests
+2. Adjust token rate limits if necessary
+3. Consider temporary video processing restrictions
+4. Notify users of token conservation measures
+
+**Processing Performance Issues:**
+1. Check system resources (CPU, memory, disk)
+2. Review video processing queue depth
+3. Consider increasing processing timeout
+4. Scale processing resources if needed
+
+#### For Users
+
+**Video Processing Failures:**
+1. Verify video file meets requirements (format, size, duration)
+2. Try processing a shorter or smaller video
+3. Wait and retry if rate limited
+4. Contact support if issues persist
+
+**YouTube Video Issues:**
+1. Verify YouTube URL is correct and accessible
+2. Check if video is public and not restricted
+3. Try a different YouTube video to test functionality
+4. Report persistent YouTube processing issues
+
 ## Error Code Reference
 
 ### System Error Codes
@@ -757,6 +1296,327 @@ curl -X POST http://localhost:3000/api/admin/metrics/reset
 
 # Check external service status
 curl http://localhost:3000/api/health/external
+```
+
+## Best Practices and Standardization
+
+Based on the comprehensive analysis of error handling patterns across the codebase, this section provides standardization recommendations and best practices to improve consistency and maintainability.
+
+### Current Strengths
+
+#### 1. **Standardized Logging**
+All services use consistent logger with service context:
+```typescript
+logger.error(`Failed to initialize ${this.getServiceName()}: ${errorMessage}`, error);
+```
+
+#### 2. **Error Message Enhancement**
+Errors are enriched with service names and context:
+```typescript
+throw new Error(`${this.getServiceName()} initialization failed: ${errorMessage}`);
+```
+
+#### 3. **Resource Cleanup**
+Try-finally patterns ensure resource deallocation:
+```typescript
+const release = await this.stateMutex.acquire();
+try {
+  // Operation
+} finally {
+  release();
+}
+```
+
+#### 4. **User-Friendly Messages**
+Technical errors translated to user-readable messages through RetryHandler:
+```typescript
+const userMessage = this.retryHandler.getUserFriendlyErrorMessage(error) || 'An error occurred';
+```
+
+### Identified Inconsistencies
+
+#### 1. **Error Propagation Strategies**
+- **Issue**: Some services throw enhanced errors (BaseService), others return null/undefined
+- **Files**: BaseService.ts:99 vs cacheManager.ts:89-100
+- **Impact**: Inconsistent caller expectations
+
+#### 2. **Retry Logic Implementation**
+- **Issue**: Dedicated RetryHandler vs. inline retry logic
+- **Files**: retryHandler.ts vs conversationManager.ts:345-380
+- **Impact**: Code duplication and varying retry behaviors
+
+#### 3. **Health Reporting Patterns**
+- **Issue**: Different error collection mechanisms
+- **Files**: BaseService.ts:171-180 vs healthMonitor.ts:1269-1300
+- **Impact**: Inconsistent health status formats
+
+### Standardization Recommendations
+
+#### 1. **Unified Error Interface**
+
+Create a standardized error interface for all services:
+
+```typescript
+interface ServiceError {
+  service: string;
+  operation: string;
+  category: 'network' | 'configuration' | 'runtime' | 'external';
+  retryable: boolean;
+  userMessage: string;
+  technicalMessage: string;
+  timestamp: number;
+  correlationId?: string;
+}
+
+class StandardServiceError extends Error implements ServiceError {
+  constructor(
+    public service: string,
+    public operation: string,
+    public category: ServiceError['category'],
+    public retryable: boolean,
+    public userMessage: string,
+    public technicalMessage: string,
+    public timestamp: number = Date.now(),
+    public correlationId?: string
+  ) {
+    super(technicalMessage);
+    this.name = 'StandardServiceError';
+  }
+}
+```
+
+#### 2. **Standardized Retry Decorator**
+
+Centralize all retry logic through RetryHandler service:
+
+```typescript
+// Instead of inline retry logic, use:
+const result = await this.retryHandler.executeWithRetry(
+  async () => await someOperation(),
+  {
+    maxRetries: 3,
+    retryDelay: 1000,
+    retryMultiplier: 2,
+    operationName: 'someOperation',
+    serviceName: this.getServiceName()
+  }
+);
+```
+
+#### 3. **Enhanced Error Context**
+
+Include operation context in all error messages:
+
+```typescript
+// Standard error context pattern
+const errorContext = {
+  service: this.getServiceName(),
+  operation: 'operationName',
+  userId: 'user123',
+  timestamp: Date.now(),
+  correlationId: generateCorrelationId()
+};
+
+try {
+  // Operation
+} catch (error) {
+  logger.error('Operation failed', { ...errorContext, error });
+  throw new StandardServiceError(
+    errorContext.service,
+    errorContext.operation,
+    'runtime',
+    true,
+    'User-friendly message',
+    error.message,
+    errorContext.timestamp,
+    errorContext.correlationId
+  );
+}
+```
+
+#### 4. **Consistent Health Reporting**
+
+Standardize health status structure across all services:
+
+```typescript
+interface ServiceHealth {
+  service: string;
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  lastCheck: number;
+  uptime: number;
+  errorCount: number;
+  lastError?: StandardServiceError;
+  metrics: {
+    responseTime?: number;
+    memoryUsage?: number;
+    errorRate?: number;
+  };
+}
+```
+
+### Implementation Guidelines
+
+#### 1. **Error Handling Checklist**
+
+For all new services and functions:
+
+- [ ] Use try-catch blocks for all external calls
+- [ ] Implement proper resource cleanup (finally blocks)
+- [ ] Log errors with consistent format and context
+- [ ] Provide user-friendly error messages
+- [ ] Include operation name and service context
+- [ ] Use RetryHandler for retryable operations
+- [ ] Implement graceful degradation where applicable
+- [ ] Add health check integration
+- [ ] Include error metrics collection
+- [ ] Add correlation IDs for error tracking
+
+#### 2. **Error Recovery Patterns**
+
+**For Network Errors:**
+```typescript
+try {
+  const result = await externalApiCall();
+  return result;
+} catch (error) {
+  if (isNetworkError(error)) {
+    return await this.retryHandler.executeWithRetry(
+      () => externalApiCall(),
+      { maxRetries: 3, retryDelay: 1000 }
+    );
+  }
+  throw new StandardServiceError(/* parameters */);
+}
+```
+
+**For Validation Errors:**
+```typescript
+try {
+  const validated = await validateInput(input);
+  return processValidatedInput(validated);
+} catch (error) {
+  if (error instanceof ValidationError) {
+    return {
+      success: false,
+      userMessage: 'Please check your input and try again',
+      technicalMessage: error.message
+    };
+  }
+  throw error;
+}
+```
+
+**For Resource Errors:**
+```typescript
+const resource = await acquireResource();
+try {
+  return await processWithResource(resource);
+} catch (error) {
+  logger.error('Resource processing failed', { error, resourceId: resource.id });
+  throw new StandardServiceError(/* parameters */);
+} finally {
+  await releaseResource(resource);
+}
+```
+
+#### 3. **Testing Error Scenarios**
+
+Create comprehensive error tests for all patterns:
+
+```typescript
+describe('Error Handling', () => {
+  it('should handle network failures with retry', async () => {
+    // Mock network failure
+    mockApiCall.mockRejectedValueOnce(new Error('Network error'));
+    mockApiCall.mockResolvedValueOnce('success');
+    
+    const result = await serviceMethod();
+    expect(result).toBe('success');
+    expect(mockApiCall).toHaveBeenCalledTimes(2);
+  });
+  
+  it('should provide user-friendly error messages', async () => {
+    mockApiCall.mockRejectedValue(new Error('Internal server error'));
+    
+    await expect(serviceMethod()).rejects.toThrow(StandardServiceError);
+    expect(loggerSpy).toHaveBeenCalledWith(
+      expect.stringContaining('User-friendly message')
+    );
+  });
+});
+```
+
+### Migration Strategy
+
+#### Phase 1: Critical Components (High Priority)
+1. **messageSplitter.ts**: Add error boundaries and input validation
+2. **validation.ts**: Enhance URL validation with proper error logging
+3. **botInitializer.ts**: Add initialization timeout wrapper
+
+#### Phase 2: Standardization (Medium Priority)
+1. Implement StandardServiceError across all services
+2. Centralize retry logic through RetryHandler
+3. Standardize health reporting format
+
+#### Phase 3: Enhancement (Low Priority)
+1. Add error correlation IDs
+2. Implement error recovery metrics
+3. Create error pattern analytics
+
+### Error Handling Anti-Patterns to Avoid
+
+#### 1. **Silent Failures**
+```typescript
+// DON'T DO THIS
+try {
+  await operation();
+} catch {
+  return false; // No logging, no context
+}
+
+// DO THIS INSTEAD
+try {
+  await operation();
+  return true;
+} catch (error) {
+  logger.error('Operation failed', { error, context });
+  return false;
+}
+```
+
+#### 2. **Generic Error Messages**
+```typescript
+// DON'T DO THIS
+throw new Error('Something went wrong');
+
+// DO THIS INSTEAD
+throw new StandardServiceError(
+  'userService',
+  'updateProfile',
+  'validation',
+  false,
+  'Please check your profile information and try again',
+  `Validation failed: ${validationError.message}`
+);
+```
+
+#### 3. **Swallowing Errors**
+```typescript
+// DON'T DO THIS
+try {
+  await criticalOperation();
+} catch (error) {
+  // Ignore error, continue
+}
+
+// DO THIS INSTEAD
+try {
+  await criticalOperation();
+} catch (error) {
+  logger.error('Critical operation failed', { error });
+  await this.gracefulDegradation.handleFailure('criticalOperation', error);
+  throw error; // Re-throw after handling
+}
 ```
 
 ---

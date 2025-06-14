@@ -1,23 +1,18 @@
-import { createHash } from 'crypto';
 import { Mutex } from 'async-mutex';
 import { logger } from '../utils/logger';
+import { CacheKeyGenerator } from '../utils/CacheKeyGenerator';
+import { BaseService } from './base/BaseService';
+import type { ICacheManager, CacheStats, CachePerformance } from './interfaces/CacheManagementInterfaces';
 
 interface CacheEntry {
   response: string;
   timestamp: number;
   hits: number;
+  userId: string;
+  serverId?: string;
 }
 
-interface CacheStats {
-  totalHits: number;
-  totalMisses: number;
-  totalEvictions: number;
-  hitRate: number;
-  cacheSize: number;
-  memoryUsage: number;
-}
-
-export class CacheManager {
+export class CacheManager extends BaseService implements ICacheManager {
   private cache: Map<string, CacheEntry>;
   private accessOrder: string[]; // For LRU tracking
   private mutex: Mutex;
@@ -36,9 +31,8 @@ export class CacheManager {
     startTime: number;
   };
   
-  private cleanupInterval: NodeJS.Timeout | null = null;
-
   constructor() {
+    super();
     this.cache = new Map();
     this.accessOrder = [];
     this.mutex = new Mutex();
@@ -50,35 +44,36 @@ export class CacheManager {
     };
   }
 
-  async initialize(): Promise<void> {
+  protected getServiceName(): string {
+    return 'CacheManager';
+  }
+
+  protected async performInitialization(): Promise<void> {
     // Start periodic cleanup every minute
-    this.cleanupInterval = setInterval(() => {
+    this.createInterval('cacheCleanup', () => {
       this.cleanupExpiredEntries();
     }, 60 * 1000);
     
     logger.info('CacheManager initialized with 5-minute TTL and LRU eviction');
   }
 
-  shutdown(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-    }
+  protected async performShutdown(): Promise<void> {
+    // BaseService automatically clears all timers
     this.cache.clear();
     this.accessOrder = [];
     logger.info('CacheManager shutdown complete');
   }
 
   private generateCacheKey(prompt: string, userId: string, serverId?: string): string {
-    // Create a unique hash based on prompt, user, and server
-    const input = `${prompt}:${userId}:${serverId || 'dm'}`;
-    return createHash('sha256').update(input).digest('hex');
+    // Use standardized cache key generator for consistent hashing
+    return CacheKeyGenerator.generateCacheKey(prompt, userId, serverId);
   }
 
   shouldBypassCache(prompt: string): boolean {
     // Check if the prompt contains bypass commands
     const lowerPrompt = prompt.toLowerCase();
-    for (const command of this.CACHE_BYPASS_COMMANDS) {
+    const commands = Array.from(this.CACHE_BYPASS_COMMANDS);
+    for (const command of commands) {
       if (lowerPrompt.includes(command)) {
         return true;
       }
@@ -132,6 +127,8 @@ export class CacheManager {
         response,
         timestamp: Date.now(),
         hits: 0,
+        userId,
+        serverId,
       });
       
       this.updateAccessOrder(key);
@@ -168,14 +165,19 @@ export class CacheManager {
   private cleanupExpiredEntries(): void {
     const now = Date.now();
     let cleaned = 0;
+    const keysToRemove: string[] = [];
     
-    for (const [key, entry] of this.cache.entries()) {
+    this.cache.forEach((entry, key) => {
       if (now - entry.timestamp > this.TTL_MS) {
-        this.cache.delete(key);
-        this.removeFromAccessOrder(key);
-        cleaned++;
+        keysToRemove.push(key);
       }
-    }
+    });
+    
+    keysToRemove.forEach(key => {
+      this.cache.delete(key);
+      this.removeFromAccessOrder(key);
+      cleaned++;
+    });
     
     if (cleaned > 0) {
       logger.info(`Cleaned up ${cleaned} expired cache entries`);
@@ -188,18 +190,24 @@ export class CacheManager {
     
     // Calculate approximate memory usage
     let memoryUsage = 0;
-    for (const entry of this.cache.values()) {
+    this.cache.forEach(entry => {
       memoryUsage += entry.response.length * 2; // Rough estimate (2 bytes per char)
       memoryUsage += 100; // Overhead for metadata
-    }
+    });
     
     return {
       totalHits: this.stats.hits,
       totalMisses: this.stats.misses,
-      totalEvictions: this.stats.evictions,
+      evictions: this.stats.evictions,
       hitRate: Math.round(hitRate * 1000) / 10, // Percentage with 1 decimal
       cacheSize: this.cache.size,
       memoryUsage,
+    };
+  }
+
+  protected collectServiceMetrics(): Record<string, unknown> | undefined {
+    return {
+      cache: this.getStats()
     };
   }
 
@@ -209,17 +217,97 @@ export class CacheManager {
     logger.info('Cache cleared');
   }
 
+  clearUserCache(userId: string): void {
+    let cleared = 0;
+    const keysToRemove: string[] = [];
+    
+    // Find all cache entries that belong to this user
+    this.cache.forEach((entry, key) => {
+      if (entry.userId === userId) {
+        keysToRemove.push(key);
+      }
+    });
+    
+    // Remove found keys
+    keysToRemove.forEach(key => {
+      this.cache.delete(key);
+      this.removeFromAccessOrder(key);
+      cleared++;
+    });
+    
+    logger.info(`Cleared ${cleared} cache entries for user ${userId}`);
+  }
+
+  clearServerCache(serverId: string): void {
+    let cleared = 0;
+    const keysToRemove: string[] = [];
+    
+    // Find all cache entries that belong to this server
+    this.cache.forEach((entry, key) => {
+      if (entry.serverId === serverId) {
+        keysToRemove.push(key);
+      }
+    });
+    
+    // Remove found keys
+    keysToRemove.forEach(key => {
+      this.cache.delete(key);
+      this.removeFromAccessOrder(key);
+      cleared++;
+    });
+    
+    logger.info(`Cleared ${cleared} cache entries for server ${serverId}`);
+  }
+
+  protected getHealthErrors(): string[] {
+    const errors = super.getHealthErrors();
+    const stats = this.getStats();
+    
+    // Check for potential issues
+    if (stats.memoryUsage > 50 * 1024 * 1024) { // 50MB threshold
+      errors.push('High memory usage detected');
+    }
+    
+    if (stats.cacheSize >= this.MAX_CACHE_SIZE * 0.9) {
+      errors.push('Cache approaching maximum capacity');
+    }
+    
+    return errors;
+  }
+
+  protected getServiceSpecificMetrics(): Record<string, unknown> {
+    const stats = this.getStats();
+    
+    return {
+      cacheSize: stats.cacheSize,
+      hitRate: stats.hitRate,
+      memoryUsage: stats.memoryUsage,
+      totalHits: stats.totalHits,
+      totalMisses: stats.totalMisses,
+      maxCacheSize: this.MAX_CACHE_SIZE,
+      ttlMs: this.TTL_MS,
+      uptime: Date.now() - this.stats.startTime
+    };
+  }
+
   // Method to get cache performance improvement estimate
-  getCachePerformance(): { reduction: number; avgLookupTime: number } {
+  getCachePerformance(): CachePerformance {
     const totalRequests = this.stats.hits + this.stats.misses;
     const reduction = totalRequests > 0 ? (this.stats.hits / totalRequests) * 100 : 0;
     
-    // Cache lookups are sub-millisecond
+    // Cache lookups are sub-millisecond, saves are similar
     const avgLookupTime = 0.1; // milliseconds
+    const avgSaveTime = 0.2; // milliseconds
+    
+    // Calculate compression ratio (we don't compress, so ratio is 1.0)
+    const compressionRatio = 1.0;
     
     return {
       reduction: Math.round(reduction * 10) / 10, // Percentage with 1 decimal
       avgLookupTime,
+      averageSaveTime: avgSaveTime,
+      averageLoadTime: avgLookupTime,
+      compressionRatio,
     };
   }
 }

@@ -1,6 +1,6 @@
 import { REST, Routes, SlashCommandBuilder, Client, AutocompleteInteraction } from 'discord.js';
 import { logger } from '../utils/logger';
-import { UserPreferenceManager } from '../services/userPreferenceManager';
+import { UserPreferenceManager } from '../services/preferences';
 
 // Message context interface for enhanced channel awareness
 export interface MessageContext {
@@ -12,6 +12,14 @@ export interface MessageContext {
   pinnedCount: number;
   attachments: string[];
   recentEmojis: string[];
+  // Image attachment data for multimodal processing
+  imageAttachments?: Array<{
+    url: string;
+    mimeType: string;
+    base64Data: string;
+    filename?: string;
+    size?: number;
+  }>;
 }
 
 const commands = [
@@ -180,6 +188,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('deduplicate')
     .setDescription('Remove duplicate entries from server context (admin only)'),
+
 
   new SlashCommandBuilder()
     .setName('crossserver')
@@ -743,7 +752,7 @@ export async function handleAutocomplete(interaction: AutocompleteInteraction, u
           availableCommands
         );
       } else if (focusedOption.name === 'alias') {
-        const userPrefs = await userPreferenceManager.getUserPreferences(userId, serverId);
+        const userPrefs = await userPreferenceManager.getUserPreferencesForServer(userId, serverId);
         choices = Object.keys(userPrefs.commandAliases).filter(alias =>
           alias.toLowerCase().includes(focusedOption.value.toLowerCase())
         );

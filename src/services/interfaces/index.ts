@@ -99,11 +99,26 @@ export * from './RetryHandlerInterfaces';
 // Provides: ISystemContextBuilder, system information aggregation, environment context
 export * from './SystemContextBuilderInterfaces';
 
+// Response processing and formatting
+// Provides: IResponseProcessingService, response validation, thinking mode formatting
+export * from './ResponseProcessingInterfaces';
+
+// Multimodal content handling
+// Provides: IMultimodalContentHandler, image processing, attachment handling, provider conversions
+export * from './MultimodalContentInterfaces';
+
+// User analysis and behavior insights
+// Provides: IUserAnalysisService, message analysis, roast generation, hybrid local+API analysis
+export * from './UserAnalysisInterfaces';
+
 // Service factory patterns
 // Provides: IServiceFactory, dependency injection patterns, service instantiation
 export * from './ServiceFactoryInterfaces';
 
+// Gemini-specific interfaces and structured output
+// Provides: StructuredOutputOptions, schemas, parsed response types
+export * from './GeminiInterfaces';
+
 // Legacy imports - maintain compatibility
 // Provides: backward compatibility for existing implementations
 export * from './serviceRegistry';
-export * from './serviceFactory';

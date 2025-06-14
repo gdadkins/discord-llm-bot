@@ -6,7 +6,8 @@ jest.mock('../../../../src/utils/logger', () => ({
   logger: {
     info: jest.fn(),
     warn: jest.fn(),
-    error: jest.fn()
+    error: jest.fn(),
+    debug: jest.fn()
   }
 }));
 
@@ -48,7 +49,7 @@ class TestService extends BaseService {
     return [...baseErrors, ...this.customErrors];
   }
 
-  protected getHealthMetrics(): Record<string, unknown> | undefined {
+  protected getServiceSpecificMetrics(): Record<string, unknown> | undefined {
     return this.customMetrics;
   }
 
@@ -212,6 +213,27 @@ describe('BaseService', () => {
       });
     });
 
+    it('should merge timer metrics with service-specific metrics', async () => {
+      await service.initialize();
+      service.customMetrics = {
+        activeConnections: 5,
+        requestsPerSecond: 100
+      };
+
+      // Create a timer to generate timer metrics
+      service['createInterval']('merge-test', () => {}, 1000);
+
+      const status = service.getHealthStatus();
+
+      expect(status.metrics).toBeDefined();
+      expect(status.metrics?.activeConnections).toBe(5);
+      expect(status.metrics?.requestsPerSecond).toBe(100);
+      expect(status.metrics?.timers).toBeDefined();
+      
+      const timerMetrics = status.metrics?.timers as any;
+      expect(timerMetrics.count).toBe(1);
+    });
+
     it('should include custom health errors', async () => {
       await service.initialize();
       service.customErrors = ['Database connection lost', 'High memory usage'];
@@ -276,6 +298,146 @@ describe('BaseService', () => {
           expect(result.reason.message).toContain('TestService initialization failed');
         }
       });
+    });
+  });
+
+  describe('timer management', () => {
+    beforeEach(async () => {
+      await service.initialize();
+      jest.clearAllMocks();
+    });
+
+    afterEach(async () => {
+      await service.shutdown();
+    });
+
+    it('should create and manage interval timers', async () => {
+      const callback = jest.fn();
+      const timerId = service['createInterval']('test-interval', callback, 100);
+
+      expect(timerId).toBeDefined();
+      expect(service['hasTimer'](timerId)).toBe(true);
+      expect(service['getTimerCount']()).toBe(1);
+
+      // Wait for timer to execute at least once
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      expect(callback).toHaveBeenCalled();
+      
+      // Clear the timer
+      const cleared = service['clearTimer'](timerId);
+      expect(cleared).toBe(true);
+      expect(service['hasTimer'](timerId)).toBe(false);
+      expect(service['getTimerCount']()).toBe(0);
+    });
+
+    it('should create and manage timeout timers', async () => {
+      const callback = jest.fn();
+      const timerId = service['createTimeout']('test-timeout', callback, 50);
+
+      expect(timerId).toBeDefined();
+      expect(service['hasTimer'](timerId)).toBe(true);
+      expect(service['getTimerCount']()).toBe(1);
+
+      // Wait for timeout to execute
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      expect(callback).toHaveBeenCalledTimes(1);
+      
+      // Timeout should be automatically removed after execution
+      expect(service['hasTimer'](timerId)).toBe(false);
+      expect(service['getTimerCount']()).toBe(0);
+    });
+
+    it('should handle timer callback errors gracefully', async () => {
+      const errorCallback = jest.fn(() => {
+        throw new Error('Timer callback error');
+      });
+      
+      const timerId = service['createInterval']('error-interval', errorCallback, 50);
+
+      // Wait for timer to execute and handle error
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      expect(errorCallback).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/Timer callback error/),
+        expect.objectContaining({
+          service: 'TestService',
+          timerId: expect.stringContaining('error-interval'),
+          errorCount: 1
+        })
+      );
+
+      // Timer should still be active for intervals
+      expect(service['hasTimer'](timerId)).toBe(true);
+    });
+
+    it('should generate unique timer IDs', () => {
+      const timerId1 = service['createInterval']('test', () => {}, 1000);
+      const timerId2 = service['createInterval']('test', () => {}, 1000);
+      
+      expect(timerId1).not.toBe(timerId2);
+      expect(timerId1).toContain('TestService_test_');
+      expect(timerId2).toContain('TestService_test_');
+    });
+
+    it('should provide timer information', () => {
+      const timerId = service['createInterval']('info-test', () => {}, 500);
+      const info = service['getTimerInfo'](timerId);
+
+      expect(info).toBeDefined();
+      expect(info?.id).toBe(timerId);
+      expect(info?.type).toBe('interval');
+      expect(info?.intervalMs).toBe(500);
+      expect(info?.createdAt).toBeGreaterThan(0);
+      expect(info?.errorCount).toBe(0);
+    });
+
+    it('should include timer metrics in health status', () => {
+      service['createInterval']('metrics-test-1', () => {}, 1000);
+      service['createTimeout']('metrics-test-2', () => {}, 2000);
+
+      const status = service.getHealthStatus();
+      
+      expect(status.metrics).toBeDefined();
+      expect(status.metrics?.timers).toBeDefined();
+      
+      const timerMetrics = status.metrics?.timers as any;
+      expect(timerMetrics.count).toBe(2);
+      expect(timerMetrics.byType.interval).toBe(1);
+      expect(timerMetrics.byType.timeout).toBe(1);
+      expect(timerMetrics.totalErrors).toBe(0);
+    });
+
+    it('should clear all timers on shutdown', async () => {
+      service['createInterval']('shutdown-test-1', () => {}, 1000);
+      service['createTimeout']('shutdown-test-2', () => {}, 2000);
+      
+      expect(service['getTimerCount']()).toBe(2);
+
+      await service.shutdown();
+
+      expect(service['getTimerCount']()).toBe(0);
+      expect(logger.info).toHaveBeenCalledWith(
+        'Timer cleanup completed',
+        expect.objectContaining({
+          service: 'TestService',
+          clearedCount: 2,
+          errorCount: 0,
+          totalTimers: 2
+        })
+      );
+    });
+
+    it('should handle clearing non-existent timers', () => {
+      const result = service['clearTimer']('non-existent-timer');
+      expect(result).toBe(false);
+    });
+
+    it('should sanitize timer names in IDs', () => {
+      const timerId = service['createInterval']('test timer with spaces!@#', () => {}, 1000);
+      expect(timerId).toContain('test_timer_with_spaces___');
     });
   });
 });

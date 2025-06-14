@@ -257,6 +257,18 @@ export const RATE_LIMITER_CONSTANTS = {
   WINDOW_CACHE_MS: 1000,
   /** Safety margin for rate limits (90%) */
   SAFETY_MARGIN: 0.9,
+  
+  // Video-specific rate limits
+  /** Maximum tokens for video processing per hour */
+  VIDEO_TOKENS_PER_HOUR: 100000,
+  /** Maximum tokens for video processing per day */
+  VIDEO_TOKENS_PER_DAY: 500000,
+  /** Maximum video requests per hour */
+  VIDEO_REQUESTS_PER_HOUR: 10,
+  /** Maximum video requests per day */
+  VIDEO_REQUESTS_PER_DAY: 50,
+  /** Minimum time between video requests (seconds) */
+  VIDEO_REQUEST_COOLDOWN_SECONDS: 60,
 } as const;
 
 // ============= HEALTH MONITOR CONSTANTS =============
@@ -282,6 +294,35 @@ export const HEALTH_MONITOR_CONSTANTS = {
   DEFAULT_DISK_SPACE_THRESHOLD: 85.0,
 } as const;
 
+// ============= VIDEO PROCESSING CONSTANTS =============
+/**
+ * Constants for video processing configuration and limits
+ */
+export const VIDEO_CONSTANTS = {
+  /** Default video support enablement (disabled by default) */
+  DEFAULT_VIDEO_SUPPORT_ENABLED: false,
+  /** Maximum video duration in seconds (83 seconds for 25k tokens @ 300 tokens/sec) */
+  MAX_VIDEO_DURATION_SECONDS: 83,
+  /** Video token warning threshold (set to 25k to avoid warnings) */
+  VIDEO_TOKEN_WARNING_THRESHOLD: 25000,
+  /** Default YouTube URL support enablement */
+  DEFAULT_YOUTUBE_URL_SUPPORT_ENABLED: true,
+  /** Video file size limit in MB */
+  VIDEO_FILE_SIZE_LIMIT_MB: 20,
+  /** Require video confirmation by default (disabled for seamless processing) */
+  DEFAULT_REQUIRE_VIDEO_CONFIRMATION: false,
+  /** Estimated processing time per minute of video (seconds) */
+  PROCESSING_TIME_PER_MINUTE: 60,
+  /** Video token multiplier compared to text (adjusted for 300 tokens/sec) */
+  VIDEO_TOKEN_MULTIPLIER_MIN: 300,
+  /** Maximum video token multiplier (300 tokens/sec * 60 sec) */
+  VIDEO_TOKEN_MULTIPLIER_MAX: 18000,
+  /** Video processing timeout in seconds */
+  VIDEO_PROCESSING_TIMEOUT_SECONDS: 300,
+  /** Supported video formats */
+  SUPPORTED_VIDEO_FORMATS: ['mp4', 'mov', 'avi', 'webm'] as const,
+} as const;
+
 // ============= GENERAL CONSTANTS =============
 /**
  * General application constants
@@ -304,4 +345,5 @@ export type DegradationConstants = typeof DEGRADATION_CONSTANTS;
 export type CacheConstants = typeof CACHE_CONSTANTS;
 export type RateLimiterConstants = typeof RATE_LIMITER_CONSTANTS;
 export type HealthMonitorConstants = typeof HEALTH_MONITOR_CONSTANTS;
+export type VideoConstants = typeof VIDEO_CONSTANTS;
 export type GeneralConstants = typeof GENERAL_CONSTANTS;

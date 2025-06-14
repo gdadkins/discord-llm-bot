@@ -24,6 +24,9 @@ import type {
   IConversationManager,
   IRetryHandler,
   ISystemContextBuilder,
+  IResponseProcessingService,
+  IUserAnalysisService,
+  IMultimodalContentHandler,
   BotConfiguration,
   AnalyticsConfig,
   GeminiConfig,
@@ -37,7 +40,7 @@ import type {
 
 // Import concrete implementations
 import { AnalyticsManager } from '../analyticsManager';
-import { GeminiService } from '../gemini';
+import { GeminiService } from '../gemini/GeminiService';
 import { ConfigurationManager } from '../configurationManager';
 import { HealthMonitor } from '../healthMonitor';
 import { RateLimiter } from '../rateLimiter';
@@ -45,13 +48,16 @@ import { ContextManager } from '../contextManager';
 import { CacheManager } from '../cacheManager';
 import { PersonalityManager } from '../personalityManager';
 import { RoastingEngine } from '../roastingEngine';
-import { GracefulDegradation } from '../gracefulDegradation';
-import { UserPreferenceManager } from '../userPreferenceManager';
+import { GracefulDegradation } from '../resilience';
+import { UserPreferenceManager } from '../preferences';
 import { HelpSystem } from '../helpSystem';
-import { BehaviorAnalyzer } from '../behaviorAnalyzer';
+import { BehaviorAnalyzer } from '../analytics/behavior';
 import { SystemContextBuilder } from '../systemContextBuilder';
 import { ConversationManager } from '../conversationManager';
 import { RetryHandler } from '../retryHandler';
+import { ResponseProcessingService } from '../responseProcessingService';
+import { UserAnalysisService } from '../analytics/user';
+import { MultimodalContentHandler } from '../multimodal/MultimodalContentHandler';
 
 
 
@@ -109,13 +115,22 @@ export class ServiceFactory implements IServiceFactory {
 
     // Create new services for reduced coupling
     const conversationManager = this.createConversationManager(config.features);
-    services.set('conversationManager', conversationManager as unknown as IService);
+    services.set('conversationManager', conversationManager);
 
     const retryHandler = this.createRetryHandler();
-    services.set('retryHandler', retryHandler as unknown as IService);
+    services.set('retryHandler', retryHandler);
 
     const systemContextBuilder = this.createSystemContextBuilder();
-    services.set('systemContextBuilder', systemContextBuilder as unknown as IService);
+    services.set('systemContextBuilder', systemContextBuilder);
+
+    // Create response processing service
+    const responseProcessingService = this.createResponseProcessingService();
+    services.set('responseProcessingService', responseProcessingService);
+
+    // Create multimodal content handler with response processor dependency
+    const multimodalContentHandler = this.createMultimodalContentHandler();
+    multimodalContentHandler.setResponseProcessor(responseProcessingService);
+    services.set('multimodalContentHandler', multimodalContentHandler);
 
     // Create AI service (depends on many other services)
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
@@ -131,7 +146,9 @@ export class ServiceFactory implements IServiceFactory {
       roastingEngine,
       conversationManager,
       retryHandler,
-      systemContextBuilder
+      systemContextBuilder,
+      responseProcessingService,
+      multimodalContentHandler
     });
     services.set('aiService', aiService);
 
@@ -147,6 +164,10 @@ export class ServiceFactory implements IServiceFactory {
     const behaviorAnalyzer = this.createBehaviorAnalyzer();
     services.set('behaviorAnalyzer', behaviorAnalyzer);
 
+    // Create user analysis service
+    const userAnalysisService = this.createUserAnalysisService();
+    services.set('userAnalysisService', userAnalysisService);
+
     logger.info(`Created ${services.size} services`);
     return services;
   }
@@ -155,7 +176,7 @@ export class ServiceFactory implements IServiceFactory {
    * Creates analytics service
    */
   createAnalyticsService(_config: AnalyticsConfig): IAnalyticsService {
-    return new AnalyticsManager('./data/analytics.db') as unknown as IAnalyticsService;
+    return new AnalyticsManager('./data/analytics.db');
   }
 
   /**
@@ -182,6 +203,8 @@ export class ServiceFactory implements IServiceFactory {
       conversationManager: IConversationManager;
       retryHandler: IRetryHandler;
       systemContextBuilder: ISystemContextBuilder;
+      responseProcessingService: IResponseProcessingService;
+      multimodalContentHandler: IMultimodalContentHandler;
     }
   ): IAIService {
     return new GeminiService(apiKey, dependencies);
@@ -195,14 +218,14 @@ export class ServiceFactory implements IServiceFactory {
       paths?.configPath,
       paths?.versionsPath,
       paths?.auditLogPath
-    ) as unknown as IConfigurationService;
+    );
   }
 
   /**
    * Creates health monitor
    */
   createHealthMonitor(_config: MonitoringConfig): IHealthMonitor {
-    return new HealthMonitor('./data/health-metrics.json') as unknown as IHealthMonitor;
+    return new HealthMonitor('./data/health-metrics.json');
   }
 
   /**
@@ -212,28 +235,28 @@ export class ServiceFactory implements IServiceFactory {
     return new RateLimiter(
       config.rpm,
       config.daily
-    ) as unknown as IRateLimiter;
+    );
   }
 
   /**
    * Creates context manager
    */
   createContextManager(_config: FeatureConfig): IContextManager {
-    return new ContextManager() as unknown as IContextManager;
+    return new ContextManager();
   }
 
   /**
    * Creates cache manager
    */
   createCacheManager(_config: FeatureConfig): ICacheManager {
-    return new CacheManager() as unknown as ICacheManager;
+    return new CacheManager();
   }
 
   /**
    * Creates personality manager
    */
   createPersonalityManager(): IPersonalityManager {
-    return new PersonalityManager() as unknown as IPersonalityManager;
+    return new PersonalityManager();
   }
 
   /**
@@ -247,28 +270,28 @@ export class ServiceFactory implements IServiceFactory {
    * Creates graceful degradation service
    */
   createGracefulDegradationService(_config: MonitoringConfig): IGracefulDegradationService {
-    return new GracefulDegradation() as unknown as IGracefulDegradationService;
+    return new GracefulDegradation();
   }
 
   /**
    * Creates user preference service
    */
   createUserPreferenceService(): IUserPreferenceService {
-    return new UserPreferenceManager() as unknown as IUserPreferenceService;
+    return new UserPreferenceManager();
   }
 
   /**
    * Creates help system service
    */
   createHelpSystemService(_config: DiscordConfig): IHelpSystemService {
-    return new HelpSystem() as unknown as IHelpSystemService;
+    return new HelpSystem();
   }
 
   /**
    * Creates behavior analyzer
    */
   createBehaviorAnalyzer(): IBehaviorAnalyzer {
-    return new BehaviorAnalyzer() as unknown as IBehaviorAnalyzer;
+    return new BehaviorAnalyzer();
   }
 
   /**
@@ -332,5 +355,26 @@ export class ServiceFactory implements IServiceFactory {
    */
   createSystemContextBuilder(): ISystemContextBuilder {
     return new SystemContextBuilder();
+  }
+
+  /**
+   * Creates response processing service
+   */
+  createResponseProcessingService(): IResponseProcessingService {
+    return new ResponseProcessingService();
+  }
+
+  /**
+   * Creates multimodal content handler
+   */
+  createMultimodalContentHandler(): IMultimodalContentHandler {
+    return new MultimodalContentHandler();
+  }
+
+  /**
+   * Creates user analysis service
+   */
+  createUserAnalysisService(): IUserAnalysisService {
+    return new UserAnalysisService();
   }
 }

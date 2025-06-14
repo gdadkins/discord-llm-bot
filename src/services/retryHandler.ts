@@ -172,7 +172,8 @@ export class RetryHandler implements IRetryHandler {
     if (
       errorCode === 401 ||
       errorMessage.includes('unauthorized') ||
-      errorMessage.includes('api key')
+      errorMessage.includes('api key') ||
+      errorMessage.includes('authentication')
     ) {
       return 'There\'s an authentication issue with the AI service. Please contact the bot administrator.';
     }
@@ -183,35 +184,76 @@ export class RetryHandler implements IRetryHandler {
       errorMessage.includes('quota') ||
       errorMessage.includes('rate limit')
     ) {
-      return 'The AI service is currently overloaded. Please try again in a few minutes.';
+      if (errorMessage.includes('daily')) {
+        return 'The AI service has reached its daily usage limit. Please try again tomorrow or contact the administrator.';
+      } else if (errorMessage.includes('billing') || errorMessage.includes('payment')) {
+        return 'There\'s a billing issue with the AI service. Please contact the bot administrator.';
+      } else {
+        return 'The AI service is currently overloaded. Please try again in a few minutes.';
+      }
     }
 
     // Server errors
     if (errorCode >= 500 && errorCode < 600) {
-      return 'The AI service is temporarily unavailable. Please try again in a moment.';
+      if (errorCode === 503) {
+        return 'The AI service is temporarily down for maintenance. Please try again in a few minutes.';
+      } else if (errorCode === 502 || errorCode === 504) {
+        return 'There\'s a temporary gateway issue with the AI service. Please try again shortly.';
+      } else {
+        return 'The AI service is experiencing technical difficulties. Please try again in a moment.';
+      }
     }
 
     // Network errors
     if (
       errorMessage.includes('network') ||
       errorMessage.includes('connection') ||
-      errorMessage.includes('timeout')
+      errorMessage.includes('econnreset') ||
+      errorMessage.includes('enotfound')
     ) {
-      return 'There\'s a network connectivity issue. Please try again.';
+      return 'There\'s a network connectivity issue. Please check your connection and try again.';
+    }
+
+    // Timeout errors
+    if (errorMessage.includes('timeout') || errorMessage.includes('aborted')) {
+      return 'The request timed out. This might be due to a complex question - try simplifying your message or try again.';
     }
 
     // Model specific errors
     if (errorMessage.includes('model') && errorMessage.includes('not found')) {
-      return 'The AI model is temporarily unavailable. Please try again later.';
+      return 'The requested AI model is temporarily unavailable. Please try again later.';
+    }
+
+    // Safety/content filtering errors
+    if (
+      errorMessage.includes('safety') ||
+      errorMessage.includes('content policy') ||
+      errorMessage.includes('blocked')
+    ) {
+      return 'Your message was blocked by content filters. Please rephrase your request using different language.';
     }
 
     // Content too large
     if (
       errorMessage.includes('too large') ||
       errorMessage.includes('exceeds') ||
-      errorMessage.includes('limit')
+      errorMessage.includes('limit') ||
+      errorMessage.includes('context length')
     ) {
-      return 'Your message is too long. Please try breaking it into smaller parts.';
+      if (errorMessage.includes('context')) {
+        return 'Our conversation is too long. Use `/clear` to reset the conversation and try again.';
+      } else {
+        return 'Your message is too long. Please break it into smaller parts (under 100,000 characters).';
+      }
+    }
+
+    // Image/multimodal errors
+    if (
+      errorMessage.includes('image') ||
+      errorMessage.includes('attachment') ||
+      errorMessage.includes('multimodal')
+    ) {
+      return 'There was an issue processing your image. Please ensure it\'s a valid image file (JPEG, PNG, WebP, or GIF) under 20MB.';
     }
 
     // Generic fallback

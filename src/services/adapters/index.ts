@@ -16,6 +16,7 @@ import type {
   IContextManager,
   IPersonalityManager,
   IRoastingEngine,
+  IConversationManager,
   UsageStatistics,
   AnalyticsReport,
   UserPrivacySettings,
@@ -215,6 +216,10 @@ export class AIServiceAdapter extends ServiceAdapter implements IAIService {
   getConversationStats(): ReturnType<IAIService['getConversationStats']> {
     return this.geminiService.getConversationStats();
   }
+  
+  buildConversationContext(userId: string, messageLimit?: number): string {
+    return this.geminiService.buildConversationContext(userId, messageLimit);
+  }
 
   addEmbarrassingMoment(serverId: string, userId: string, moment: string): void {
     return this.geminiService.addEmbarrassingMoment(serverId, userId, moment);
@@ -248,6 +253,10 @@ export class AIServiceAdapter extends ServiceAdapter implements IAIService {
     return this.geminiService.getRoastingEngine();
   }
 
+  getConversationManager(): IConversationManager {
+    return this.geminiService.getConversationManager();
+  }
+
   getCacheStats(): ReturnType<IAIService['getCacheStats']> {
     return this.geminiService.getCacheStats();
   }
@@ -278,6 +287,29 @@ export class AIServiceAdapter extends ServiceAdapter implements IAIService {
     config: Parameters<IAIService['validateConfiguration']>[0]
   ): Promise<{ valid: boolean; errors: string[] }> {
     return this.geminiService.validateConfiguration(config);
+  }
+
+  async generateStructuredResponse<T = unknown>(
+    prompt: string,
+    structuredOutput: Parameters<IAIService['generateStructuredResponse']>[1],
+    userId: string,
+    serverId?: string,
+    messageContext?: Parameters<IAIService['generateStructuredResponse']>[4]
+  ): Promise<T> {
+    return this.geminiService.generateStructuredResponse<T>(
+      prompt,
+      structuredOutput,
+      userId,
+      serverId,
+      messageContext
+    );
+  }
+
+  async parseStructuredResponse(
+    response: string,
+    options: Parameters<IAIService['parseStructuredResponse']>[1]
+  ): Promise<unknown> {
+    return this.geminiService.parseStructuredResponse(response, options);
   }
 
   protected async getHealthMetrics(): Promise<Record<string, unknown>> {
@@ -463,6 +495,14 @@ export class RateLimiterAdapter extends ServiceAdapter implements IRateLimiter {
 
   updateLimits(rpm: number, daily: number): void {
     return this.rateLimiter.updateLimits(rpm, daily);
+  }
+
+  async checkVideoProcessing(estimatedTokens: number, userId?: string): Promise<import('../interfaces/RateLimitingInterfaces').VideoRateLimitResult> {
+    return this.rateLimiter.checkVideoProcessing(estimatedTokens, userId);
+  }
+
+  getVideoStatus(userId?: string): import('../interfaces/RateLimitingInterfaces').VideoRateLimitStatus {
+    return this.rateLimiter.getVideoStatus(userId);
   }
 
   protected async getHealthMetrics(): Promise<Record<string, unknown>> {

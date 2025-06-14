@@ -41,72 +41,452 @@ interface ServiceRegistry {
 
 ### Gemini Service
 
-#### Interface Definition
+The GeminiService is the primary AI interface for the Discord LLM Bot, providing comprehensive text generation, multimodal processing, and sophisticated response processing capabilities.
+
+#### Core Interface Definition
+
 ```typescript
-interface GeminiServiceAPI {
-  // Core conversation methods
-  processMessage(
-    userId: string, 
-    prompt: string, 
-    serverId?: string
-  ): Promise<string>;
-  
-  // Configuration management
-  updatePersonality(personality: PersonalityConfig): Promise<void>;
-  getCurrentModel(): string;
-  getUsageStatistics(): GeminiUsageStats;
-  
-  // Rate limiting
-  checkRateLimit(userId: string): Promise<RateLimitStatus>;
-  
-  // Context management
-  clearConversation(userId: string): Promise<void>;
-  getConversationSize(userId: string): number;
+interface IAIService extends 
+  IAITextGenerator,
+  IAIQuotaManager,
+  IAIConversationManager,
+  IAIContextManager,
+  IAIDependencyManager,
+  IAICacheManager,
+  IAIDegradationManager,
+  IAIConfigurationManager {
 }
 
-interface PersonalityConfig {
-  roasting: string;
-  helpful: string;
+interface IAITextGenerator {
+  generateResponse(
+    prompt: string,
+    userId: string,
+    serverId?: string,
+    respond?: (response: string) => Promise<void>,
+    messageContext?: MessageContext,
+    member?: GuildMember,
+    guild?: Guild,
+    imageAttachments?: Array<{
+      url: string;
+      mimeType: string;
+      base64Data: string;
+      filename?: string;
+      size?: number;
+    }>
+  ): Promise<string>;
+}
+```
+
+#### Complete Public API Surface
+
+##### Core AI Generation Methods
+```typescript
+// Primary text generation with full context support
+generateResponse(
+  prompt: string,
+  userId: string,
+  serverId?: string,
+  respond?: (response: string) => Promise<void>,
+  messageContext?: MessageContext,
+  member?: GuildMember,
+  guild?: Guild,
+  imageAttachments?: ImageAttachment[]
+): Promise<string>
+```
+
+**Key Features:**
+- **Multimodal Support**: Text + image + video processing with base64 encoding
+- **Video Processing**: Support for MP4, MOV, AVI, WebM formats (up to 20MB, 3min duration)
+- **Token Cost Management**: Automatic cost estimation and user confirmation for video
+- **Streaming Responses**: Real-time response streaming via callback
+- **Rich Context**: Discord member, guild, and channel metadata integration
+- **Graceful Degradation**: Circuit breaker and fallback mechanisms
+
+##### Service Management Methods
+```typescript
+// Service lifecycle management
+initialize(): Promise<void>
+shutdown(): Promise<void>
+setHealthMonitor(healthMonitor: IHealthMonitor): void
+setDiscordClient(client: Client): void
+getHealthStatus(): ServiceHealthStatus
+
+// API quota management
+getRemainingQuota(): { 
+  minuteRemaining: number; 
+  dailyRemaining: number; 
+}
+```
+
+##### Conversation Management
+```typescript
+// Conversation history management
+clearUserConversation(userId: string): boolean
+getConversationStats(): {
+  activeUsers: number;
+  totalMessages: number;
+  totalContextSize: number;
+}
+buildConversationContext(userId: string, messageLimit?: number): string
+```
+
+##### Context Management
+```typescript
+// Server context enrichment
+addEmbarrassingMoment(serverId: string, userId: string, moment: string): void
+addRunningGag(serverId: string, gag: string): void
+```
+
+##### Cache Management
+```typescript
+// Performance optimization
+getCacheStats(): CacheStats
+getCachePerformance(): CachePerformance
+clearCache(): void
+```
+
+##### Configuration Management
+```typescript
+// Dynamic configuration updates
+updateConfiguration(config: AIServiceConfig): Promise<void>
+validateConfiguration(config: BotConfiguration): Promise<{
+  valid: boolean;
+  errors: string[];
+}>
+```
+
+##### Service Access Methods
+```typescript
+// Access to integrated services
+getPersonalityManager(): IPersonalityManager
+getRateLimiter(): IRateLimiter
+getContextManager(): IContextManager
+getRoastingEngine(): IRoastingEngine
+getConversationManager(): IConversationManager
+```
+
+#### Configuration Interfaces
+
+##### Gemini Configuration
+```typescript
+interface GeminiConfig {
+  model: string;
   temperature: number;
   topK: number;
   topP: number;
+  maxTokens: number;
+  safetySettings: {
+    harassment: SafetyLevel;
+    hateSpeech: SafetyLevel;
+    sexuallyExplicit: SafetyLevel;
+    dangerousContent: SafetyLevel;
+  };
+  systemInstructions: {
+    roasting: string;
+    helpful: string;
+  };
+  grounding: {
+    threshold: number;
+    enabled: boolean;
+  };
+  thinking: {
+    budget: number;
+    includeInResponse: boolean;
+  };
 }
 
-interface GeminiUsageStats {
-  totalRequests: number;
-  successfulRequests: number;
-  failedRequests: number;
-  averageResponseTime: number;
-  rateLimitHits: number;
-}
+type SafetyLevel = 'block_none' | 'block_low_and_above' | 'block_medium_and_above' | 'block_high';
 ```
 
-#### Usage Example
+##### Enhanced Vision Configuration
 ```typescript
-import { GeminiService } from './services/gemini';
-
-const geminiService = new GeminiService();
-
-// Process a user message
-const response = await geminiService.processMessage(
-  'user123',
-  'How do I deploy a Node.js app?',
-  'server456'
-);
-
-// Update personality configuration
-await geminiService.updatePersonality({
-  roasting: 'You are a witty AI with sharp humor...',
-  helpful: 'You are a professional assistant...',
-  temperature: 0.9,
-  topK: 40,
-  topP: 0.8
-});
-
-// Check usage statistics
-const stats = geminiService.getUsageStatistics();
-console.log(`Success rate: ${stats.successfulRequests / stats.totalRequests * 100}%`);
+// Specialized configurations for multimodal processing
+export const VISION_CONFIGS = {
+  SNL_EXPERT: {
+    model: 'gemini-2.0-flash-exp',
+    systemInstruction: 'You are an expert in character recognition and analysis...',
+    generationConfig: { temperature: 0.1, topK: 10, topP: 0.5 }
+  },
+  HIGH_ACCURACY_VISION: {
+    model: 'gemini-2.0-flash-exp',
+    systemInstruction: 'Provide extremely detailed and accurate analysis...',
+    generationConfig: { temperature: 0.05, topK: 5, topP: 0.3 }
+  }
+};
 ```
+
+#### Response Processing Architecture
+
+##### Processing Pipeline
+The GeminiService implements a sophisticated response processing pipeline:
+
+```typescript
+interface ResponseProcessingPipeline {
+  // 1. Degradation Check
+  handleDegradationCheck(): Promise<boolean>;
+  
+  // 2. Cache Lookup
+  handleCacheLookup(cacheKey: string): Promise<string | null>;
+  
+  // 3. Input Validation
+  validateInputAndRateLimits(userId: string, prompt: string): Promise<void>;
+  
+  // 4. AI Generation
+  performAIGeneration(context: GenerationContext): Promise<string>;
+  
+  // 5. Post-Generation Processing
+  handlePostGeneration(response: string, context: GenerationContext): Promise<void>;
+  
+  // 6. Error Handling
+  handleGenerationError(error: Error, context: GenerationContext): Promise<string>;
+}
+```
+
+##### Context Aggregation
+```typescript
+interface ContextSources {
+  conversationContext: string | null;
+  superContext: string;
+  serverCultureContext: string;
+  personalityContext: string | null;
+  messageContextString: string;
+  systemContextString: string;
+  dateContext: string;
+}
+```
+
+#### Usage Patterns and Integration Examples
+
+##### Standard Response Generation
+```typescript
+// Basic text generation with context
+const response = await geminiService.generateResponse(
+  "How do I implement async/await in JavaScript?",
+  interaction.user.id,
+  interaction.guildId || undefined,
+  undefined,
+  messageContext,
+  interaction.member as GuildMember | undefined
+);
+```
+
+##### Streaming Response Pattern
+```typescript
+// Real-time response streaming for better UX
+const respondCallback = async (responseText: string) => {
+  if (responseText && !responseSent) {
+    responseSent = true;
+    const chunks = splitMessage(responseText, 2000);
+    await message.reply(chunks[0]);
+    
+    // Send remaining chunks
+    for (let i = 1; i < chunks.length; i++) {
+      await message.channel.send(chunks[i]);
+    }
+  }
+};
+
+const response = await geminiService.generateResponse(
+  prompt,
+  message.author.id,
+  message.guild?.id,
+  respondCallback, // Streaming callback
+  messageContext,
+  message.member || undefined,
+  message.guild || undefined,
+  imageAttachments
+);
+```
+
+##### Multimodal Processing Integration
+```typescript
+// Image processing with comprehensive metadata
+const imageAttachments: ImageAttachment[] = [];
+
+for (const attachment of attachments.values()) {
+  if (attachment.contentType && supportedImageTypes.includes(attachment.contentType)) {
+    const response = await fetch(attachment.url);
+    const buffer = await response.arrayBuffer();
+    const base64Data = Buffer.from(buffer).toString('base64');
+    
+    imageAttachments.push({
+      url: attachment.url,
+      mimeType: attachment.contentType,
+      base64Data: base64Data,
+      filename: attachment.name,
+      size: attachment.size
+    });
+  }
+}
+
+const response = await geminiService.generateResponse(
+  prompt,
+  userId,
+  serverId,
+  respondCallback,
+  messageContext,
+  member,
+  guild,
+  imageAttachments // Multimodal support
+);
+```
+
+##### Error Handling and Graceful Degradation
+```typescript
+// Circuit breaker integration
+try {
+  const response = await gracefulDegradation.executeWithCircuitBreaker(
+    async () => {
+      return await geminiService.generateResponse(...);
+    },
+    'gemini'
+  );
+  await respondCallback(response);
+} catch (error) {
+  // Fallback response generation
+  const fallback = await gracefulDegradation.generateFallbackResponse(
+    prompt, userId, serverId
+  );
+  await respondCallback(fallback);
+}
+```
+
+##### Retry Logic with Exponential Backoff
+```typescript
+// Retry handler integration
+const response = await retryHandler.executeWithRetry(
+  async () => {
+    return await geminiService.generateResponse(...);
+  },
+  { 
+    maxRetries: 3, 
+    retryDelay: 1000, 
+    retryMultiplier: 2.0 
+  },
+  (error) => retryHandler.isRetryableError(error)
+);
+```
+
+#### Service Factory and Dependency Injection
+
+##### Service Creation Pattern
+```typescript
+// Comprehensive dependency injection
+const services = serviceFactory.createAIServiceWithDependencies(
+  apiKey,
+  geminiConfig,
+  {
+    rateLimiter: await serviceFactory.createRateLimiter(config.rateLimiting),
+    contextManager: await serviceFactory.createContextManager(config.context),
+    personalityManager: await serviceFactory.createPersonalityManager(config.personality),
+    cacheManager: await serviceFactory.createCacheManager(config.cache),
+    gracefulDegradation: await serviceFactory.createGracefulDegradation(config.degradation),
+    roastingEngine: await serviceFactory.createRoastingEngine(config.roasting),
+    conversationManager: await serviceFactory.createConversationManager(config.conversation),
+    retryHandler: await serviceFactory.createRetryHandler(config.retry),
+    systemContextBuilder: await serviceFactory.createSystemContextBuilder(config.system),
+    responseProcessingService: await serviceFactory.createResponseProcessingService(config.processing)
+  }
+);
+```
+
+#### Performance Optimization Patterns
+
+##### Intelligent Message Splitting
+```typescript
+// Thinking-aware response formatting
+function splitResponse(responseText: string, maxLength: number = 2000): string[] {
+  if (responseText.includes('💭 **Thinking:**') && responseText.includes('**Response:**')) {
+    return splitThinkingResponse(responseText, maxLength);
+  } else {
+    return splitMessage(responseText, maxLength);
+  }
+}
+```
+
+##### Race Condition Prevention
+```typescript
+// User-specific mutex management
+const userMutex = raceConditionManager.getUserMutex(userKey);
+const release = await userMutex.acquire();
+try {
+  const response = await geminiService.generateResponse(...);
+  await handleResponse(response);
+} finally {
+  release();
+}
+```
+
+##### Large Context Optimization
+```typescript
+// Intelligent context summarization
+if (conversationContext && conversationContext.length > 500000) {
+  logger.info('Large context detected, triggering summarization', {
+    userId,
+    contextSize: conversationContext.length
+  });
+  
+  const summarizedContext = await largeContextHandler.summarizeContext(
+    conversationContext,
+    userId
+  );
+  
+  conversationContext = summarizedContext;
+}
+```
+
+#### Advanced Integration Patterns
+
+##### Health Monitoring Integration
+```typescript
+// Service health tracking
+geminiService.setHealthMonitor(healthMonitor);
+const status = geminiService.getHealthStatus();
+
+if (!status.healthy) {
+  logger.warn('GeminiService unhealthy', {
+    reason: status.reason,
+    metrics: status.metrics
+  });
+}
+```
+
+##### Analytics Integration
+```typescript
+// Usage tracking and performance monitoring
+await analyticsService.trackCommandUsage({
+  commandName: 'chat',
+  userHash: hashUserId(userId),
+  success: true,
+  durationMs: processingTime,
+  modelUsed: geminiService.getCurrentModel()
+});
+```
+
+#### Security and Privacy Features
+
+##### Data Protection
+```typescript
+// User data management
+interface PrivacyControls {
+  optOutUser(userId: string): Promise<void>;
+  optInUser(userId: string): Promise<void>;
+  exportUserData(userId: string): Promise<UserAnalyticsData>;
+  deleteUserData(userId: string): Promise<void>;
+}
+```
+
+##### Rate Limiting and Quota Management
+```typescript
+// Intelligent quota management
+const quota = geminiService.getRemainingQuota();
+if (quota.minuteRemaining < 5) {
+  logger.warn('Low API quota detected', quota);
+  await gracefulDegradation.activateQuotaProtection();
+}
+```
+
+This comprehensive API documentation provides developers with everything needed to integrate with, extend, and troubleshoot the GeminiService effectively.
 
 ### Context Manager
 
@@ -267,6 +647,25 @@ interface ConfigurationManagerAPI {
 
 interface BotConfiguration {
   version: string;
+  
+  // Video processing configuration
+  video: {
+    enabled: boolean;
+    maxDurationSeconds: number;
+    maxFileSizeMB: number;
+    supportedFormats: string[];
+    tokenWarningThreshold: number;
+    requireConfirmation: boolean;
+    youtubeUrlSupport: boolean;
+    processingTimeoutSeconds: number;
+    rateLimits: {
+      tokensPerHour: number;
+      tokensPerDay: number;
+      requestsPerHour: number;
+      requestsPerDay: number;
+      cooldownSeconds: number;
+    };
+  };
   lastModified: string;
   modifiedBy: string;
   discord: DiscordConfig;
@@ -306,6 +705,173 @@ await configManager.updateConfiguration({
 configManager.onConfigurationChange((oldConfig, newConfig, changes) => {
   console.log('Configuration updated:', changes);
 });
+```
+
+### Video Processing Service
+
+The video processing service handles multimodal content including video files and YouTube URLs with comprehensive cost management and user experience optimization.
+
+#### Interface Definition
+```typescript
+interface VideoProcessingService {
+  // Configuration management
+  isVideoSupportEnabled(): boolean;
+  getVideoConfiguration(): VideoConfiguration;
+  updateVideoConfiguration(config: Partial<VideoConfiguration>): Promise<void>;
+  
+  // Video validation
+  validateVideoFile(file: VideoFile): ValidationResult;
+  validateVideoUrl(url: string): ValidationResult;
+  
+  // Cost estimation
+  estimateTokenCost(durationSeconds: number): number;
+  estimateProcessingTime(durationSeconds: number): number;
+  
+  // Processing workflow
+  requestVideoProcessing(request: VideoProcessingRequest): Promise<VideoProcessingResponse>;
+  processVideo(videoData: VideoData, options: ProcessingOptions): Promise<string>;
+  
+  // Rate limiting
+  checkVideoRateLimit(userId: string, estimatedTokens: number): Promise<VideoRateLimitResult>;
+  
+  // User experience
+  generateConfirmationPrompt(request: VideoProcessingRequest): ConfirmationPrompt;
+  generateProcessingStatus(request: VideoProcessingRequest): ProcessingStatus;
+}
+
+interface VideoFile {
+  filename: string;
+  size: number;
+  mimeType: string;
+  duration?: number;
+  url: string;
+}
+
+interface VideoProcessingRequest {
+  user: { id: string; username: string };
+  video: VideoFile;
+  estimatedDuration: number;
+  requestId: string;
+  timestamp: number;
+}
+
+interface VideoProcessingResponse {
+  success: boolean;
+  requestId: string;
+  estimatedTokens: number;
+  estimatedProcessingTime: number;
+  confirmationRequired: boolean;
+  errorMessage?: string;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+```
+
+#### Configuration Options
+```typescript
+interface VideoConfiguration {
+  // Core settings
+  videoSupportEnabled: boolean;
+  maxVideoDurationSeconds: number;
+  videoFileSizeLimitMB: number;
+  supportedVideoFormats: string[];
+  
+  // Cost management
+  videoTokenWarningThreshold: number;
+  requireVideoConfirmation: boolean;
+  videoProcessingTimeoutSeconds: number;
+  
+  // Platform support
+  youtubeUrlSupportEnabled: boolean;
+  
+  // Rate limiting
+  rateLimits: {
+    tokensPerHour: number;
+    tokensPerDay: number;
+    requestsPerHour: number;
+    requestsPerDay: number;
+    cooldownSeconds: number;
+  };
+}
+```
+
+#### Usage Example
+```typescript
+import { VideoProcessingService } from './services/videoProcessingService';
+import { VideoUXHelper, VideoProcessingEstimator } from './config/videoConfig';
+
+const videoService = new VideoProcessingService();
+
+// Check if video support is enabled
+if (!videoService.isVideoSupportEnabled()) {
+  return "Video processing is disabled";
+}
+
+// Validate video file
+const videoFile = {
+  filename: "example.mp4",
+  size: 15728640, // 15MB
+  mimeType: "video/mp4",
+  duration: 120,
+  url: "https://example.com/video.mp4"
+};
+
+const validation = videoService.validateVideoFile(videoFile);
+if (!validation.valid) {
+  console.error("Video validation failed:", validation.errors);
+  return;
+}
+
+// Estimate costs
+const tokenCost = VideoProcessingEstimator.estimateTokenCost(120);
+const processingTime = VideoProcessingEstimator.estimateProcessingTime(120);
+
+console.log(`Estimated cost: ${tokenCost} tokens`);
+console.log(`Estimated processing time: ${processingTime} seconds`);
+
+// Check rate limits
+const rateLimitCheck = await videoService.checkVideoRateLimit("user123", tokenCost);
+if (!rateLimitCheck.allowed) {
+  console.error("Rate limit exceeded:", rateLimitCheck.reason);
+  return;
+}
+
+// Process video with confirmation
+const request: VideoProcessingRequest = {
+  user: { id: "user123", username: "testuser" },
+  video: videoFile,
+  estimatedDuration: 120,
+  requestId: "req-" + Date.now(),
+  timestamp: Date.now()
+};
+
+const response = await videoService.requestVideoProcessing(request);
+if (response.confirmationRequired) {
+  const prompt = videoService.generateConfirmationPrompt(request);
+  // Show confirmation to user
+}
+```
+
+#### Environment Variables
+```bash
+# Video processing configuration
+VIDEO_SUPPORT_ENABLED=false
+MAX_VIDEO_DURATION_SECONDS=180
+VIDEO_FILE_SIZE_LIMIT_MB=20
+VIDEO_TOKEN_WARNING_THRESHOLD=10000
+YOUTUBE_URL_SUPPORT_ENABLED=true
+REQUIRE_VIDEO_CONFIRMATION=true
+
+# Rate limiting for video processing
+VIDEO_TOKENS_PER_HOUR=100000
+VIDEO_TOKENS_PER_DAY=500000
+VIDEO_REQUESTS_PER_HOUR=10
+VIDEO_REQUESTS_PER_DAY=50
+VIDEO_REQUEST_COOLDOWN_SECONDS=60
 ```
 
 ### Graceful Degradation

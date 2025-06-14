@@ -26,6 +26,7 @@ jest.mock('../../../src/commands');
 describe('BotInitializer', () => {
   let mockClient: jest.Mocked<Client>;
   let mockGeminiService: jest.Mocked<GeminiService>;
+  let mockUserAnalysisService: any;
   let mockServiceFactory: jest.Mocked<ServiceFactory>;
   let mockServiceRegistry: jest.Mocked<ServiceRegistry>;
   let originalEnv: NodeJS.ProcessEnv;
@@ -47,13 +48,32 @@ describe('BotInitializer', () => {
       shutdown: jest.fn(() => Promise.resolve()),
     } as any;
 
+    // Setup mock UserAnalysisService
+    mockUserAnalysisService = {
+      initialize: jest.fn(() => Promise.resolve()),
+      shutdown: jest.fn(() => Promise.resolve()),
+      isSummaryRequest: jest.fn(() => false),
+      fetchUserMessages: jest.fn(() => Promise.resolve([])),
+      performHybridAnalysis: jest.fn(() => Promise.resolve({
+        summary: 'Test user analysis',
+        insights: [],
+        messageCount: 0,
+        roastFactors: []
+      })),
+      generateRoast: jest.fn(() => Promise.resolve('Test roast')),
+      exportUserAnalysis: jest.fn(() => Promise.resolve({})),
+    } as any;
+
     // Mock constructors
     (Client as any).mockImplementation(() => mockClient);
     (GeminiService as any).mockImplementation(() => mockGeminiService);
 
     // Mock service factory and registry
     mockServiceFactory = {
-      createServices: jest.fn(() => new Map([['aiService', mockGeminiService]])),
+      createServices: jest.fn(() => new Map([
+        ['aiService', mockGeminiService],
+        ['userAnalysisService', mockUserAnalysisService]
+      ])),
     } as any;
     
     mockServiceRegistry = {
@@ -135,7 +155,8 @@ describe('BotInitializer', () => {
       process.env.DISCORD_CLIENT_ID = 'test-client-id';
       process.env.GOOGLE_API_KEY = 'test-api-key';
 
-      expect(() => validateEnvironment()).toThrow('Missing required environment variables: DISCORD_TOKEN');
+      expect(() => validateEnvironment()).toThrow('Environment validation failed:');
+      expect(() => validateEnvironment()).toThrow('DISCORD_TOKEN: Required environment variable DISCORD_TOKEN is missing');
     });
 
     it('should throw when DISCORD_CLIENT_ID is missing', () => {
@@ -143,7 +164,8 @@ describe('BotInitializer', () => {
       delete process.env.DISCORD_CLIENT_ID;
       process.env.GOOGLE_API_KEY = 'test-api-key';
 
-      expect(() => validateEnvironment()).toThrow('Missing required environment variables: DISCORD_CLIENT_ID');
+      expect(() => validateEnvironment()).toThrow('Environment validation failed:');
+      expect(() => validateEnvironment()).toThrow('DISCORD_CLIENT_ID: Required environment variable DISCORD_CLIENT_ID is missing');
     });
 
     it('should throw when API key validation fails', () => {
@@ -152,13 +174,8 @@ describe('BotInitializer', () => {
       delete process.env.GOOGLE_API_KEY;
       delete process.env.GEMINI_API_KEY;
 
-      // Mock ConfigurationFactory.validateApiKey to throw
-      (ConfigurationFactory.validateApiKey as jest.MockedFunction<typeof ConfigurationFactory.validateApiKey>)
-        .mockImplementation(() => {
-          throw new Error('Missing required API key: either GOOGLE_API_KEY or GEMINI_API_KEY must be set');
-        });
-
-      expect(() => validateEnvironment()).toThrow('Missing required API key: either GOOGLE_API_KEY or GEMINI_API_KEY must be set');
+      expect(() => validateEnvironment()).toThrow('Environment validation failed:');
+      expect(() => validateEnvironment()).toThrow('GOOGLE_API_KEY: Required environment variable GOOGLE_API_KEY is missing');
     });
 
     it('should throw with all missing variables listed', () => {
@@ -166,13 +183,9 @@ describe('BotInitializer', () => {
       delete process.env.DISCORD_CLIENT_ID;
       delete process.env.GOOGLE_API_KEY;
 
-      // Mock ConfigurationFactory.validateApiKey to throw
-      (ConfigurationFactory.validateApiKey as jest.MockedFunction<typeof ConfigurationFactory.validateApiKey>)
-        .mockImplementation(() => {
-          throw new Error('Missing required API key: either GOOGLE_API_KEY or GEMINI_API_KEY must be set');
-        });
-
-      expect(() => validateEnvironment()).toThrow('Missing required environment variables: DISCORD_TOKEN, DISCORD_CLIENT_ID');
+      expect(() => validateEnvironment()).toThrow('Environment validation failed:');
+      expect(() => validateEnvironment()).toThrow('DISCORD_TOKEN: Required environment variable DISCORD_TOKEN is missing');
+      expect(() => validateEnvironment()).toThrow('DISCORD_CLIENT_ID: Required environment variable DISCORD_CLIENT_ID is missing');
     });
 
     it('should log error when variables are missing', () => {
@@ -184,7 +197,8 @@ describe('BotInitializer', () => {
         // Expected to throw
       }
 
-      expect(logger.error).toHaveBeenCalledWith('Missing required environment variables: DISCORD_TOKEN');
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Environment validation failed:'));
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('DISCORD_TOKEN: Required environment variable DISCORD_TOKEN is missing'));
     });
   });
 
@@ -247,6 +261,7 @@ describe('BotInitializer', () => {
       const services: BotServices = {
         client: mockClient,
         geminiService: mockGeminiService,
+        userAnalysisService: mockUserAnalysisService,
         serviceRegistry: mockServiceRegistry,
       };
 
@@ -263,6 +278,7 @@ describe('BotInitializer', () => {
       const services: BotServices = {
         client: mockClient,
         geminiService: undefined as any,
+        userAnalysisService: mockUserAnalysisService,
         serviceRegistry: mockServiceRegistry,
       };
 
@@ -276,6 +292,7 @@ describe('BotInitializer', () => {
       const services: BotServices = {
         client: undefined as any,
         geminiService: mockGeminiService,
+        userAnalysisService: mockUserAnalysisService,
         serviceRegistry: mockServiceRegistry,
       };
 
@@ -292,6 +309,7 @@ describe('BotInitializer', () => {
       const services: BotServices = {
         client: mockClient,
         geminiService: mockGeminiService,
+        userAnalysisService: mockUserAnalysisService,
         serviceRegistry: mockServiceRegistry,
       };
 
@@ -309,6 +327,7 @@ describe('BotInitializer', () => {
       const services: BotServices = {
         client: mockClient,
         geminiService: mockGeminiService,
+        userAnalysisService: mockUserAnalysisService,
         serviceRegistry: mockServiceRegistry,
       };
 
@@ -326,6 +345,7 @@ describe('BotInitializer', () => {
       const services: BotServices = {
         client: mockClient,
         geminiService: mockGeminiService,
+        userAnalysisService: mockUserAnalysisService,
         serviceRegistry: mockServiceRegistry,
       };
 

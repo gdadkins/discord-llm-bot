@@ -1,5 +1,5 @@
 import { ConfigurationManager, BotConfiguration } from './configurationManager';
-import { GeminiService } from './gemini';
+import { GeminiService } from './gemini/GeminiService';
 import { RateLimiter } from './rateLimiter';
 import { logger } from '../utils/logger';
 import { EventEmitter } from 'events';

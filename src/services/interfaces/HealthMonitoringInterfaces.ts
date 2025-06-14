@@ -77,6 +77,19 @@ export interface HealthMetrics {
       duplicatesRemoved: number;
     };
   };
+  dataStoreMetrics: {
+    totalStores: number;
+    storesByType: Record<string, number>;
+    totalSaveOperations: number;
+    totalLoadOperations: number;
+    totalErrors: number;
+    avgSaveLatency: number;
+    avgLoadLatency: number;
+    healthyStores: number;
+    unhealthyStores: number;
+    totalBytesWritten: number;
+    totalBytesRead: number;
+  };
 }
 
 export interface HealthSnapshot {

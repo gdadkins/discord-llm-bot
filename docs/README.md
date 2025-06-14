@@ -13,6 +13,7 @@ Welcome to the Discord LLM Bot documentation! This comprehensive guide covers al
 - [**User Experience Guide**](USER_EXPERIENCE.md) - Personal preferences, commands, and features
 - [**Personality Examples**](../PERSONALITY_EXAMPLES.md) - Available personality configurations
 - [**Roasting Behavior**](../ROASTING_BEHAVIOR.md) - How the dynamic roasting system works
+- [**Roasting Algorithm**](ROASTING_ALGORITHM.md) - Detailed roasting algorithm guide
 
 ### 🔧 For Administrators
 - [**Administrative Guide**](ADMIN_GUIDE.md) - Complete administrative procedures and commands
@@ -28,8 +29,11 @@ Welcome to the Discord LLM Bot documentation! This comprehensive guide covers al
 
 ### 👩‍💻 For Developers
 - [**API Reference**](API_REFERENCE.md) - Complete API documentation for developers
+- [**Testing Strategy**](TESTING_STRATEGY.md) - Comprehensive testing approach for service extractions
+- [**Test Writing Guide**](TEST_WRITING_GUIDE.md) - Practical examples and templates for writing tests
 - [**Structured Output Examples**](STRUCTURED_OUTPUT_EXAMPLES.md) - JSON response format examples
 - [**Technical Architecture**](../CLAUDE.md) - Development guidelines and architecture details
+- [**Roasting Engine Probability System**](ROASTING_ENGINE_PROBABILITY_SYSTEM.md) - Mathematical formulas and decision tree logic
 
 ## Feature Matrix
 
@@ -41,6 +45,7 @@ Welcome to the Discord LLM Bot documentation! This comprehensive guide covers al
 | **Memory & Context** | [User Experience](USER_EXPERIENCE.md) | [Context Management](CONTEXT_MANAGEMENT.md) | [API Reference](API_REFERENCE.md) |
 | **Analytics & Privacy** | [Analytics System](ANALYTICS_SYSTEM.md) | [Analytics System](ANALYTICS_SYSTEM.md) | [API Reference](API_REFERENCE.md) |
 | **Failure Handling** | [Troubleshooting](TROUBLESHOOTING.md) | [Graceful Degradation](GRACEFUL_DEGRADATION.md) | [API Reference](API_REFERENCE.md) |
+| **Testing & Quality** | [Test Writing Guide](TEST_WRITING_GUIDE.md) | [Testing Strategy](TESTING_STRATEGY.md) | [Testing Strategy](TESTING_STRATEGY.md) |
 
 ## Phase 3 Enterprise Features
 

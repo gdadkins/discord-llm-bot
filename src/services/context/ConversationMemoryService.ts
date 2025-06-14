@@ -93,6 +93,31 @@ export class ConversationMemoryService {
   }
 
   /**
+   * Add a summarized fact to the context
+   */
+  public addSummarizedFact(
+    context: RichContext,
+    fact: string,
+    importance: number,
+    semanticHash: string
+  ): boolean {
+    const now = Date.now();
+    
+    const factItem: ContextItem = {
+      content: fact,
+      timestamp: now,
+      accessCount: 0,
+      lastAccessed: now,
+      relevanceScore: this.calculateRelevanceScore(fact),
+      importanceScore: Math.max(importance / 10, this.calculateImportanceScore(fact)), // Normalize importance to 0-1 scale
+      semanticHash,
+    };
+    
+    context.summarizedFacts.push(factItem);
+    return true;
+  }
+
+  /**
    * Select most relevant items for a user
    */
   public selectRelevantItems(

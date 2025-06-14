@@ -4,7 +4,7 @@
  * Interfaces for managing conversation context, memory, and server-specific data.
  */
 
-import type { Guild, GuildMember } from 'discord.js';
+import type { Guild } from 'discord.js';
 import type { IService } from './CoreServiceInterfaces';
 
 // ============================================================================
@@ -183,19 +183,6 @@ export interface IContextManager extends IService {
    */
   buildServerCultureContext(guild: Guild): string;
   
-  /**
-   * Builds user context from Discord member information
-   * 
-   * ## Contract
-   * - MUST include roles and permissions
-   * - SHOULD include join date and activity level
-   * - MUST respect user privacy preferences
-   * - SHOULD include nickname and display preferences
-   * 
-   * @param member Discord guild member object
-   * @returns User context string
-   */
-  buildDiscordUserContext(member: GuildMember): string;
   
   /**
    * Builds smart context using AI-powered relevance scoring

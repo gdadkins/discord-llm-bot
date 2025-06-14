@@ -141,12 +141,12 @@ export async function handleStatusCommand(
       `  - Context size: ${(conversationStats.totalContextSize / 1024).toFixed(1)} KB\n` +
       `  - Session timeout: ${parseInt(process.env.CONVERSATION_TIMEOUT_MINUTES || '30')} minutes`;
       
-    await interaction.reply({ content: statusMessage, ephemeral: true });
+    await interaction.reply({ content: statusMessage, flags: 64 }); // 64 = ephemeral flag
   } catch (error) {
     logger.error('Error in status command:', error);
     await interaction.reply({ 
       content: 'Error retrieving status information. Check logs for details.', 
-      ephemeral: true 
+      flags: 64 // ephemeral flag
     });
   }
 }
@@ -166,12 +166,12 @@ export async function handleClearCommand(
   if (cleared) {
     await interaction.reply({ 
       content: 'Your conversation history and cache have been cleared. Starting fresh!', 
-      ephemeral: true 
+      flags: 64 // ephemeral flag
     });
   } else {
     await interaction.reply({ 
       content: 'You don\'t have any conversation history to clear. Cache has been cleared.', 
-      ephemeral: true 
+      flags: 64 // ephemeral flag
     });
   }
 }

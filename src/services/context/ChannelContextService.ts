@@ -35,7 +35,7 @@ export class ChannelContextService {
     // Initialize DataStore for cache persistence
     const validator: DataValidator<ChannelCacheData> = (data: unknown): data is ChannelCacheData => {
       if (!data || typeof data !== 'object') return false;
-      const d = data as any;
+      const d = data as Record<string, unknown>;
       return Array.isArray(d.cultures) &&
              typeof d.lastUpdated === 'number' &&
              typeof d.version === 'number';
@@ -362,7 +362,7 @@ export class ChannelContextService {
     persistenceSaves: number;
     cacheSize: number;
     memorySizeMB: number;
-  } {
+    } {
     const totalRequests = this.cacheStats.hits + this.cacheStats.misses;
     const hitRate = totalRequests > 0 ? (this.cacheStats.hits / totalRequests) * 100 : 0;
     const storageStats = this.getStorageStats();

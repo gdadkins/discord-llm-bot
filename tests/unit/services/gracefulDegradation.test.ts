@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { GracefulDegradation } from '../../../src/services/gracefulDegradation';
+import { GracefulDegradation } from '../../../src/services/resilience';
 import { createMockMetrics, MockTimers, createTestEnvironment } from '../../test-utils';
 
 // Type helper for async functions

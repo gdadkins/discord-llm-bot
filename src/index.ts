@@ -37,14 +37,19 @@ async function main() {
     raceConditionManager = new RaceConditionManager();
     
     // Initialize bot services when client is ready
+    const readyHandlerId = Math.random().toString(36).substring(7);
+    logger.info(`[READY-${readyHandlerId}] Registering ready event handler...`);
+    
     client.once('ready', async (readyClient) => {
+      logger.info(`[READY-${readyHandlerId}] Ready event fired!`);
       try {
-        const { geminiService, serviceRegistry } = await initializeBotServices(readyClient);
+        const { geminiService, userAnalysisService, serviceRegistry } = await initializeBotServices(readyClient);
         
-        botServices = { client, geminiService, serviceRegistry };
+        botServices = { client, geminiService, userAnalysisService, serviceRegistry };
         
         // Setup event handlers
-        setupEventHandlers(client, geminiService, raceConditionManager);
+        logger.info(`[READY-${readyHandlerId}] Calling setupEventHandlers...`);
+        setupEventHandlers(client, geminiService, raceConditionManager, userAnalysisService);
         
         logger.info('Bot initialization complete');
       } catch (error) {
@@ -53,8 +58,8 @@ async function main() {
       }
     });
     
-    // Login to Discord
-    const token = process.env.DISCORD_TOKEN;
+    // Login to Discord - token validation is already done in validateEnvironment()
+    const token = process.env.DISCORD_TOKEN!; // Safe to use ! since we validated
     await client.login(token);
   } catch (error) {
     logger.error('Failed to start bot:', error);

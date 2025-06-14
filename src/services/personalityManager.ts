@@ -2,9 +2,13 @@ import { logger } from '../utils/logger';
 import { DataStore, DataValidator } from '../utils/DataStore';
 import { dataStoreFactory } from '../utils/DataStoreFactory';
 import { BaseService } from './base/BaseService';
-import type { IService } from './interfaces';
+import type { UserPersonality, IPersonalityManager } from './interfaces/PersonalityManagementInterfaces';
 import { PersonalityValidators } from '../utils/validation';
 import { MutexManager, createMutexManager } from '../utils/MutexManager';
+import { 
+  handleDataStoreOperation, 
+  handleFireAndForget
+} from '../utils/ErrorHandlingUtils';
 
 interface PersonalityData {
   descriptions: string[];
@@ -23,7 +27,7 @@ interface PersonalityStorage {
   [userId: string]: PersonalityData;
 }
 
-export class PersonalityManager extends BaseService implements IService {
+export class PersonalityManager extends BaseService implements IPersonalityManager {
   private mutexManager: MutexManager;
   private personalities: PersonalityStorage = {};
   private readonly dataStore: DataStore<PersonalityStorage>;
@@ -65,12 +69,22 @@ export class PersonalityManager extends BaseService implements IService {
   }
 
   protected async performInitialization(): Promise<void> {
-    try {
-      const loadedData = await this.dataStore.load();
-      this.personalities = loadedData || {};
-      logger.info('Initialized with existing personality data');
-    } catch (error) {
-      logger.info('No existing personality data found, starting fresh');
+    const result = await handleDataStoreOperation(
+      () => this.dataStore.load(),
+      // Fallback to empty state if data loading fails
+      () => Promise.resolve({}),
+      { service: 'PersonalityManager', operation: 'initialization' }
+    );
+
+    if (result.success) {
+      this.personalities = result.data || {};
+      if (result.fallbackUsed) {
+        logger.info('PersonalityManager initialized with fallback (empty state)');
+      } else {
+        logger.info('PersonalityManager initialized with existing personality data');
+      }
+    } else {
+      logger.error('Failed to initialize PersonalityManager', { error: result.error });
       this.personalities = {};
     }
   }
@@ -140,15 +154,35 @@ export class PersonalityManager extends BaseService implements IService {
         }
       }
 
-      await this.dataStore.save(this.personalities);
-      logger.info(
-        `Personality description added for ${targetUserId}: "${description}" (by ${updatedBy})`,
+      const saveResult = await handleDataStoreOperation(
+        () => this.dataStore.save(this.personalities),
+        undefined,
+        { 
+          service: 'PersonalityManager', 
+          operation: 'save_after_add',
+          targetUserId,
+          description: description.substring(0, 50) + '...'
+        }
       );
 
-      return {
-        success: true,
-        message: `Added personality description: "${description}"`,
-      };
+      if (saveResult.success) {
+        logger.info(
+          `Personality description added for ${targetUserId}: "${description}" (by ${updatedBy})`,
+        );
+        return {
+          success: true,
+          message: `Added personality description: "${description}"`,
+        };
+      } else {
+        logger.error('Failed to save personality after adding description', { 
+          error: saveResult.error,
+          targetUserId 
+        });
+        return {
+          success: false,
+          message: 'Failed to save personality data. Changes may not persist.',
+        };
+      }
     }, { operationName: 'addPersonalityDescription', timeout: 15000 });
   }
 
@@ -179,45 +213,97 @@ export class PersonalityManager extends BaseService implements IService {
         description,
       });
 
-      await this.dataStore.save(this.personalities);
-      logger.info(
-        `Personality description removed for ${targetUserId}: "${description}" (by ${updatedBy})`,
+      const saveResult = await handleDataStoreOperation(
+        () => this.dataStore.save(this.personalities),
+        undefined,
+        { 
+          service: 'PersonalityManager', 
+          operation: 'save_after_remove',
+          targetUserId,
+          description: description.substring(0, 50) + '...'
+        }
       );
 
-      return {
-        success: true,
-        message: `Removed personality description: "${description}"`,
-      };
+      if (saveResult.success) {
+        logger.info(
+          `Personality description removed for ${targetUserId}: "${description}" (by ${updatedBy})`,
+        );
+        return {
+          success: true,
+          message: `Removed personality description: "${description}"`,
+        };
+      } else {
+        logger.error('Failed to save personality after removing description', { 
+          error: saveResult.error,
+          targetUserId 
+        });
+        return {
+          success: false,
+          message: 'Failed to save personality data. Changes may not persist.',
+        };
+      }
     }, { operationName: 'removePersonalityDescription', timeout: 15000 });
   }
 
-  async clearPersonality(
+  clearPersonality(
     targetUserId: string,
     updatedBy: string,
-  ): Promise<{ success: boolean; message: string }> {
-    return this.mutexManager.withMutex(async () => {
-      if (!this.personalities[targetUserId]) {
-        return {
-          success: false,
-          message: 'User has no personality data to clear',
-        };
-      }
-
-      delete this.personalities[targetUserId];
-      await this.dataStore.save(this.personalities);
-      logger.info(
-        `Personality cleared for user ${targetUserId} (by ${updatedBy})`,
-      );
-
+  ): { success: boolean; message: string } {
+    if (!this.personalities[targetUserId]) {
       return {
-        success: true,
-        message: 'Cleared all personality data for user',
+        success: false,
+        message: 'User has no personality data to clear',
       };
-    }, { operationName: 'clearPersonality', timeout: 15000 });
+    }
+
+    delete this.personalities[targetUserId];
+    
+    // Save asynchronously without blocking using standardized error handling
+    handleFireAndForget(
+      () => this.dataStore.save(this.personalities),
+      { 
+        service: 'PersonalityManager', 
+        operation: 'save_after_clear',
+        targetUserId,
+        updatedBy 
+      }
+    );
+    
+    logger.info(
+      `Personality cleared for user ${targetUserId} (by ${updatedBy})`,
+    );
+
+    return {
+      success: true,
+      message: 'Cleared all personality data for user',
+    };
   }
 
-  getPersonality(userId: string): PersonalityData | null {
-    return this.personalities[userId] || null;
+  getPersonality(userId: string): UserPersonality | undefined {
+    const personalityData = this.personalities[userId];
+    if (!personalityData) {
+      return undefined;
+    }
+    
+    // Convert PersonalityData to UserPersonality interface format
+    const traits = new Map<string, string>();
+    
+    // Parse descriptions to extract traits (format: "trait: value")
+    personalityData.descriptions.forEach(description => {
+      const colonIndex = description.indexOf(':');
+      if (colonIndex > 0) {
+        const trait = description.substring(0, colonIndex).trim();
+        const value = description.substring(colonIndex + 1).trim();
+        traits.set(trait, value);
+      }
+    });
+    
+    return {
+      userId,
+      traits,
+      descriptions: [...personalityData.descriptions],
+      lastUpdated: new Date(personalityData.lastUpdated).getTime()
+    };
   }
 
   buildPersonalityContext(userId: string): string {
@@ -275,16 +361,121 @@ export class PersonalityManager extends BaseService implements IService {
 
 
   protected async performShutdown(): Promise<void> {
-    // Save current state through DataStore before shutdown
-    await this.dataStore.save(this.personalities);
+    // Save current state through DataStore before shutdown using standardized error handling
+    const saveResult = await handleDataStoreOperation(
+      () => this.dataStore.save(this.personalities),
+      undefined,
+      { service: 'PersonalityManager', operation: 'shutdown_save' }
+    );
+
+    if (!saveResult.success) {
+      logger.error('Failed to save personality data during shutdown', { error: saveResult.error });
+    }
+
     this.personalities = {};
   }
 
-  protected getHealthMetrics(): Record<string, unknown> {
+  // Interface Compliance Methods
+  setPersonality(userId: string, trait: string, value: string): void {
+    // Create or update user personality with trait-value mapping
+    const existing = this.personalities[userId];
+    const now = new Date().toISOString();
+    
+    if (!existing) {
+      this.personalities[userId] = {
+        descriptions: [`${trait}: ${value}`],
+        lastUpdated: now,
+        updatedBy: 'system',
+        createdAt: now,
+        changeHistory: [{
+          timestamp: now,
+          updatedBy: 'system',
+          action: 'added',
+          description: `${trait}: ${value}`
+        }]
+      };
+    } else {
+      // Remove existing trait if present and add new one
+      existing.descriptions = existing.descriptions.filter(d => !d.startsWith(`${trait}:`));
+      existing.descriptions.push(`${trait}: ${value}`);
+      existing.lastUpdated = now;
+      existing.updatedBy = 'system';
+      existing.changeHistory.push({
+        timestamp: now,
+        updatedBy: 'system',
+        action: 'added',
+        description: `${trait}: ${value}`
+      });
+    }
+    
+    // Save asynchronously without blocking using standardized error handling
+    handleFireAndForget(
+      () => this.dataStore.save(this.personalities),
+      { 
+        service: 'PersonalityManager', 
+        operation: 'save_after_set_personality',
+        userId,
+        trait 
+      }
+    );
+  }
+
+  removePersonality(userId: string, trait: string): boolean {
+    const existing = this.personalities[userId];
+    if (!existing) {
+      return false;
+    }
+    
+    const initialLength = existing.descriptions.length;
+    existing.descriptions = existing.descriptions.filter(d => !d.startsWith(`${trait}:`));
+    
+    if (existing.descriptions.length < initialLength) {
+      const now = new Date().toISOString();
+      existing.lastUpdated = now;
+      existing.updatedBy = 'system';
+      existing.changeHistory.push({
+        timestamp: now,
+        updatedBy: 'system',
+        action: 'removed',
+        description: `${trait} trait`
+      });
+      
+      // Save asynchronously without blocking using standardized error handling
+      handleFireAndForget(
+        () => this.dataStore.save(this.personalities),
+        { 
+          service: 'PersonalityManager', 
+          operation: 'save_after_remove_personality',
+          userId,
+          trait 
+        }
+      );
+      
+      return true;
+    }
+    
+    return false;
+  }
+
+  getFormattedTraits(userId: string): string[] {
+    const personality = this.personalities[userId];
+    if (!personality || personality.descriptions.length === 0) {
+      return [];
+    }
+    
+    return personality.descriptions.map(description => {
+      // Format each description for display
+      return `• ${description}`;
+    });
+  }
+
+  protected collectServiceMetrics(): Record<string, unknown> | undefined {
     const stats = this.getPersonalityStats();
     return {
-      ...stats,
-      dataStoreInitialized: this.dataStore !== undefined
+      personality: {
+        ...stats,
+        dataStoreInitialized: this.dataStore !== undefined
+      }
     };
   }
 }

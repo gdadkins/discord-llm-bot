@@ -39,7 +39,7 @@ export class ValidationBuilder<T = unknown> {
         if (typeof value === 'string' && value.trim().length === 0) return false;
         return true;
       },
-      message: message || `${this.fieldName} is required`
+      message: message || `Please provide a value for ${this.fieldName}`
     });
     return this;
   }
@@ -50,7 +50,7 @@ export class ValidationBuilder<T = unknown> {
   isString(message?: string): ValidationBuilder<T> {
     this.rules.push({
       test: (value: T) => typeof value === 'string',
-      message: message || `${this.fieldName} must be a string`
+      message: message || `${this.fieldName} must be text, not ${typeof this.currentValue}`
     });
     return this;
   }
@@ -61,7 +61,7 @@ export class ValidationBuilder<T = unknown> {
   isNumber(message?: string): ValidationBuilder<T> {
     this.rules.push({
       test: (value: T) => typeof value === 'number' && !isNaN(value as number),
-      message: message || `${this.fieldName} must be a number`
+      message: message || `${this.fieldName} must be a valid number, not '${this.currentValue}'`
     });
     return this;
   }
@@ -119,7 +119,7 @@ export class ValidationBuilder<T = unknown> {
         if (typeof value !== 'string') return false;
         return pattern.test(value);
       },
-      message: message || `${this.fieldName} format is invalid`
+      message: message || `${this.fieldName} format is invalid. Please check the expected format and try again.`
     });
     return this;
   }
@@ -130,7 +130,7 @@ export class ValidationBuilder<T = unknown> {
   oneOf(allowedValues: T[], message?: string): ValidationBuilder<T> {
     this.rules.push({
       test: (value: T) => allowedValues.includes(value),
-      message: message || `${this.fieldName} must be one of: ${allowedValues.join(', ')}`
+      message: message || `${this.fieldName} must be one of these options: ${allowedValues.join(', ')}`
     });
     return this;
   }
@@ -171,7 +171,7 @@ export class ValidationBuilder<T = unknown> {
         if (typeof value !== 'string') return false;
         return value.trim().length > 0;
       },
-      message: message || `${this.fieldName} cannot be empty`
+      message: message || `${this.fieldName} cannot be empty. Please provide some content.`
     });
     return this;
   }
@@ -185,7 +185,7 @@ export class ValidationBuilder<T = unknown> {
         if (typeof value !== 'string') return false;
         return /^[A-Z][A-Z0-9_]*$/.test(value);
       },
-      message: message || `${this.fieldName} must be a valid environment variable name (uppercase, alphanumeric, underscores)`
+      message: message || `${this.fieldName} must be a valid environment variable name (use UPPERCASE letters, numbers, and underscores only)`
     });
     return this;
   }
@@ -204,7 +204,50 @@ export class ValidationBuilder<T = unknown> {
           return false;
         }
       },
-      message: message || `${this.fieldName} must be a valid URL`
+      message: message || `${this.fieldName} must be a valid URL (starting with http:// or https://)`
+    });
+    return this;
+  }
+
+  /**
+   * Validates Discord snowflake ID format (17-19 digits)
+   */
+  isDiscordId(message?: string): ValidationBuilder<T> {
+    this.rules.push({
+      test: (value: T) => {
+        if (typeof value !== 'string') return false;
+        return /^\d{17,19}$/.test(value);
+      },
+      message: message || `${this.fieldName} must be a valid Discord ID (17-19 digits)`
+    });
+    return this;
+  }
+
+  /**
+   * Validates image file size (for multimodal processing)
+   */
+  isValidImageSize(maxSizeMB: number = 20, message?: string): ValidationBuilder<T> {
+    this.rules.push({
+      test: (value: T) => {
+        if (typeof value !== 'number') return false;
+        return value <= maxSizeMB * 1024 * 1024;
+      },
+      message: message || `Image file size must be under ${maxSizeMB}MB. Please use a smaller image.`
+    });
+    return this;
+  }
+
+  /**
+   * Validates supported image MIME types
+   */
+  isSupportedImageType(message?: string): ValidationBuilder<T> {
+    const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    this.rules.push({
+      test: (value: T) => {
+        if (typeof value !== 'string') return false;
+        return supportedTypes.includes(value.toLowerCase());
+      },
+      message: message || 'Image format must be JPEG, PNG, or WebP. GIF files are not supported.'
     });
     return this;
   }
@@ -432,4 +475,120 @@ export class BatchValidator {
  */
 export function batchValidate(): BatchValidator {
   return new BatchValidator();
+}
+
+/**
+ * Discord mention parsing utilities
+ */
+export class DiscordMentionParser {
+  /**
+   * Regular expression pattern for Discord user mentions
+   * Matches <@12345678901234567> or <@!12345678901234567>
+   */
+  static readonly USER_MENTION_PATTERN = /<@!?(\d{17,19})>/g;
+
+  /**
+   * Regular expression pattern for Discord role mentions
+   * Matches <@&12345678901234567>
+   */
+  static readonly ROLE_MENTION_PATTERN = /<@&(\d{17,19})>/g;
+
+  /**
+   * Regular expression pattern for Discord channel mentions
+   * Matches <#12345678901234567>
+   */
+  static readonly CHANNEL_MENTION_PATTERN = /<#(\d{17,19})>/g;
+
+  /**
+   * Extract user IDs from mentions in a message
+   * @param message The message content to parse
+   * @returns Array of user IDs found in the message
+   */
+  static extractUserIds(message: string): string[] {
+    const userIds: string[] = [];
+    const matches = message.matchAll(this.USER_MENTION_PATTERN);
+    
+    for (const match of matches) {
+      if (match[1]) {
+        userIds.push(match[1]);
+      }
+    }
+    
+    return [...new Set(userIds)]; // Remove duplicates
+  }
+
+  /**
+   * Extract the first user ID from mentions in a message
+   * @param message The message content to parse
+   * @returns The first user ID found, or null if none
+   */
+  static extractFirstUserId(message: string): string | null {
+    const match = this.USER_MENTION_PATTERN.exec(message);
+    this.USER_MENTION_PATTERN.lastIndex = 0; // Reset regex state
+    return match?.[1] || null;
+  }
+
+  /**
+   * Check if a message contains a specific user mention
+   * @param message The message content to check
+   * @param userId The user ID to look for
+   * @returns True if the user is mentioned
+   */
+  static containsUserMention(message: string, userId: string): boolean {
+    const userIds = this.extractUserIds(message);
+    return userIds.includes(userId);
+  }
+
+  /**
+   * Remove all user mentions from a message
+   * @param message The message content to clean
+   * @returns Message with user mentions removed
+   */
+  static removeUserMentions(message: string): string {
+    return message.replace(this.USER_MENTION_PATTERN, '').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * Replace user mentions with usernames
+   * @param message The message content
+   * @param userMap Map of user IDs to usernames
+   * @returns Message with mentions replaced by usernames
+   */
+  static replaceUserMentions(message: string, userMap: Map<string, string>): string {
+    return message.replace(this.USER_MENTION_PATTERN, (match, userId) => {
+      const username = userMap.get(userId);
+      return username ? `@${username}` : match;
+    });
+  }
+
+  /**
+   * Parse a message for all types of mentions
+   * @param message The message content to parse
+   * @returns Object containing arrays of user, role, and channel IDs
+   */
+  static parseAllMentions(message: string): {
+    users: string[];
+    roles: string[];
+    channels: string[];
+  } {
+    const users = this.extractUserIds(message);
+    
+    const roles: string[] = [];
+    const roleMatches = message.matchAll(this.ROLE_MENTION_PATTERN);
+    for (const match of roleMatches) {
+      if (match[1]) roles.push(match[1]);
+    }
+    
+    const channels: string[] = [];
+    const channelMatches = message.matchAll(this.CHANNEL_MENTION_PATTERN);
+    for (const match of channelMatches) {
+      if (match[1]) channels.push(match[1]);
+    }
+    
+    return {
+      users: [...new Set(users)],
+      roles: [...new Set(roles)],
+      channels: [...new Set(channels)]
+    };
+  }
 }

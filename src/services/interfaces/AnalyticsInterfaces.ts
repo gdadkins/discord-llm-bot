@@ -173,7 +173,7 @@ export interface IAnalyticsTracker extends IService {
    * ```
    */
   trackPerformance(
-    metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate',
+    metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate' | 'datastore_save_time' | 'datastore_load_time',
     value: number,
     context?: string
   ): Promise<void>;
@@ -283,7 +283,7 @@ export interface ErrorEvent {
 export interface PerformanceEvent {
   id?: number;
   timestamp: number;
-  metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate';
+  metric: 'response_time' | 'memory_usage' | 'api_latency' | 'cache_hit_rate' | 'datastore_save_time' | 'datastore_load_time';
   value: number;
   context?: string;
 }

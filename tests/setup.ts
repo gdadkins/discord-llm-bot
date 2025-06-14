@@ -118,6 +118,30 @@ jest.mock('@google/genai', () => ({
       })),
     }),
   })),
+  // Add enums for testing
+  FinishReason: {
+    STOP: 'STOP',
+    MAX_TOKENS: 'MAX_TOKENS',
+    SAFETY: 'SAFETY',
+    RECITATION: 'RECITATION',
+    LANGUAGE: 'LANGUAGE',
+    BLOCKLIST: 'BLOCKLIST',
+    PROHIBITED_CONTENT: 'PROHIBITED_CONTENT',
+    SPII: 'SPII',
+    MALFORMED_FUNCTION_CALL: 'MALFORMED_FUNCTION_CALL',
+    OTHER: 'OTHER'
+  },
+  BlockedReason: {
+    SAFETY: 'SAFETY',
+    BLOCKLIST: 'BLOCKLIST',
+    PROHIBITED_CONTENT: 'PROHIBITED_CONTENT',
+    OTHER: 'OTHER'
+  },
+  // Add other exports used in services
+  createPartFromBase64: jest.fn((data, mimeType) => ({ inlineData: { data, mimeType } })),
+  createPartFromText: jest.fn((text) => ({ text })),
+  Content: jest.fn(),
+  Part: jest.fn()
 }));
 
 // Mock chokidar file watcher

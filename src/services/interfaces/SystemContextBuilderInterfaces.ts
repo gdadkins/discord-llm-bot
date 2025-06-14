@@ -4,7 +4,7 @@
  * Interfaces for building system context and message context.
  */
 
-import type { Guild, GuildMember, Client } from 'discord.js';
+import type { Guild, Client } from 'discord.js';
 import type { MessageContext } from '../../commands';
 import type { IService } from './CoreServiceInterfaces';
 
@@ -48,10 +48,6 @@ export interface ISystemContextBuilder extends IService {
    */
   buildServerCultureContext(guild: Guild): string;
   
-  /**
-   * Builds Discord user context
-   */
-  buildDiscordUserContext(member: GuildMember): string;
   
   /**
    * Builds message context

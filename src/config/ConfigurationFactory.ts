@@ -13,6 +13,81 @@ import type {
   FeatureConfig 
 } from '../services/interfaces';
 import { logger } from '../utils/logger';
+import { 
+  parseIntWithDefault, 
+  parseFloatWithDefault, 
+  parseBooleanWithDefault, 
+  getStringWithDefault,
+  validateEnvironment
+} from '../utils/ConfigurationValidator';
+
+/**
+ * Schema type definitions for type safety
+ */
+interface SchemaProperty {
+  type?: string;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  required?: string[];
+  properties?: Record<string, SchemaProperty>;
+}
+
+interface Schema extends SchemaProperty {
+  type: string;
+  required?: string[];
+  properties?: Record<string, SchemaProperty>;
+}
+
+/**
+ * JSON Schema definitions for configuration validation
+ */
+const GEMINI_CONFIG_SCHEMA: Schema = {
+  type: 'object',
+  required: ['model'],
+  properties: {
+    model: { type: 'string', pattern: '^gemini-' },
+    temperature: { type: 'number', minimum: 0.0, maximum: 2.0 },
+    topK: { type: 'integer', minimum: 1, maximum: 100 },
+    topP: { type: 'number', minimum: 0.0, maximum: 1.0 },
+    maxTokens: { type: 'integer', minimum: 1, maximum: 32768 },
+    safetySettings: { type: 'object' },
+    systemInstructions: { type: 'object' },
+    grounding: {
+      type: 'object',
+      properties: {
+        threshold: { type: 'number', minimum: 0.0, maximum: 1.0 },
+        enabled: { type: 'boolean' }
+      }
+    },
+    thinking: {
+      type: 'object',
+      properties: {
+        budget: { type: 'integer', minimum: 0, maximum: 100000 },
+        includeInResponse: { type: 'boolean' }
+      }
+    }
+  }
+};
+
+const RATE_LIMITING_CONFIG_SCHEMA: Schema = {
+  type: 'object',
+  required: ['rpm', 'daily', 'burstSize'],
+  properties: {
+    rpm: { type: 'integer', minimum: 1, maximum: 60 },
+    daily: { type: 'integer', minimum: 1, maximum: 10000 },
+    burstSize: { type: 'integer', minimum: 1, maximum: 20 },
+    safetyMargin: { type: 'number', minimum: 0.0, maximum: 1.0 },
+    retryOptions: {
+      type: 'object',
+      properties: {
+        maxRetries: { type: 'integer', minimum: 0, maximum: 10 },
+        retryDelay: { type: 'integer', minimum: 100, maximum: 10000 },
+        retryMultiplier: { type: 'number', minimum: 1.0, maximum: 5.0 }
+      }
+    }
+  }
+};
 
 /**
  * Configuration factory for creating and validating bot configuration
@@ -22,6 +97,9 @@ export class ConfigurationFactory {
    * Creates complete bot configuration from environment variables
    */
   static createBotConfiguration(): BotConfiguration {
+    // Validate environment variables first
+    validateEnvironment();
+    
     return {
       version: '1.0.0',
       lastModified: new Date().toISOString(),
@@ -51,11 +129,11 @@ export class ConfigurationFactory {
    */
   static createGeminiConfig(): GeminiConfig {
     const config: GeminiConfig = {
-      model: this.getEnvOrDefault('GEMINI_MODEL', 'gemini-2.0-flash-exp'),
-      temperature: this.parseFloatWithDefault('GEMINI_TEMPERATURE', 0.9, 0.0, 2.0),
-      topK: this.parseIntWithDefault('GEMINI_TOP_K', 40, 1, 100),
-      topP: this.parseFloatWithDefault('GEMINI_TOP_P', 0.95, 0.0, 1.0),
-      maxTokens: this.parseIntWithDefault('GEMINI_MAX_OUTPUT_TOKENS', 8192, 1, 32768),
+      model: getStringWithDefault('GEMINI_MODEL', 'gemini-2.0-flash-exp'),
+      temperature: parseFloatWithDefault('GEMINI_TEMPERATURE', 0.9, 0.0, 2.0),
+      topK: parseIntWithDefault('GEMINI_TOP_K', 40, 1, 100),
+      topP: parseFloatWithDefault('GEMINI_TOP_P', 0.95, 0.0, 1.0),
+      maxTokens: parseIntWithDefault('GEMINI_MAX_OUTPUT_TOKENS', 8192, 1, 32768),
       safetySettings: {
         harassment: 'block_none',
         hateSpeech: 'block_none',
@@ -63,27 +141,27 @@ export class ConfigurationFactory {
         dangerousContent: 'block_none'
       },
       systemInstructions: {
-        roasting: this.getEnvOrDefault(
+        roasting: getStringWithDefault(
           'GEMINI_ROASTING_INSTRUCTION',
           'You are a sarcastic AI that enjoys roasting users in a playful way.'
         ),
-        helpful: this.getEnvOrDefault(
+        helpful: getStringWithDefault(
           'GEMINI_HELPFUL_INSTRUCTION',
           'You are a helpful AI assistant.'
         )
       },
       grounding: {
-        threshold: this.parseFloatWithDefault('GEMINI_GOOGLE_SEARCH_THRESHOLD', 0.3, 0.0, 1.0),
-        enabled: this.parseBooleanWithDefault('GEMINI_ENABLE_GOOGLE_SEARCH', false)
+        threshold: parseFloatWithDefault('GEMINI_GOOGLE_SEARCH_THRESHOLD', 0.3, 0.0, 1.0),
+        enabled: parseBooleanWithDefault('GEMINI_ENABLE_GOOGLE_SEARCH', false)
       },
       thinking: {
-        budget: this.parseIntWithDefault('GEMINI_THINKING_BUDGET', 20000, 0, 100000),
-        includeInResponse: this.parseBooleanWithDefault('GEMINI_INCLUDE_THOUGHTS', false)
+        budget: parseIntWithDefault('GEMINI_THINKING_BUDGET', 20000, 0, 100000),
+        includeInResponse: parseBooleanWithDefault('GEMINI_INCLUDE_THOUGHTS', false)
       }
     };
 
-    // Only validate for critical errors, not range issues (those are clamped)
-    this.validateGeminiConfig(config);
+    // Validate configuration against JSON schema
+    this.validateConfigWithSchema(config, GEMINI_CONFIG_SCHEMA, 'Gemini');
     return config;
   }
 
@@ -92,19 +170,25 @@ export class ConfigurationFactory {
    */
   static createRateLimitingConfig(): RateLimitingConfig {
     const config: RateLimitingConfig = {
-      rpm: this.parseIntWithDefault('RATE_LIMIT_RPM', 15, 1, 60),
-      daily: this.parseIntWithDefault('RATE_LIMIT_DAILY', 500, 1, 10000),
-      burstSize: this.parseIntWithDefault('RATE_LIMIT_BURST', 5, 1, 20),
+      rpm: parseIntWithDefault('RATE_LIMIT_RPM', 15, 1, 60),
+      daily: parseIntWithDefault('RATE_LIMIT_DAILY', 1000, 1, 10000),
+      burstSize: parseIntWithDefault('RATE_LIMIT_BURST', 5, 1, 20),
       safetyMargin: 0.1,
       retryOptions: {
-        maxRetries: this.parseIntWithDefault('GEMINI_MAX_RETRIES', 3, 0, 10),
-        retryDelay: this.parseIntWithDefault('GEMINI_RETRY_DELAY_MS', 500, 100, 10000),
-        retryMultiplier: this.parseFloatWithDefault('GEMINI_RETRY_MULTIPLIER', 2.0, 1.0, 5.0)
+        maxRetries: parseIntWithDefault('GEMINI_MAX_RETRIES', 3, 0, 10),
+        retryDelay: parseIntWithDefault('GEMINI_RETRY_DELAY_MS', 1000, 100, 10000),
+        retryMultiplier: parseFloatWithDefault('GEMINI_RETRY_MULTIPLIER', 2.0, 1.0, 5.0)
       }
     };
 
-    // Validate configuration for warnings only
-    this.validateRateLimitingConfig(config);
+    // Validate configuration against JSON schema
+    this.validateConfigWithSchema(config, RATE_LIMITING_CONFIG_SCHEMA, 'RateLimiting');
+    
+    // Additional logical validation
+    if (config.burstSize > config.rpm) {
+      logger.warn('Burst size is greater than RPM limit, this may cause unexpected behavior');
+    }
+    
     return config;
   }
 
@@ -114,21 +198,21 @@ export class ConfigurationFactory {
   static createFeatureConfig(): FeatureConfig {
     return {
       roasting: this.createRoastingConfig(),
-      codeExecution: this.parseBooleanWithDefault('GEMINI_ENABLE_CODE_EXECUTION', false),
-      structuredOutput: this.parseBooleanWithDefault('GEMINI_ENABLE_STRUCTURED_OUTPUT', false),
+      codeExecution: parseBooleanWithDefault('GEMINI_ENABLE_CODE_EXECUTION', false),
+      structuredOutput: parseBooleanWithDefault('GEMINI_ENABLE_STRUCTURED_OUTPUT', false),
       monitoring: this.createMonitoringConfig(),
       contextMemory: {
         enabled: true,
-        timeoutMinutes: this.parseIntWithDefault('CONTEXT_TIMEOUT_MINUTES', 60, 1, 1440),
-        maxMessages: this.parseIntWithDefault('CONTEXT_MAX_MESSAGES', 100, 1, 1000),
-        maxContextChars: this.parseIntWithDefault('CONTEXT_MAX_CHARS', 75000, 1000, 1000000),
+        timeoutMinutes: parseIntWithDefault('CONTEXT_TIMEOUT_MINUTES', 60, 1, 1440),
+        maxMessages: parseIntWithDefault('CONTEXT_MAX_MESSAGES', 100, 1, 1000),
+        maxContextChars: parseIntWithDefault('CONTEXT_MAX_CHARS', 75000, 1000, 1000000),
         compressionEnabled: true,
-        crossServerEnabled: this.parseBooleanWithDefault('CONTEXT_CROSS_SERVER_ENABLED', false)
+        crossServerEnabled: parseBooleanWithDefault('CONTEXT_CROSS_SERVER_ENABLED', false)
       },
       caching: {
         enabled: true,
-        maxSize: this.parseIntWithDefault('CACHE_MAX_SIZE', 1000, 10, 10000),
-        ttlMinutes: this.parseIntWithDefault('CACHE_TTL_MINUTES', 5, 1, 60),
+        maxSize: parseIntWithDefault('CACHE_MAX_SIZE', 1000, 10, 10000),
+        ttlMinutes: parseIntWithDefault('CACHE_TTL_MINUTES', 5, 1, 60),
         compressionEnabled: true
       }
     };
@@ -139,10 +223,10 @@ export class ConfigurationFactory {
    */
   private static createRoastingConfig(): RoastingConfig {
     return {
-      baseChance: this.parseFloatWithDefault('ROAST_BASE_CHANCE', 0.3, 0.0, 1.0),
-      consecutiveBonus: 0.1,
-      maxChance: this.parseFloatWithDefault('ROAST_MAX_CHANCE', 0.8, 0.0, 1.0),
-      cooldownEnabled: true,
+      baseChance: parseFloatWithDefault('ROAST_BASE_CHANCE', 0.3, 0.0, 1.0),
+      consecutiveBonus: parseFloatWithDefault('ROAST_CONSECUTIVE_BONUS', 0.1, 0.0, 1.0),
+      maxChance: parseFloatWithDefault('ROAST_MAX_CHANCE', 0.8, 0.0, 1.0),
+      cooldownEnabled: parseBooleanWithDefault('ROAST_COOLDOWN', true),
       moodSystem: {
         enabled: true,
         moodDuration: 30000,
@@ -168,14 +252,14 @@ export class ConfigurationFactory {
     return {
       healthMetrics: {
         enabled: true,
-        collectionInterval: this.parseIntWithDefault('HEALTH_CHECK_INTERVAL_MS', 30000, 5000, 300000),
-        retentionDays: this.parseIntWithDefault('METRICS_RETENTION_HOURS', 24, 1, 168) / 24
+        collectionInterval: parseIntWithDefault('HEALTH_CHECK_INTERVAL_MS', 30000, 5000, 300000),
+        retentionDays: parseIntWithDefault('METRICS_RETENTION_HOURS', 24, 1, 168) / 24
       },
       alerts: {
         enabled: true,
-        memoryThreshold: this.parseFloatWithDefault('ALERT_MEMORY_USAGE', 0.8, 0.1, 0.95),
-        errorRateThreshold: this.parseFloatWithDefault('ALERT_ERROR_RATE', 0.1, 0.01, 0.5),
-        responseTimeThreshold: this.parseIntWithDefault('ALERT_RESPONSE_TIME_MS', 5000, 1000, 30000)
+        memoryThreshold: parseFloatWithDefault('ALERT_MEMORY_USAGE', 0.8, 0.1, 0.95),
+        errorRateThreshold: parseFloatWithDefault('ALERT_ERROR_RATE', 0.1, 0.01, 0.5),
+        responseTimeThreshold: parseIntWithDefault('ALERT_RESPONSE_TIME_MS', 5000, 1000, 30000)
       },
       gracefulDegradation: {
         enabled: true,
@@ -192,131 +276,91 @@ export class ConfigurationFactory {
     };
   }
 
-  /**
-   * Environment variable helpers with validation
-   */
-  private static getEnvOrDefault(key: string, defaultValue: string): string {
-    const value = process.env[key];
-    if (value === undefined || value === '') {
-      logger.debug(`Using default value for ${key}: ${defaultValue}`);
-      return defaultValue;
-    }
-    return value;
-  }
-
-  private static parseIntWithDefault(key: string, defaultValue: number, min?: number, max?: number): number {
-    const value = process.env[key];
-    if (!value) {
-      logger.debug(`Using default value for ${key}: ${defaultValue}`);
-      return defaultValue;
-    }
-
-    const parsed = parseInt(value, 10);
-    if (isNaN(parsed)) {
-      logger.warn(`Invalid integer value for ${key}: ${value}, using default: ${defaultValue}`);
-      return defaultValue;
-    }
-
-    if (min !== undefined && parsed < min) {
-      logger.warn(`Value for ${key} (${parsed}) is below minimum (${min}), using minimum`);
-      return min;
-    }
-
-    if (max !== undefined && parsed > max) {
-      logger.warn(`Value for ${key} (${parsed}) is above maximum (${max}), using maximum`);
-      return max;
-    }
-
-    return parsed;
-  }
-
-  private static parseFloatWithDefault(key: string, defaultValue: number, min?: number, max?: number): number {
-    const value = process.env[key];
-    if (!value) {
-      logger.debug(`Using default value for ${key}: ${defaultValue}`);
-      return defaultValue;
-    }
-
-    const parsed = parseFloat(value);
-    if (isNaN(parsed)) {
-      logger.warn(`Invalid float value for ${key}: ${value}, using default: ${defaultValue}`);
-      return defaultValue;
-    }
-
-    if (min !== undefined && parsed < min) {
-      logger.warn(`Value for ${key} (${parsed}) is below minimum (${min}), using minimum`);
-      return min;
-    }
-
-    if (max !== undefined && parsed > max) {
-      logger.warn(`Value for ${key} (${parsed}) is above maximum (${max}), using maximum`);
-      return max;
-    }
-
-    return parsed;
-  }
-
-  private static parseBooleanWithDefault(key: string, defaultValue: boolean): boolean {
-    const value = process.env[key];
-    if (!value) {
-      logger.debug(`Using default value for ${key}: ${defaultValue}`);
-      return defaultValue;
-    }
-
-    const lowercaseValue = value.toLowerCase();
-    if (['true', '1', 'yes', 'on'].includes(lowercaseValue)) {
-      return true;
-    }
-    if (['false', '0', 'no', 'off'].includes(lowercaseValue)) {
-      return false;
-    }
-
-    logger.warn(`Invalid boolean value for ${key}: ${value}, using default: ${defaultValue}`);
-    return defaultValue;
-  }
 
   /**
    * Configuration validation methods
    */
-  private static validateGeminiConfig(config: GeminiConfig): void {
-    const errors: string[] = [];
-
-    if (!config.model) {
-      errors.push('Gemini model is required');
-    }
-
-    // Only validate critical issues that can't be handled by clamping
-    // For example, if critical fields are missing or have invalid types
-    // Range validation is handled by parseFloatWithDefault/parseIntWithDefault
-
+  private static validateConfigWithSchema(config: unknown, schema: Schema, configName: string): void {
+    const errors = this.validateSchema(config, schema, configName);
+    
     if (errors.length > 0) {
-      const errorMessage = `Gemini configuration validation failed: ${errors.join(', ')}`;
-      logger.error(errorMessage);
-      throw new Error(errorMessage);
-    }
-  }
-
-  private static validateRateLimitingConfig(config: RateLimitingConfig): void {
-    const errors: string[] = [];
-
-    // Only validate critical issues
-    // Range validation is handled by parseIntWithDefault
-    // We might want to validate that certain combinations make sense
-    if (config.burstSize > config.rpm) {
-      logger.warn('Burst size is greater than RPM limit, this may cause unexpected behavior');
-    }
-
-    if (errors.length > 0) {
-      const errorMessage = `Rate limiting configuration validation failed: ${errors.join(', ')}`;
+      const errorMessage = `${configName} configuration validation failed:\n${errors.join('\n')}`;
       logger.error(errorMessage);
       throw new Error(errorMessage);
     }
   }
 
   /**
-   * Validates API key availability
+   * Simple JSON schema validator (basic implementation)
+   */
+  private static validateSchema(data: unknown, schema: Schema | SchemaProperty, path: string = ''): string[] {
+    const errors: string[] = [];
+
+    // Check type
+    if (schema.type) {
+      const actualType = Array.isArray(data) ? 'array' : typeof data;
+      // Special handling for integer type (JavaScript only has number)
+      if (schema.type === 'integer' && actualType === 'number') {
+        // Check if it's an integer
+        if (!Number.isInteger(data)) {
+          errors.push(`${path}: Expected integer, got decimal number ${data}`);
+        }
+      } else if (actualType !== schema.type && !(schema.type === 'integer' && actualType === 'number')) {
+        errors.push(`${path}: Expected type ${schema.type}, got ${actualType}`);
+        return errors;
+      }
+    }
+
+    // Type guards for better TypeScript inference
+    const isObject = (val: unknown): val is Record<string, unknown> => {
+      return typeof val === 'object' && val !== null && !Array.isArray(val);
+    };
+
+    // Check required fields
+    if ('required' in schema && schema.required && Array.isArray(schema.required) && isObject(data)) {
+      for (const field of schema.required) {
+        if (!(field in data)) {
+          errors.push(`${path}: Missing required field '${field}'`);
+        }
+      }
+    }
+
+    // Validate properties
+    if (schema.properties && isObject(data)) {
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (key in data) {
+          const propPath = path ? `${path}.${key}` : key;
+          errors.push(...this.validateSchema(data[key], propSchema, propPath));
+        }
+      }
+    }
+
+    // Validate numeric constraints
+    if (typeof data === 'number') {
+      if (schema.minimum !== undefined && data < schema.minimum) {
+        errors.push(`${path}: Value ${data} is below minimum ${schema.minimum}`);
+      }
+      if (schema.maximum !== undefined && data > schema.maximum) {
+        errors.push(`${path}: Value ${data} is above maximum ${schema.maximum}`);
+      }
+    }
+
+    // Validate pattern
+    if (schema.pattern && typeof data === 'string') {
+      const regex = new RegExp(schema.pattern);
+      if (!regex.test(data)) {
+        errors.push(`${path}: Value '${data}' does not match pattern ${schema.pattern}`);
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Validates API key availability using ConfigurationValidator
    */
   static validateApiKey(): string {
+    // The validateEnvironment call will already check for required vars
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey) {
       const error = 'Missing required API key: either GOOGLE_API_KEY or GEMINI_API_KEY must be set';
@@ -333,5 +377,38 @@ export class ConfigurationFactory {
     const apiKey = this.validateApiKey();
     const config = this.createBotConfiguration();
     return { config, apiKey };
+  }
+
+  /**
+   * Creates additional Gemini-specific configuration not in main config
+   * This is for backward compatibility with services that need these values
+   */
+  static createGeminiServiceConfig(): {
+    systemInstruction: string;
+    groundingThreshold: number;
+    thinkingBudget: number;
+    includeThoughts: boolean;
+    enableCodeExecution: boolean;
+    enableStructuredOutput: boolean;
+    forceThinkingPrompt: boolean;
+    thinkingTrigger: string;
+    enableGoogleSearch: boolean;
+    unfilteredMode: boolean;
+    } {
+    return {
+      systemInstruction: getStringWithDefault(
+        'GEMINI_SYSTEM_INSTRUCTION',
+        'You are a helpful Discord bot assistant. Provide clear and concise responses to user queries.'
+      ),
+      groundingThreshold: parseFloatWithDefault('GEMINI_GOOGLE_SEARCH_THRESHOLD', 0.3, 0.0, 1.0),
+      thinkingBudget: parseIntWithDefault('THINKING_BUDGET', 1024, 0, 100000),
+      includeThoughts: parseBooleanWithDefault('INCLUDE_THOUGHTS', false),
+      enableCodeExecution: parseBooleanWithDefault('ENABLE_CODE_EXECUTION', false),
+      enableStructuredOutput: parseBooleanWithDefault('ENABLE_STRUCTURED_OUTPUT', false),
+      forceThinkingPrompt: parseBooleanWithDefault('FORCE_THINKING_PROMPT', false),
+      thinkingTrigger: getStringWithDefault('THINKING_TRIGGER', 'Please think step-by-step before answering.'),
+      enableGoogleSearch: parseBooleanWithDefault('GEMINI_ENABLE_GOOGLE_SEARCH', false),
+      unfilteredMode: parseBooleanWithDefault('UNFILTERED_MODE', false)
+    };
   }
 }
