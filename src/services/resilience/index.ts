@@ -18,6 +18,24 @@ export {
   type RecoveryMetrics
 } from './CircuitBreaker';
 
+// Discord circuit breaker exports
+export {
+  DiscordCircuitBreaker,
+  createDiscordCircuitBreaker,
+  type DiscordCircuitBreakerConfig,
+  type IFallbackService,
+  type DiscordError,
+  type CircuitBreakerStatus
+} from './DiscordCircuitBreaker';
+
+// Service circuit breakers exports
+export {
+  ServiceCircuitBreakers,
+  createServiceCircuitBreakers,
+  type ServiceCircuitBreakersConfig,
+  type ServiceMetrics
+} from './ServiceCircuitBreakers';
+
 // Fallback manager exports
 export {
   FallbackManager,
@@ -34,6 +52,15 @@ export {
   loadDegradationConfig,
   convertCircuitState
 } from './utils';
+
+// Health integration exports
+export {
+  CircuitBreakerHealthIntegration,
+  createCircuitBreakerHealthIntegration,
+  circuitBreakerHealthIntegration,
+  type CircuitBreakerHealthMetrics,
+  type CircuitBreakerAlert
+} from './CircuitBreakerHealthIntegration';
 
 // Re-export interfaces for convenience
 export type {

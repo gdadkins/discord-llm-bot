@@ -105,6 +105,21 @@ export class AnalyticsManager extends BaseService implements IAnalyticsService {
     );
     await this.eventTrackingService.initialize();
     
+    // Configure event batching for optimal performance
+    await this.eventTrackingService.configureBatching(true, {
+      maxBatchSize: 100,
+      batchIntervalMs: 1000,
+      highPriorityFlushThreshold: 10,
+      samplingRates: new Map([
+        ['message_processed', 0.1], // Sample 10% of message processed events
+        ['cache_hit', 0.05], // Sample 5% of cache hit events
+        ['performance.response_time', 0.5], // Sample 50% of response time metrics
+        ['performance.memory_usage', 0.1], // Sample 10% of memory usage metrics
+        ['performance.cache_hit_rate', 0.05], // Sample 5% of cache hit rate metrics
+      ]),
+      aggregationWindowMs: 60000 // 1 minute aggregation window
+    });
+    
     // Initialize report generation service
     this.reportGenerationService = new ReportGenerationService(
       database,
@@ -131,6 +146,8 @@ export class AnalyticsManager extends BaseService implements IAnalyticsService {
     }
     
     if (this.eventTrackingService) {
+      // Flush any pending batched events before shutdown
+      await this.eventTrackingService.flushBatchedEvents();
       await this.eventTrackingService.shutdown();
     }
     

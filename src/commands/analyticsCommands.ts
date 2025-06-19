@@ -1,6 +1,7 @@
-import { ChatInputCommandInteraction, PermissionsBitField, Client } from 'discord.js';
+import { ChatInputCommandInteraction, PermissionsBitField } from 'discord.js';
 import { AnalyticsManager } from '../services/analyticsManager';
 import { logger } from '../utils/logger';
+import { ExtendedClient, DiscordStorageStats } from '../types';
 
 export class AnalyticsCommandHandlers {
   constructor(private analyticsManager: AnalyticsManager) {}
@@ -646,8 +647,7 @@ export class AnalyticsCommandHandlers {
 
   async handleDiscordStorageAnalytics(interaction: ChatInputCommandInteraction): Promise<void> {
     // Get context manager from bot client
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const contextManager = (interaction.client as Client & { contextManager?: any }).contextManager;
+    const contextManager = (interaction.client as ExtendedClient).contextManager;
     if (!contextManager) {
       await interaction.reply({
         content: 'Context manager not available.',
@@ -659,7 +659,7 @@ export class AnalyticsCommandHandlers {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      const storageStats = contextManager.getDiscordDataStorageStats();
+      const storageStats = await contextManager.getDiscordDataStorageStats() as DiscordStorageStats;
       
       // Format server breakdown
       const serverEntries = Array.from(storageStats.serverBreakdown.entries()) as [string, number][];

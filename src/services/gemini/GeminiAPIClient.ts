@@ -10,8 +10,11 @@
 
 import { GoogleGenAI, Content } from '@google/genai';
 import { logger } from '../../utils/logger';
-import { getGeminiConfig } from '../../config/geminiConfig';
+import { getGeminiConfig, GEMINI_MODELS } from '../../config/geminiConfig';
 import { ConfigurationFactory } from '../../config/ConfigurationFactory';
+import { AdaptiveTimeout, wrapExternalAPIOperation } from '../../utils/timeoutUtils';
+import { GeminiConfig, GeminiTool, SafetySetting, HarmCategory, HarmBlockThreshold } from '../../types';
+import { ErrorCategory } from '../../utils/ErrorHandlingUtils';
 import type { 
   IGeminiAPIClient,
   ImageAttachment
@@ -25,6 +28,11 @@ import type {
 
 export class GeminiAPIClient implements IGeminiAPIClient {
   private ai: GoogleGenAI;
+  private readonly apiTimeout = new AdaptiveTimeout(30000, {
+    minTimeout: 10000,
+    maxTimeout: 60000,
+    percentile: 0.95
+  });
   private readonly config: {
     systemInstruction: string;
     groundingThreshold: number;
@@ -100,7 +108,7 @@ export class GeminiAPIClient implements IGeminiAPIClient {
   buildGenerationConfig(
     profile: string,
     optionsOrBudget?: GeminiGenerationOptions | number
-  ): any {
+  ): GeminiConfig {
     const geminiConfig = getGeminiConfig(profile);
     
     // Handle overloaded parameter
@@ -135,11 +143,16 @@ export class GeminiAPIClient implements IGeminiAPIClient {
       config.stopSequences = options.stopSequences;
     }
     
-    // Enable thinking mode
+    // Enable thinking mode for Gemini 2.5 models
     if (this.config.includeThoughts && thinkingBudget > 0) {
-      config.thinkingConfig = {
-        includeThoughts: true
-      };
+      // Only add thinking config for 2.5 series models that support it
+      const modelSupportsThinking = geminiConfig.model?.includes('2.5') || false;
+      if (modelSupportsThinking) {
+        config.thinkingConfig = {
+          includeThoughts: true,
+          thinkingBudget: thinkingBudget
+        };
+      }
     }
     
     // Enable structured output
@@ -190,7 +203,7 @@ export class GeminiAPIClient implements IGeminiAPIClient {
       process.env.GEMINI_VISION_PROFILE || 'HIGH_ACCURACY_VISION' : 
       'LEGACY';
     
-    const geminiConfig = getGeminiConfig(profile);
+    const geminiConfig = getGeminiConfig(profile) as unknown as GeminiConfig;
     
     return await this.gracefulDegradation.executeWithCircuitBreaker(
       async () => {
@@ -207,7 +220,7 @@ export class GeminiAPIClient implements IGeminiAPIClient {
   private async executeMultimodalCall(
     fullPrompt: string,
     imageAttachments: ImageAttachment[],
-    geminiConfig: any,
+    geminiConfig: GeminiConfig,
     dynamicThinkingBudget?: number
   ): Promise<unknown> {
     const multimodalContent = this.multimodalContentHandler.buildProviderContent(
@@ -223,75 +236,136 @@ export class GeminiAPIClient implements IGeminiAPIClient {
     }
     
     const effectiveBudget = dynamicThinkingBudget !== undefined ? dynamicThinkingBudget : this.config.thinkingBudget;
+    const timeout = this.apiTimeout.getTimeout();
+    const startTime = Date.now();
     
-    logger.info(`Executing multimodal Gemini API call with ${imageAttachments.length} image(s) using model: ${geminiConfig.model}, thinking enabled: ${this.config.includeThoughts}, thinking budget: ${effectiveBudget} tokens`);
+    logger.info(`Executing multimodal Gemini API call with ${imageAttachments.length} image(s) using model: ${geminiConfig.model}, thinking enabled: ${this.config.includeThoughts}, thinking budget: ${effectiveBudget} tokens, timeout: ${timeout}ms`);
     
     const tools = this.buildTools();
     const safetySettings = this.buildSafetySettings();
     
-    const response = await this.ai.models.generateContent({
-      model: geminiConfig.model,
-      contents: [multimodalContent],
-      config: this.buildGenerationConfig(geminiConfig.model, dynamicThinkingBudget),
-      ...(tools.length > 0 && { tools }),
-      ...(safetySettings && { safetySettings })
-    });
-    
-    this.logResponseDebug(response, 'multimodal');
-    return response;
+    try {
+      const response = await wrapExternalAPIOperation(
+        () => this.ai.models.generateContent({
+          model: geminiConfig.model || GEMINI_MODELS.FLASH_PREVIEW,
+          contents: [multimodalContent],
+          config: geminiConfig as any,
+          ...(tools.length > 0 && { tools }),
+          ...(safetySettings && { safetySettings })
+        }),
+        'multimodal-generateContent',
+        'gemini',
+        timeout
+      );
+      
+      // Record successful duration for adaptive timeout
+      const duration = Date.now() - startTime;
+      this.apiTimeout.recordDuration(duration);
+      
+      this.logResponseDebug(response, 'multimodal');
+      return response;
+    } catch (error) {
+      // Log timeout and API call stats
+      const duration = Date.now() - startTime;
+      const stats = this.apiTimeout.getStats();
+      
+      logger.error('Multimodal Gemini API call failed', {
+        duration,
+        timeout,
+        imageCount: imageAttachments.length,
+        model: geminiConfig.model,
+        adaptiveTimeoutStats: stats,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      throw error;
+    }
   }
 
   private async executeTextOnlyCall(
     fullPrompt: string,
-    geminiConfig: any,
+    geminiConfig: GeminiConfig,
     dynamicThinkingBudget?: number
   ): Promise<unknown> {
     const effectiveBudget = dynamicThinkingBudget !== undefined ? dynamicThinkingBudget : this.config.thinkingBudget;
+    const timeout = this.apiTimeout.getTimeout();
+    const startTime = Date.now();
     
-    logger.info(`Executing text-only Gemini API call using model: ${geminiConfig.model}, thinking enabled: ${this.config.includeThoughts}, thinking budget: ${effectiveBudget} tokens`);
+    logger.info(`Executing text-only Gemini API call using model: ${geminiConfig.model}, thinking enabled: ${this.config.includeThoughts}, thinking budget: ${effectiveBudget} tokens, timeout: ${timeout}ms`);
     
     if (this.config.includeThoughts && effectiveBudget > 0) {
-      logger.info('Including thinkingConfig in API request: { includeThoughts: true }');
+      const modelSupportsThinking = geminiConfig.model?.includes('2.5') || false;
+      if (modelSupportsThinking) {
+        logger.info('Including thinkingConfig in API request for 2.5 model');
+      }
     }
     
     const tools = this.buildTools();
     const safetySettings = this.buildSafetySettings();
     
-    const response = await this.ai.models.generateContent({
-      model: geminiConfig.model,
-      contents: fullPrompt,
-      config: {
-        temperature: geminiConfig.temperature,
-        topK: geminiConfig.topK,
-        topP: geminiConfig.topP,
-        maxOutputTokens: geminiConfig.maxOutputTokens,
-        ...(geminiConfig.presencePenalty !== undefined && { presencePenalty: geminiConfig.presencePenalty }),
-        ...(geminiConfig.frequencyPenalty !== undefined && { frequencyPenalty: geminiConfig.frequencyPenalty }),
-        ...(this.config.includeThoughts && effectiveBudget > 0 && {
-          thinkingConfig: {
-            includeThoughts: true
-          }
-        })
-      },
-      ...(tools.length > 0 && { tools }),
-      ...(safetySettings && { safetySettings })
-    });
-    
-    this.logResponseDebug(response, 'text-only');
-    return response;
+    try {
+      const response = await wrapExternalAPIOperation(
+        () => this.ai.models.generateContent({
+          model: geminiConfig.model || GEMINI_MODELS.FLASH_PREVIEW,
+          contents: fullPrompt,
+          config: {
+            temperature: geminiConfig.temperature,
+            topK: geminiConfig.topK,
+            topP: geminiConfig.topP,
+            maxOutputTokens: geminiConfig.maxOutputTokens,
+            ...(typeof geminiConfig.presencePenalty === 'number' && { presencePenalty: geminiConfig.presencePenalty }),
+            ...(typeof geminiConfig.frequencyPenalty === 'number' && { frequencyPenalty: geminiConfig.frequencyPenalty }),
+            // Add thinking config for 2.5 models
+            ...(this.config.includeThoughts && effectiveBudget > 0 && geminiConfig.model?.includes('2.5') && {
+              thinkingConfig: {
+                includeThoughts: true,
+                thinkingBudget: effectiveBudget
+              }
+            })
+          },
+          ...(tools.length > 0 && { tools }),
+          ...(safetySettings && { safetySettings })
+        }),
+        'text-generateContent',
+        'gemini',
+        timeout
+      );
+      
+      // Record successful duration for adaptive timeout
+      const duration = Date.now() - startTime;
+      this.apiTimeout.recordDuration(duration);
+      
+      this.logResponseDebug(response, 'text-only');
+      return response;
+    } catch (error) {
+      // Log timeout and API call stats
+      const duration = Date.now() - startTime;
+      const stats = this.apiTimeout.getStats();
+      
+      logger.error('Text-only Gemini API call failed', {
+        duration,
+        timeout,
+        model: geminiConfig.model,
+        promptLength: fullPrompt.length,
+        adaptiveTimeoutStats: stats,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      throw error;
+    }
   }
 
-  private buildTools(): any[] {
-    const tools: any[] = [];
+  private buildTools(): GeminiTool[] {
+    const tools: GeminiTool[] = [];
     
     if (this.config.enableCodeExecution) {
-      tools.push({ codeExecution: {} });
+      tools.push({ codeExecution: { enabled: true } });
       logger.info('Adding code execution tool to API request');
     }
     
     if (this.config.enableGoogleSearch) {
       tools.push({
-        googleSearch: {
+        googleSearchRetrieval: {
           dynamicRetrievalConfig: {
             mode: 'MODE_DYNAMIC',
             dynamicThreshold: this.config.groundingThreshold
@@ -304,13 +378,13 @@ export class GeminiAPIClient implements IGeminiAPIClient {
     return tools;
   }
 
-  private buildSafetySettings(): any[] | undefined {
+  private buildSafetySettings(): SafetySetting[] | undefined {
     if (this.config.unfilteredMode || this.config.enableGoogleSearch) {
       return [
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
       ];
     }
     return undefined;

@@ -115,6 +115,10 @@ export * from './UserAnalysisInterfaces';
 // Provides: IServiceFactory, dependency injection patterns, service instantiation
 export * from './ServiceFactoryInterfaces';
 
+// Standardized service responses and error handling
+// Provides: ServiceError, ServiceResult, ServiceResponse, ServiceErrorCode, error aggregation types
+export * from './ServiceResponses';
+
 // Gemini-specific interfaces and structured output
 // Provides: StructuredOutputOptions, schemas, parsed response types
 export * from './GeminiInterfaces';

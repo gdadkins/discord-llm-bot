@@ -11,6 +11,9 @@
 
 import { logger } from './logger';
 
+// Forward declarations for standardized service response integration
+import type { ServiceError, ServiceErrorCode } from '../services/interfaces/ServiceResponses';
+
 // Error classification enums
 export enum ErrorSeverity {
   LOW = 'low',
@@ -26,6 +29,11 @@ export enum ErrorCategory {
   RATE_LIMIT = 'rate_limit',
   TIMEOUT = 'timeout',
   CIRCUIT_BREAKER = 'circuit_breaker',
+  AUTHORIZATION = 'authorization',
+  NOT_FOUND = 'not_found',
+  CONFLICT = 'conflict',
+  INTERNAL = 'internal',
+  EXTERNAL_SERVICE = 'external_service',
   UNKNOWN = 'unknown'
 }
 
@@ -61,6 +69,43 @@ export interface ErrorResult<T = unknown> {
 
 // Fallback function type
 export type FallbackFunction<T> = (error: EnrichedError, context?: Record<string, unknown>) => Promise<T> | T;
+
+/**
+ * System error class for internal application errors
+ */
+export class SystemError extends Error {
+  public readonly code: string;
+  public readonly context?: Record<string, unknown>;
+  public readonly timestamp: number;
+
+  constructor(
+    message: string,
+    code: string = 'SYSTEM_ERROR',
+    context?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = 'SystemError';
+    this.code = code;
+    this.context = context;
+    this.timestamp = Date.now();
+    
+    // Maintain proper stack trace in V8
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, SystemError);
+    }
+  }
+
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      context: this.context,
+      timestamp: this.timestamp,
+      stack: this.stack
+    };
+  }
+}
 
 // Default configuration values
 const DEFAULT_CONFIG: Required<ErrorHandlingConfig> = {
@@ -133,6 +178,43 @@ export function classifyError(error: unknown): { category: ErrorCategory; severi
       errorMessage.includes('circuit') ||
       errorMessage.includes('breaker')) {
     return { category: ErrorCategory.CIRCUIT_BREAKER, severity: ErrorSeverity.HIGH };
+  }
+  
+  // Authorization errors
+  if (errorMessage.includes('unauthorized') || 
+      errorMessage.includes('forbidden') ||
+      errorMessage.includes('auth') ||
+      errorMessage.includes('permission') ||
+      errorMessage.includes('access denied')) {
+    return { category: ErrorCategory.AUTHORIZATION, severity: ErrorSeverity.MEDIUM };
+  }
+  
+  // Not found errors
+  if (errorMessage.includes('not found') ||
+      errorMessage.includes('404') ||
+      errorMessage.includes('does not exist')) {
+    return { category: ErrorCategory.NOT_FOUND, severity: ErrorSeverity.LOW };
+  }
+  
+  // Conflict errors
+  if (errorMessage.includes('conflict') ||
+      errorMessage.includes('409') ||
+      errorMessage.includes('already exists')) {
+    return { category: ErrorCategory.CONFLICT, severity: ErrorSeverity.MEDIUM };
+  }
+  
+  // External service errors
+  if (errorMessage.includes('service') ||
+      errorMessage.includes('api') ||
+      errorMessage.includes('external')) {
+    return { category: ErrorCategory.EXTERNAL_SERVICE, severity: ErrorSeverity.MEDIUM };
+  }
+  
+  // Internal errors
+  if (errorMessage.includes('internal') ||
+      errorMessage.includes('500') ||
+      errorMessage.includes('server error')) {
+    return { category: ErrorCategory.INTERNAL, severity: ErrorSeverity.HIGH };
   }
   
   // Default classification
@@ -403,64 +485,6 @@ export function handleFireAndForget(
   });
 }
 
-/**
- * Creates a user-friendly error message from an enriched error
- */
-export function getUserFriendlyMessage(error: EnrichedError): string {
-  const errorMessage = error.message.toLowerCase();
-  
-  switch (error.category) {
-  case ErrorCategory.NETWORK:
-    if (errorMessage.includes('timeout')) {
-      return 'The connection timed out. This might be due to a complex request - please try again or simplify your message.';
-    } else if (errorMessage.includes('enotfound') || errorMessage.includes('dns')) {
-      return 'Cannot reach the service. Please check your internet connection and try again.';
-    } else {
-      return 'Network connection issue. Please check your internet connection and try again in a moment.';
-    }
-  case ErrorCategory.DATA_STORE:
-    if (errorMessage.includes('permission') || errorMessage.includes('access')) {
-      return 'Data access permissions issue. Please contact the bot administrator.';
-    } else if (errorMessage.includes('space') || errorMessage.includes('disk')) {
-      return 'Storage space issue. Your request may not have been saved - please contact the administrator.';
-    } else {
-      return 'Data storage issue. Your request may not have been saved properly.';
-    }
-  case ErrorCategory.VALIDATION:
-    if (errorMessage.includes('required')) {
-      return 'Missing required information. Please provide all necessary details and try again.';
-    } else if (errorMessage.includes('format')) {
-      return 'Invalid format provided. Please check your input format and try again.';
-    } else {
-      return 'Invalid input provided. Please check your request and try again.';
-    }
-  case ErrorCategory.RATE_LIMIT:
-    if (errorMessage.includes('daily')) {
-      return 'Daily usage limit reached. Please try again tomorrow or contact the administrator for more quota.';
-    } else if (errorMessage.includes('minute')) {
-      return 'You\'re sending requests too quickly. Please wait a moment before trying again.';
-    } else {
-      return 'Rate limit exceeded. Please wait a few moments before trying again.';
-    }
-  case ErrorCategory.TIMEOUT:
-    if (error.context?.timeout && typeof error.context.timeout === 'number') {
-      const timeoutSec = Math.round(error.context.timeout / 1000);
-      return `Request timed out after ${timeoutSec} seconds. Try simplifying your request or try again.`;
-    } else {
-      return 'Request timed out. This might be due to a complex operation - please try again.';
-    }
-  case ErrorCategory.CIRCUIT_BREAKER:
-    return 'The service is temporarily overloaded. Please try again in a few minutes.';
-  default:
-    if (errorMessage.includes('api') && errorMessage.includes('key')) {
-      return 'Service authentication issue. Please contact the bot administrator.';
-    } else if (errorMessage.includes('quota') || errorMessage.includes('billing')) {
-      return 'Service quota exceeded. Please contact the bot administrator.';
-    } else {
-      return 'An unexpected error occurred. Please try again, and if the problem persists, contact the administrator.';
-    }
-  }
-}
 
 /**
  * Promise wrapper that automatically enriches rejected errors
@@ -509,3 +533,181 @@ export function withErrorHandling<TArgs extends unknown[], TReturn>(
 // Export utility types for external use
 export type AsyncResult<T> = ErrorResult<T>;
 export type AsyncErrorHandler<T> = FallbackFunction<T>;
+
+// ============================================================================
+// Standardized Service Response Integration
+// ============================================================================
+
+/**
+ * Converts an ErrorResult to a ServiceResult for compatibility
+ * 
+ * Provides a bridge between the legacy ErrorResult format and the new
+ * standardized ServiceResult format.
+ * 
+ * @param errorResult - Legacy error result
+ * @param service - Service name for error context
+ * @param operation - Operation name for error context
+ * @returns Standardized service result
+ */
+export function convertToServiceResult<T>(
+  errorResult: ErrorResult<T>,
+  service: string,
+  operation: string
+): import('../services/interfaces/ServiceResponses').ServiceResult<T> {
+  if (errorResult.success) {
+    return {
+      success: true,
+      data: errorResult.data,
+      metadata: {
+        duration: 0, // Not tracked in legacy format
+        retryCount: errorResult.retryCount,
+        fallbackUsed: errorResult.fallbackUsed
+      }
+    };
+  } else {
+    const enrichedError = errorResult.error;
+    const serviceError: ServiceError = {
+      code: mapCategoryToServiceCode(enrichedError?.category || ErrorCategory.UNKNOWN),
+      message: enrichedError?.message || 'Unknown error',
+      userMessage: enrichedError ? getUserFriendlyMessage(enrichedError) : 'An error occurred',
+      service,
+      operation,
+      retryable: enrichedError ? isRetryableError(enrichedError) : false,
+      severity: mapToServiceSeverity(enrichedError?.severity || ErrorSeverity.MEDIUM),
+      timestamp: enrichedError?.timestamp || Date.now(),
+      details: enrichedError?.context
+    };
+    
+    return {
+      success: false,
+      error: serviceError,
+      metadata: {
+        duration: 0,
+        retryCount: errorResult.retryCount
+      }
+    };
+  }
+}
+
+/**
+ * Maps ErrorCategory to ServiceErrorCode for compatibility
+ */
+function mapCategoryToServiceCode(category: ErrorCategory): ServiceErrorCode {
+  const mapping: Record<ErrorCategory, ServiceErrorCode> = {
+    [ErrorCategory.NETWORK]: 'DEPENDENCY_ERROR' as ServiceErrorCode,
+    [ErrorCategory.DATA_STORE]: 'INTERNAL_ERROR' as ServiceErrorCode,
+    [ErrorCategory.VALIDATION]: 'VALIDATION_FAILED' as ServiceErrorCode,
+    [ErrorCategory.RATE_LIMIT]: 'RATE_LIMITED' as ServiceErrorCode,
+    [ErrorCategory.TIMEOUT]: 'TIMEOUT' as ServiceErrorCode,
+    [ErrorCategory.CIRCUIT_BREAKER]: 'SERVICE_UNAVAILABLE' as ServiceErrorCode,
+    [ErrorCategory.AUTHORIZATION]: 'FORBIDDEN' as ServiceErrorCode,
+    [ErrorCategory.NOT_FOUND]: 'NOT_FOUND' as ServiceErrorCode,
+    [ErrorCategory.CONFLICT]: 'CONFLICT' as ServiceErrorCode,
+    [ErrorCategory.INTERNAL]: 'INTERNAL_ERROR' as ServiceErrorCode,
+    [ErrorCategory.EXTERNAL_SERVICE]: 'DEPENDENCY_ERROR' as ServiceErrorCode,
+    [ErrorCategory.UNKNOWN]: 'INTERNAL_ERROR' as ServiceErrorCode
+  };
+  
+  return mapping[category] || ('INTERNAL_ERROR' as ServiceErrorCode);
+}
+
+/**
+ * Maps ErrorSeverity to ServiceError severity for compatibility
+ */
+function mapToServiceSeverity(severity: ErrorSeverity): ServiceError['severity'] {
+  switch (severity) {
+  case ErrorSeverity.LOW: return 'low';
+  case ErrorSeverity.MEDIUM: return 'medium';
+  case ErrorSeverity.HIGH: return 'high';
+  case ErrorSeverity.CRITICAL: return 'critical';
+  default: return 'medium';
+  }
+}
+
+/**
+ * Enhanced getUserFriendlyMessage that works with both legacy and new error formats
+ * 
+ * Overloaded function that maintains backward compatibility while supporting
+ * the new ServiceError format.
+ */
+export function getUserFriendlyMessage(error: EnrichedError): string;
+export function getUserFriendlyMessage(error: { message: string; category: ErrorCategory }): string;
+export function getUserFriendlyMessage(error: EnrichedError | { message: string; category: ErrorCategory }): string {
+  const errorMessage = error.message.toLowerCase();
+  
+  switch (error.category) {
+  case ErrorCategory.NETWORK:
+    if (errorMessage.includes('timeout')) {
+      return 'The connection timed out. This might be due to a complex request - please try again or simplify your message.';
+    } else if (errorMessage.includes('enotfound') || errorMessage.includes('dns')) {
+      return 'Cannot reach the service. Please check your internet connection and try again.';
+    } else {
+      return 'Network connection issue. Please check your internet connection and try again in a moment.';
+    }
+  case ErrorCategory.DATA_STORE:
+    if (errorMessage.includes('permission') || errorMessage.includes('access')) {
+      return 'Data access permissions issue. Please contact the bot administrator.';
+    } else if (errorMessage.includes('space') || errorMessage.includes('disk')) {
+      return 'Storage space issue. Your request may not have been saved - please contact the administrator.';
+    } else {
+      return 'Data storage issue. Your request may not have been saved properly.';
+    }
+  case ErrorCategory.VALIDATION:
+    if (errorMessage.includes('required')) {
+      return 'Missing required information. Please provide all necessary details and try again.';
+    } else if (errorMessage.includes('format')) {
+      return 'Invalid format provided. Please check your input format and try again.';
+    } else {
+      return 'Invalid input provided. Please check your request and try again.';
+    }
+  case ErrorCategory.RATE_LIMIT:
+    if (errorMessage.includes('daily')) {
+      return 'Daily usage limit reached. Please try again tomorrow or contact the administrator for more quota.';
+    } else if (errorMessage.includes('minute')) {
+      return 'You\'re sending requests too quickly. Please wait a moment before trying again.';
+    } else {
+      return 'Rate limit exceeded. Please wait a few moments before trying again.';
+    }
+  case ErrorCategory.TIMEOUT:
+    // Check if it's an enriched error with context
+    const context = 'context' in error ? error.context : undefined;
+    if (context?.timeout && typeof context.timeout === 'number') {
+      const timeoutSec = Math.round(context.timeout / 1000);
+      return `Request timed out after ${timeoutSec} seconds. Try simplifying your request or try again.`;
+    } else {
+      return 'Request timed out. This might be due to a complex operation - please try again.';
+    }
+  case ErrorCategory.CIRCUIT_BREAKER:
+    return 'The service is temporarily overloaded. Please try again in a few minutes.';
+  case ErrorCategory.AUTHORIZATION:
+    if (errorMessage.includes('unauthorized')) {
+      return 'Authentication required. Please contact the bot administrator to verify your permissions.';
+    } else if (errorMessage.includes('forbidden')) {
+      return 'You do not have permission to perform this action. Please contact the administrator.';
+    } else {
+      return 'Access denied. Please check your permissions or contact the administrator.';
+    }
+  case ErrorCategory.NOT_FOUND:
+    if (errorMessage.includes('user')) {
+      return 'User not found. Please check the user ID and try again.';
+    } else if (errorMessage.includes('server') || errorMessage.includes('guild')) {
+      return 'Server not found. Please check the server ID and try again.';
+    } else {
+      return 'The requested resource was not found. Please check your request and try again.';
+    }
+  case ErrorCategory.CONFLICT:
+    return 'A conflict occurred with existing data. Please check for duplicate entries and try again.';
+  case ErrorCategory.INTERNAL:
+    return 'An internal server error occurred. Please try again later or contact the administrator if the problem persists.';
+  case ErrorCategory.EXTERNAL_SERVICE:
+    return 'External service is currently unavailable. Please try again in a few moments.';
+  default:
+    if (errorMessage.includes('api') && errorMessage.includes('key')) {
+      return 'Service authentication issue. Please contact the bot administrator.';
+    } else if (errorMessage.includes('quota') || errorMessage.includes('billing')) {
+      return 'Service quota exceeded. Please contact the bot administrator.';
+    } else {
+      return 'An unexpected error occurred. Please try again, and if the problem persists, contact the administrator.';
+    }
+  }
+}

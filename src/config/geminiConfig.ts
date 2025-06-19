@@ -3,6 +3,8 @@
  * Optimized parameters for image recognition and visual understanding
  */
 
+import { getConfigValue, getConfigValueWithDefault } from '../utils/ConfigurationValidator';
+
 export interface GeminiModelConfig {
   model: string;
   temperature: number;
@@ -155,11 +157,11 @@ export const GEMINI_CONFIG_PROFILES: Record<string, GeminiConfigProfile> = {
 };
 
 /**
- * Get configuration based on environment or defaults
+ * Get configuration based on environment or defaults using ConfigurationValidator
  */
 export function getGeminiConfig(profileName?: string): GeminiModelConfig {
-  // Check for environment variable override
-  const envProfile = process.env.GEMINI_VISION_PROFILE;
+  // Use ConfigurationValidator for type-safe configuration parsing
+  const envProfile = getConfigValue<string>('GEMINI_VISION_PROFILE');
   const selectedProfile = profileName || envProfile || 'HIGH_ACCURACY_VISION';
   
   const profile = GEMINI_CONFIG_PROFILES[selectedProfile];
@@ -168,18 +170,38 @@ export function getGeminiConfig(profileName?: string): GeminiModelConfig {
     return GEMINI_CONFIG_PROFILES.HIGH_ACCURACY_VISION.config;
   }
 
-  // Allow environment overrides for individual parameters
-  // IMPORTANT: Model defaults to the free tier model and can be overridden via env
+  // Use ConfigurationValidator for all environment variable access with proper defaults
   return {
     ...profile.config,
-    model: process.env.GEMINI_MODEL || GEMINI_MODELS.FLASH_PREVIEW,  // Always default to free model
-    temperature: parseFloat(process.env.GEMINI_TEMPERATURE || String(profile.config.temperature)),
-    topK: parseInt(process.env.GEMINI_TOP_K || String(profile.config.topK)),
-    topP: parseFloat(process.env.GEMINI_TOP_P || String(profile.config.topP)),
-    maxOutputTokens: parseInt(process.env.GEMINI_MAX_TOKENS || String(profile.config.maxOutputTokens)),
-    // Include system instruction from profile if not overridden
+    model: getConfigValueWithDefault('GEMINI_MODEL', GEMINI_MODELS.FLASH_PREVIEW),
+    temperature: getConfigValueWithDefault('GEMINI_TEMPERATURE', profile.config.temperature),
+    topK: getConfigValueWithDefault('GEMINI_TOP_K', profile.config.topK),
+    topP: getConfigValueWithDefault('GEMINI_TOP_P', profile.config.topP),
+    maxOutputTokens: getConfigValueWithDefault('GEMINI_MAX_OUTPUT_TOKENS', profile.config.maxOutputTokens),
+    // Include system instruction from profile (no environment override)
     systemInstruction: profile.config.systemInstruction
   };
+}
+
+/**
+ * Get API key with proper deprecation handling
+ * Handles GEMINI_API_KEY → GOOGLE_API_KEY migration
+ */
+export function getGeminiApiKey(): string | undefined {
+  // Check for the new API key first
+  const googleApiKey = getConfigValue<string>('GOOGLE_API_KEY');
+  if (googleApiKey) {
+    return googleApiKey;
+  }
+  
+  // Fall back to deprecated API key with warning
+  const geminiApiKey = getConfigValue<string>('GEMINI_API_KEY');
+  if (geminiApiKey) {
+    console.warn('GEMINI_API_KEY is deprecated. Please use GOOGLE_API_KEY instead.');
+    return geminiApiKey;
+  }
+  
+  return undefined;
 }
 
 /**
@@ -191,3 +213,6 @@ export const IMAGE_OPTIMIZATION_TIPS = {
   minResolution: 224, // Minimum recommended resolution in pixels
   maxImagesPerRequest: 16 // Gemini recommendation for optimal performance
 };
+
+// Note: Configuration validation is performed during bot initialization
+// to avoid duplicate validation errors during module loading

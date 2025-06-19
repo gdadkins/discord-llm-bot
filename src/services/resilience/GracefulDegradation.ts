@@ -9,6 +9,8 @@
 import { BaseService } from '../base/BaseService';
 import { CircuitBreaker, createCircuitBreaker } from './CircuitBreaker';
 import { FallbackManager, FallbackContext } from './FallbackManager';
+import { DiscordCircuitBreaker, createDiscordCircuitBreaker } from './DiscordCircuitBreaker';
+import { ServiceCircuitBreakers, createServiceCircuitBreakers } from './ServiceCircuitBreakers';
 import { assessHealthBasedDegradation, loadDegradationConfig, convertCircuitState } from './utils';
 import type { HealthMonitor } from '../healthMonitor';
 import type { 
@@ -24,8 +26,12 @@ export class GracefulDegradation extends BaseService implements IGracefulDegrada
   private config: ReturnType<typeof loadDegradationConfig>;
   private healthMonitor: HealthMonitor | null = null;
   
-  // Circuit breakers for each service
+  // Legacy circuit breakers for each service
   private circuitBreakers: Map<string, CircuitBreaker> = new Map();
+  
+  // Enhanced circuit breaker managers
+  private discordCircuitBreaker: DiscordCircuitBreaker;
+  private serviceCircuitBreakers: ServiceCircuitBreakers;
   
   // Fallback manager for handling degraded responses
   private fallbackManager: FallbackManager;
@@ -37,8 +43,33 @@ export class GracefulDegradation extends BaseService implements IGracefulDegrada
     super();
     this.config = loadDegradationConfig();
     
-    // Initialize circuit breakers
+    // Initialize legacy circuit breakers
     this.initializeCircuitBreakers();
+    
+    // Initialize enhanced circuit breaker managers
+    this.discordCircuitBreaker = createDiscordCircuitBreaker({
+      fallbackService: {
+        queueMessage: async (data) => {
+          // Integrate with fallback manager queue
+          await this.fallbackManager.queueMessage(
+            data.channelId, // Using channelId as userId for Discord message queueing
+            JSON.stringify(data.content),
+            async (response) => {
+              logger.info('Discord message queue response generated', {
+                channelId: data.channelId,
+                responseLength: response.length
+              });
+            },
+            undefined,
+            'high' // Discord messages get high priority
+          );
+        }
+      }
+    });
+    
+    this.serviceCircuitBreakers = createServiceCircuitBreakers({
+      enableFallbacks: true
+    });
     
     // Initialize fallback manager
     this.fallbackManager = new FallbackManager({
@@ -74,11 +105,16 @@ export class GracefulDegradation extends BaseService implements IGracefulDegrada
   }
 
   protected async performShutdown(): Promise<void> {
-    // Cleanup circuit breakers
+    // Cleanup legacy circuit breakers
     for (const [name, breaker] of this.circuitBreakers) {
       breaker.destroy();
       logger.info(`Circuit breaker for ${name} destroyed`);
     }
+    
+    // Cleanup enhanced circuit breakers
+    this.discordCircuitBreaker.destroy();
+    this.serviceCircuitBreakers.destroy();
+    logger.info('Enhanced circuit breakers destroyed');
     
     // Drain queue with fallback responses
     await this.fallbackManager.drainQueue();
@@ -92,6 +128,7 @@ export class GracefulDegradation extends BaseService implements IGracefulDegrada
   protected collectServiceMetrics(): Record<string, unknown> | undefined {
     const circuitBreakerStates: Record<string, unknown> = {};
     
+    // Legacy circuit breakers
     for (const [name, breaker] of this.circuitBreakers) {
       const state = breaker.getState();
       const recovery = breaker.getRecoveryMetrics();
@@ -118,7 +155,11 @@ export class GracefulDegradation extends BaseService implements IGracefulDegrada
     return {
       gracefulDegradation: {
         overallStatus: this.overallStatus,
+        overallHealthScore: this.getOverallHealthScore(),
+        criticalServicesDown: this.hasCriticalServicesDown(),
         circuitBreakers: circuitBreakerStates,
+        discordCircuitBreakers: this.getDiscordCircuitBreakerStatus(),
+        serviceCircuitBreakers: this.getServiceCircuitBreakerStatus(),
         queue: {
           currentSize: queueMetrics.currentSize,
           maxSize: queueMetrics.maxSize,
@@ -141,6 +182,32 @@ export class GracefulDegradation extends BaseService implements IGracefulDegrada
   setHealthMonitor(healthMonitor: HealthMonitor): void {
     this.healthMonitor = healthMonitor;
     logger.info('HealthMonitor integration enabled for graceful degradation');
+    
+    // Integrate with enhanced circuit breakers
+    this.serviceCircuitBreakers = createServiceCircuitBreakers({
+      healthMonitor,
+      enableFallbacks: true
+    });
+    
+    this.discordCircuitBreaker = createDiscordCircuitBreaker({
+      healthMonitor,
+      fallbackService: {
+        queueMessage: async (data) => {
+          await this.fallbackManager.queueMessage(
+            data.channelId,
+            JSON.stringify(data.content),
+            async (response) => {
+              logger.info('Discord message queue response generated', {
+                channelId: data.channelId,
+                responseLength: response.length
+              });
+            },
+            undefined,
+            'high'
+          );
+        }
+      }
+    });
   }
 
   /**
@@ -306,17 +373,92 @@ export class GracefulDegradation extends BaseService implements IGracefulDegrada
   }
 
   /**
+   * Execute Discord operation with circuit breaker protection
+   */
+  async executeDiscordOperation<T>(
+    operation: () => Promise<T>,
+    operationType: 'send_message' | 'edit_message' | 'add_reaction' | 'remove_reaction'
+  ): Promise<T | null> {
+    try {
+      switch (operationType) {
+        case 'send_message':
+          // Note: This would need to be adapted based on actual Discord.js types
+          return operation() as any;
+        case 'edit_message':
+          return operation() as any;
+        case 'add_reaction':
+          await operation();
+          return null;
+        case 'remove_reaction':
+          await operation();
+          return null;
+        default:
+          throw new Error(`Unknown Discord operation type: ${operationType}`);
+      }
+    } catch (error) {
+      logger.error(`Discord operation ${operationType} failed`, { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Execute service operation with circuit breaker protection
+   */
+  async executeServiceOperation<T>(
+    serviceName: string,
+    operation: () => Promise<T>,
+    fallback?: () => T | Promise<T>
+  ): Promise<T> {
+    return this.serviceCircuitBreakers.executeWithBreaker(serviceName, operation, fallback);
+  }
+
+  /**
+   * Get Discord circuit breaker status
+   */
+  getDiscordCircuitBreakerStatus(): Record<string, any> {
+    return this.discordCircuitBreaker.getStatus();
+  }
+
+  /**
+   * Get service circuit breaker status
+   */
+  getServiceCircuitBreakerStatus(): Record<string, any> {
+    return this.serviceCircuitBreakers.getAllStatus();
+  }
+
+  /**
+   * Get overall health score from service circuit breakers
+   */
+  getOverallHealthScore(): number {
+    return this.serviceCircuitBreakers.getOverallHealthScore();
+  }
+
+  /**
+   * Check if critical services are down
+   */
+  hasCriticalServicesDown(): boolean {
+    return this.serviceCircuitBreakers.hasCriticalServicesDown();
+  }
+
+  /**
    * Manually trigger recovery
    */
   async triggerRecovery(serviceName?: 'gemini' | 'discord'): Promise<void> {
     logger.info(`Manual recovery triggered${serviceName ? ` for ${serviceName}` : ' for all services'}`);
     
-    if (serviceName) {
+    if (serviceName === 'discord') {
+      await this.discordCircuitBreaker.triggerRecovery();
+    } else if (serviceName === 'gemini') {
+      await this.serviceCircuitBreakers.triggerRecovery('gemini');
+    } else if (serviceName) {
       const breaker = this.circuitBreakers.get(serviceName);
       if (breaker) {
         await breaker.triggerRecovery();
       }
     } else {
+      // Trigger recovery for all systems
+      await this.discordCircuitBreaker.triggerRecovery();
+      await this.serviceCircuitBreakers.triggerRecovery();
       for (const breaker of this.circuitBreakers.values()) {
         await breaker.triggerRecovery();
       }

@@ -6,6 +6,7 @@
 
 import type { IService } from './CoreServiceInterfaces';
 import type { EmbedBuilder, ActionRowBuilder, ButtonBuilder } from 'discord.js';
+import { HelpTopic, CommandHelp, HelpSearchResult } from '../../types';
 
 // ============================================================================
 // Help System Service Interfaces
@@ -57,16 +58,16 @@ export interface TutorialProgress {
 // ============================================================================
 
 export interface IHelpContentManager {
-  getHelpTopic(topicId: string): any;
+  getHelpTopic(topicId: string): HelpTopic | null;
   getCommandHelp(commandName: string): CommandInfo | null;
   getAllTopics(): string[];
   getAllCommands(): string[];
-  searchHelp(query: string): any[];
+  searchHelp(query: string): HelpSearchResult[];
 }
 
 export interface IHelpCommandBuilder {
-  createTopicEmbed(topic: any): EmbedBuilder;
-  createCommandEmbed(command: any): EmbedBuilder;
+  createTopicEmbed(topic: HelpTopic): EmbedBuilder;
+  createCommandEmbed(command: CommandHelp): EmbedBuilder;
   createGeneralHelpEmbed(): EmbedBuilder;
   createNavigationButtons(currentContext: 'general' | 'topic' | 'command', identifier?: string): ActionRowBuilder<ButtonBuilder>[];
   generateTextHelp(commandName?: string, userRole?: 'user' | 'moderator' | 'admin'): string;

@@ -43,15 +43,20 @@ async function main() {
     client.once('ready', async (readyClient) => {
       logger.info(`[READY-${readyHandlerId}] Ready event fired!`);
       try {
-        const { geminiService, userAnalysisService, serviceRegistry } = await initializeBotServices(readyClient);
+        const { geminiService, userAnalysisService, serviceRegistry, tracingIntegration } = await initializeBotServices(readyClient);
         
-        botServices = { client, geminiService, userAnalysisService, serviceRegistry };
+        botServices = { client, geminiService, userAnalysisService, serviceRegistry, tracingIntegration };
         
-        // Setup event handlers
-        logger.info(`[READY-${readyHandlerId}] Calling setupEventHandlers...`);
-        setupEventHandlers(client, geminiService, raceConditionManager, userAnalysisService);
+        // Setup event handlers with tracing integration
+        logger.info(`[READY-${readyHandlerId}] Calling setupEventHandlers with tracing...`);
+        setupEventHandlers(client, geminiService, raceConditionManager, userAnalysisService, tracingIntegration);
         
-        logger.info('Bot initialization complete');
+        logger.info('Bot initialization complete with distributed tracing enabled');
+        
+        // Log initial tracing statistics
+        const tracingStats = tracingIntegration.getTracingStats();
+        logger.info('Tracing system operational', tracingStats);
+        
       } catch (error) {
         logger.error('Failed to initialize bot:', error);
         process.exit(1);
@@ -84,6 +89,16 @@ process.on('uncaughtException', (error) => {
  */
 async function handleShutdown(signal: string) {
   logger.info(`Received ${signal}, shutting down gracefully...`);
+  
+  // Export final tracing data before shutdown
+  if (botServices?.tracingIntegration) {
+    try {
+      const tracingData = botServices.tracingIntegration.exportTracingData();
+      logger.info('Final tracing report', tracingData);
+    } catch (error) {
+      logger.error('Failed to export tracing data during shutdown', error);
+    }
+  }
   
   // Cleanup race condition resources
   if (raceConditionManager) {

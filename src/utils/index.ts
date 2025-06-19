@@ -51,7 +51,7 @@ export {
   type ParsedConfig
 } from './ConfigurationValidator';
 
-// Standardized error handling utilities
+// Standardized error handling utilities (legacy)
 export {
   handleAsyncOperation,
   handleDataStoreOperation,
@@ -66,6 +66,7 @@ export {
   getUserFriendlyMessage,
   enrichPromise,
   withErrorHandling,
+  convertToServiceResult,
   ErrorSeverity,
   ErrorCategory,
   type ErrorHandlingConfig,
@@ -75,6 +76,39 @@ export {
   type AsyncResult,
   type AsyncErrorHandler
 } from './ErrorHandlingUtils';
+
+// New standardized service error handling
+export {
+  standardizedServiceMethod,
+  standardizedMethod,
+  wrapServiceMethods,
+  type ServiceMethodOptions
+} from './ServiceMethodWrapper';
+
+// Comprehensive timeout protection utilities
+export {
+  createTimeoutPromise as createAdvancedTimeoutPromise,
+  withTimeout,
+  timeoutProtected,
+  AdaptiveTimeout,
+  wrapDatabaseOperation,
+  wrapNetworkOperation,
+  wrapDiscordOperation,
+  wrapExternalAPIOperation,
+  BatchTimeoutManager,
+  defaultBatchTimeoutManager,
+  type TimeoutOptions
+} from './timeoutUtils';
+
+// Advanced cancellation and timeout utilities
+export {
+  CancellableTimeout,
+  TimeoutManager,
+  fetchWithTimeout,
+  executeWithTimeout,
+  retryWithTimeout,
+  defaultTimeoutManager
+} from './CancellableTimeout';
 
 // Cache key generation utilities
 export {
@@ -112,3 +146,27 @@ export {
   type AudioValidationResult,
   type PartialAudioMetadata
 } from './audioProcessor';
+
+// Resource optimization utilities
+export * from './optimization';
+export { ObjectPool, createContextObjectPool } from './ObjectPool';
+export { getCachedRegex, getCommonPattern, initializePatternCache } from './PatternCache';
+export { ConnectionPool, getGlobalConnectionPool, pooledRequest } from './ConnectionPool';
+export { TimerManagerMixin, TimerPriority } from './TimerManagerMixin';
+
+// Async optimization utilities
+export { 
+  PromisePool, 
+  globalPools, 
+  shutdownAllPools, 
+  type PromisePoolOptions, 
+  type PoolMetrics 
+} from './PromisePool';
+
+export { 
+  RequestCoalescer, 
+  globalCoalescers, 
+  shutdownAllCoalescers, 
+  type CoalescerOptions, 
+  type CoalescerMetrics 
+} from './RequestCoalescer';

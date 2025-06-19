@@ -185,6 +185,47 @@ npm run build
 npm start
 ```
 
+## Docker Deployment
+
+Deploy the bot using Docker for easier management and consistency across environments.
+
+### Quick Docker Start
+
+```bash
+# Clone and setup
+git clone https://github.com/yourusername/discord-llm-bot.git
+cd discord-llm-bot
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your Discord token and Google API key
+
+# Build and run with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+### unRAID Deployment
+
+For detailed unRAID deployment instructions, see [docker/README.md](docker/README.md).
+
+### Docker Commands
+
+```bash
+# Stop the bot
+docker-compose down
+
+# Update and restart
+git pull
+docker-compose build
+docker-compose up -d
+
+# View container health
+docker-compose ps
+```
+
 ## Phase 3 Enterprise Features
 
 ### 🚀 What's New

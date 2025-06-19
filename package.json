@@ -16,6 +16,12 @@
     "test:watch": "jest --watch",
     "test:ci": "jest --ci --coverage --watchAll=false",
     "test:phase3": "jest tests/unit/services/(healthMonitor|gracefulDegradation|configurationManager|userPreferenceManager|analyticsManager)",
+    "test:chaos": "jest tests/chaos --config=tests/chaos/jest.config.chaos.js --runInBand",
+    "test:chaos:basic": "jest tests/chaos/ChaosFramework.test.ts --config=tests/chaos/jest.config.chaos.js",
+    "test:chaos:scenarios": "jest tests/chaos/scenarios --config=tests/chaos/jest.config.chaos.js --runInBand",
+    "test:chaos:validation": "jest tests/chaos/ValidationTests.ts --config=tests/chaos/jest.config.chaos.js --runInBand",
+    "test:resilience": "jest tests/resilience --config=tests/chaos/jest.config.chaos.js --runInBand",
+    "test:load-with-errors": "jest tests/load --config=tests/chaos/jest.config.chaos.js --runInBand",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts tests/**/*.ts",
@@ -32,7 +38,13 @@
     "post-optimization": "npm run benchmark:compare",
     "ci:performance": "npm run benchmark && npm run benchmark:validate || echo 'Performance validation not yet implemented'",
     "ci:test": "npm run lint && npm run test:ci",
-    "ci:full": "npm run lint && npm run test:ci && npm run benchmark"
+    "ci:full": "npm run lint && npm run test:ci && npm run benchmark",
+    "test:performance": "jest tests/performance/benchmarks.test.ts --runInBand",
+    "test:regression": "jest tests/performance/regression.test.ts --runInBand",
+    "test:performance:update-baseline": "UPDATE_BASELINE=true jest tests/performance/regression.test.ts --runInBand",
+    "load-test": "ts-node scripts/loadTest.ts run",
+    "load-test:quick": "ts-node scripts/loadTest.ts quick",
+    "performance:dashboard": "ts-node -e \"import { performanceDashboard } from './src/monitoring/performanceDashboard'; performanceDashboard.start(); console.log('Dashboard started. Press Ctrl+C to stop.'); process.on('SIGINT', () => { performanceDashboard.stop(); process.exit(0); });\""
   },
   "dependencies": {
     "@google/genai": "^1.5.1",

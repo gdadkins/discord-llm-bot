@@ -17,9 +17,9 @@ export interface ICacheManager extends IService {
   get(prompt: string, userId: string, serverId?: string): Promise<string | null>;
   set(prompt: string, userId: string, response: string, serverId?: string): Promise<void>;
   shouldBypassCache(prompt: string): boolean;
-  clearCache(): void;
-  clearUserCache(userId: string): void;
-  clearServerCache(serverId: string): void;
+  clearCache(): Promise<void>;
+  clearUserCache(userId: string): Promise<void>;
+  clearServerCache(serverId: string): Promise<void>;
   
   /**
    * Cache statistics

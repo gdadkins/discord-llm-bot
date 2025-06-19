@@ -13,6 +13,26 @@ export type { IUserBehaviorAnalytics } from './UserBehaviorAnalytics';
 export { EventTrackingService } from './EventTrackingService';
 export type { IEventTrackingService } from './EventTrackingService';
 
+export { EventBatchingService } from './EventBatchingService';
+export type { 
+  IEventBatchingService, 
+  BatchableEvent, 
+  EventType, 
+  EventPriority, 
+  BatchConfig, 
+  BatchMetrics,
+  DataStoreEvent 
+} from './EventBatchingService';
+
+export { EventAggregatorService } from './EventAggregatorService';
+export type {
+  IAggregatorService,
+  AggregationWindow,
+  AggregationConfig,
+  AggregationResult,
+  PatternMatch
+} from './EventAggregatorService';
+
 export { MetricsCollectionService } from './MetricsCollectionService';
 export type { IMetricsCollectionService, DailyAggregate } from './MetricsCollectionService';
 

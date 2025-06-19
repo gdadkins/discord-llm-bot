@@ -1,0 +1,290 @@
+{
+  "summary": {
+    "assessmentDate": "2025-06-16T16:33:36Z",
+    "filesAnalyzed": 169,
+    "criticalIssues": 31,
+    "highPriorityRefactorings": 15,
+    "overallComplexityScore": 7.8
+  },
+  "fileSizeViolations": {
+    "criticalFiles": [
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/services/contextManager.ts",
+        "lines": 1394,
+        "severity": "critical",
+        "recommendation": "Split into multiple domain-specific services"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/services/base/BaseService.ts",
+        "lines": 1222,
+        "severity": "critical",
+        "recommendation": "Extract common patterns into mixins"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/utils/DataStore.ts",
+        "lines": 1158,
+        "severity": "critical",
+        "recommendation": "Implement repository pattern with smaller modules"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/services/config/ConfigurationValidator.ts",
+        "lines": 1075,
+        "severity": "critical",
+        "recommendation": "Split validation logic by domain"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/utils/ConfigurationValidator.ts",
+        "lines": 1064,
+        "severity": "critical",
+        "recommendation": "Consolidate with service validator or remove duplicate"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/commands/index.ts",
+        "lines": 1038,
+        "severity": "critical",
+        "recommendation": "Split command definitions into category-based files"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/handlers/eventHandlers.ts",
+        "lines": 1032,
+        "severity": "critical",
+        "recommendation": "Implement event handler registry pattern"
+      }
+    ],
+    "warningFiles": [
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/commands/uxCommands.ts",
+        "lines": 983,
+        "severity": "high"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/services/analytics/EventBatchingService.ts",
+        "lines": 884,
+        "severity": "high"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/services/analytics/ReportGenerationService.ts",
+        "lines": 865,
+        "severity": "high"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/utils/ResourceManager.ts",
+        "lines": 852,
+        "severity": "high"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/config/features/FeatureFlags.ts",
+        "lines": 845,
+        "severity": "high"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/services/gemini/GeminiService.ts",
+        "lines": 824,
+        "severity": "high"
+      },
+      {
+        "file": "/mnt/c/github/discord/discord-llm-bot/src/handlers/commandHandlers.ts",
+        "lines": 807,
+        "severity": "high"
+      }
+    ],
+    "totalViolations": 43,
+    "averageFileSize": 416,
+    "recommendedMaxSize": 500
+  },
+  "methodComplexity": {
+    "longMethods": [
+      {
+        "file": "src/handlers/eventHandlers.ts",
+        "method": "processAttachments",
+        "lines": 64,
+        "location": "710-774",
+        "complexity": {
+          "cyclomatic": 12,
+          "cognitive": 18
+        },
+        "issues": [
+          "Deeply nested conditional logic",
+          "Multiple responsibility handling",
+          "Complex error handling patterns"
+        ]
+      },
+      {
+        "file": "src/services/responseProcessingService.ts",
+        "method": "setResponseProcessor",
+        "estimatedLines": 286,
+        "complexity": {
+          "cyclomatic": 45,
+          "cognitive": 62
+        },
+        "issues": [
+          "Excessive cyclomatic complexity",
+          "Multiple nested conditionals",
+          "Should be split into smaller methods"
+        ]
+      },
+      {
+        "file": "src/handlers/commandHandlers.ts",
+        "method": "handleChatCommandInternal",
+        "lines": 80,
+        "location": "143-223",
+        "complexity": {
+          "cyclomatic": 15,
+          "cognitive": 22
+        },
+        "issues": [
+          "Complex context building logic",
+          "Nested try-catch blocks",
+          "Mixed responsibilities"
+        ]
+      },
+      {
+        "file": "src/commands/index.ts",
+        "method": "command definitions",
+        "lines": 1038,
+        "complexity": {
+          "cyclomatic": 85,
+          "cognitive": 120
+        },
+        "issues": [
+          "Massive switch-like structure",
+          "17+ command branches",
+          "Should use command registry pattern"
+        ]
+      }
+    ],
+    "complexityThresholds": {
+      "methodLength": {
+        "ideal": 20,
+        "acceptable": 50,
+        "critical": 100
+      },
+      "cyclomaticComplexity": {
+        "ideal": 5,
+        "acceptable": 10,
+        "critical": 20
+      }
+    }
+  },
+  "nestingAnalysis": {
+    "deeplyNestedFiles": 126,
+    "maxNestingDepth": 6,
+    "criticalNesting": [
+      {
+        "file": "src/services/tracing/TracingIntegration.ts",
+        "maxDepth": 6,
+        "location": "Complex error handling chains"
+      },
+      {
+        "file": "src/handlers/eventHandlers.ts",
+        "maxDepth": 5,
+        "location": "processAttachments method - lines 710-780"
+      },
+      {
+        "file": "src/services/analytics/EventBatchingService.ts",
+        "maxDepth": 5,
+        "location": "Batch processing logic"
+      },
+      {
+        "file": "src/services/config/ConfigurationValidator.ts",
+        "maxDepth": 5,
+        "location": "Nested validation logic"
+      }
+    ],
+    "commonPatterns": [
+      "Nested error handling with retry logic",
+      "Complex conditional chains for type checking",
+      "Deep promise chains with error fallbacks",
+      "Multi-level configuration validation"
+    ]
+  },
+  "conditionalComplexity": {
+    "complexSwitchStatements": [
+      {
+        "file": "src/commands/index.ts",
+        "cases": 17,
+        "recommendation": "Implement command factory pattern"
+      },
+      {
+        "file": "src/handlers/eventHandlers.ts",
+        "cases": 12,
+        "recommendation": "Use strategy pattern for event handling"
+      },
+      {
+        "file": "src/services/responseProcessingService.ts",
+        "cases": 15,
+        "recommendation": "Extract response handlers into separate classes"
+      }
+    ],
+    "chainedConditions": [
+      {
+        "file": "src/services/config/ConfigurationValidator.ts",
+        "chains": 10,
+        "maxChainLength": 8,
+        "recommendation": "Implement validation pipeline"
+      },
+      {
+        "file": "src/utils/ErrorHandlingUtils.ts",
+        "chains": 12,
+        "maxChainLength": 6,
+        "recommendation": "Use error type hierarchy"
+      }
+    ],
+    "complexBooleanLogic": [
+      {
+        "file": "src/services/resilience/GracefulDegradation.ts",
+        "occurrences": 8,
+        "recommendation": "Extract complex conditions into named predicates"
+      }
+    ]
+  },
+  "moduleComplexity": {
+    "byModule": {
+      "handlers": {
+        "averageCyclomaticComplexity": 15.8,
+        "maxComplexity": 45,
+        "filesExceedingThreshold": 2
+      },
+      "services": {
+        "averageCyclomaticComplexity": 12.4,
+        "maxComplexity": 35,
+        "filesExceedingThreshold": 8
+      },
+      "commands": {
+        "averageCyclomaticComplexity": 10.2,
+        "maxComplexity": 85,
+        "filesExceedingThreshold": 3
+      },
+      "utils": {
+        "averageCyclomaticComplexity": 8.6,
+        "maxComplexity": 22,
+        "filesExceedingThreshold": 5
+      },
+      "config": {
+        "averageCyclomaticComplexity": 11.3,
+        "maxComplexity": 28,
+        "filesExceedingThreshold": 4
+      }
+    }
+  },
+  "recommendations": {
+    "immediate": [
+      "Split contextManager.ts into domain-specific services",
+      "Refactor command definitions to use registry pattern",
+      "Extract complex event handling logic into separate handlers",
+      "Implement strategy pattern for response processing"
+    ],
+    "shortTerm": [
+      "Reduce method lengths to under 50 lines",
+      "Extract nested conditionals into guard clauses",
+      "Implement proper error type hierarchy",
+      "Use composition over inheritance in BaseService"
+    ],
+    "longTerm": [
+      "Migrate to microservices architecture for complex domains",
+      "Implement CQRS pattern for command handling",
+      "Use event sourcing for analytics",
+      "Apply domain-driven design principles"
+    ]
+  }
+}

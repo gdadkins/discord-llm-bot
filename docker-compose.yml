@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  discord-llm-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: discord-llm-bot:latest
+    container_name: discord-llm-bot
+    restart: unless-stopped
+    
+    # Environment variables from .env file
+    env_file:
+      - .env
+    
+    # Additional environment variables
+    environment:
+      - NODE_ENV=production
+      - TZ=America/New_York  # Change to your timezone
+    
+    # Volume mappings for persistent data
+    volumes:
+      # Data directory for bot storage
+      - ./data:/app/data
+      
+      # Logs directory
+      - ./logs:/app/logs
+      
+      # Temp directory
+      - ./temp:/app/temp
+      
+      # Optional: Mount .env file directly (alternative to env_file)
+      # - ./.env:/app/.env:ro
+    
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Network mode - Discord bots don't need special networking
+    network_mode: bridge
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "node"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# Optional: Create a custom network
+networks:
+  default:
+    name: discord-bot-network
+
+# Optional: Named volumes (alternative to bind mounts)
+# volumes:
+#   bot-data:
+#   bot-logs:

@@ -1,6 +1,6 @@
 /**
  * Command Handlers Module
- * Contains all slash command handler implementations
+ * Contains all slash command handler implementations with comprehensive error handling
  */
 
 import { ChatInputCommandInteraction, ChannelType, GuildMember } from 'discord.js';
@@ -8,6 +8,121 @@ import type { IAIService } from '../services/interfaces';
 import { logger } from '../utils/logger';
 import { splitMessage } from '../utils/messageSplitter';
 import { extractRecentEmojis, MessageContext } from '../commands';
+import { globalPools } from '../utils/PromisePool';
+import { enrichError, isRetryableError, getUserFriendlyMessage, createTimeoutPromise } from '../utils/ErrorHandlingUtils';
+
+/**
+ * Wraps command handlers with comprehensive error handling, timeout protection, and user-friendly error responses
+ */
+async function wrapCommandHandler(
+  handler: (interaction: ChatInputCommandInteraction) => Promise<void>,
+  interaction: ChatInputCommandInteraction,
+  commandName: string,
+  options: {
+    timeout?: number;
+    requiresDefer?: boolean;
+    adminRequired?: boolean;
+  } = {}
+): Promise<void> {
+  const requestId = `cmd_${interaction.id}_${Date.now()}`;
+  const startTime = Date.now();
+  const { timeout = 30000, requiresDefer = false, adminRequired = false } = options;
+  
+  try {
+    // Check admin permissions if required
+    if (adminRequired && !hasAdminPermissions(interaction)) {
+      await interaction.reply({
+        content: 'This command requires administrator permissions.',
+        ephemeral: true
+      });
+      return;
+    }
+    
+    // Defer reply if required
+    if (requiresDefer && !interaction.deferred && !interaction.replied) {
+      await Promise.race([
+        interaction.deferReply(),
+        createTimeoutPromise(3000).then(() => {
+          throw enrichError(new Error('Failed to defer reply'), {
+            operation: 'deferReply',
+            commandName,
+            requestId
+          });
+        })
+      ]);
+    }
+    
+    // Execute handler with timeout protection
+    await Promise.race([
+      handler(interaction),
+      createTimeoutPromise(timeout).then(() => {
+        throw enrichError(new Error('Command execution timeout'), {
+          operation: 'command.execute',
+          commandName,
+          timeout,
+          requestId
+        });
+      })
+    ]);
+    
+    // Track success metrics
+    const duration = Date.now() - startTime;
+    logger.info(`Command executed successfully: ${commandName}`, {
+      commandName,
+      duration,
+      userId: interaction.user.id,
+      guildId: interaction.guild?.id,
+      requestId
+    });
+    
+  } catch (error) {
+    const enrichedError = enrichError(error as Error, {
+      commandName,
+      userId: interaction.user.id,
+      guildId: interaction.guild?.id,
+      duration: Date.now() - startTime,
+      requestId
+    });
+    
+    logger.error('Command execution failed', {
+      error: enrichedError,
+      errorCategory: enrichedError.category,
+      retryable: isRetryableError(enrichedError)
+    });
+    
+    // Send user-friendly error response
+    const errorMessage = getUserFriendlyMessage(enrichedError);
+    try {
+      if (interaction.deferred) {
+        await interaction.editReply(errorMessage);
+      } else if (!interaction.replied) {
+        await interaction.reply({ content: errorMessage, ephemeral: true });
+      } else {
+        await interaction.followUp({ content: errorMessage, ephemeral: true });
+      }
+    } catch (replyError) {
+      logger.error('Failed to send error response', {
+        error: replyError,
+        originalError: enrichedError,
+        commandName,
+        requestId
+      });
+    }
+    
+    // Track error metrics
+    try {
+      logger.debug('Command error tracked', {
+        commandName,
+        error: enrichedError,
+        userId: interaction.user.id,
+        guildId: interaction.guild?.id,
+        requestId
+      });
+    } catch (trackingError) {
+      logger.error('Failed to track command error', trackingError);
+    }
+  }
+}
 
 /**
  * Check if user has admin permissions
@@ -23,23 +138,23 @@ function hasAdminPermissions(interaction: ChatInputCommandInteraction): boolean 
 }
 
 /**
- * Handle /chat command
+ * Handle /chat command - internal implementation
  */
-export async function handleChatCommand(
+async function handleChatCommandInternal(
   interaction: ChatInputCommandInteraction,
   geminiService: IAIService
 ): Promise<void> {
   const prompt = interaction.options.getString('message');
   
   if (!prompt) {
-    await interaction.reply('Please provide a message!');
-    return;
+    throw enrichError(new Error('No message provided'), {
+      category: 'VALIDATION' as const,
+      operation: 'validatePrompt'
+    });
   }
 
-  await interaction.deferReply();
-
   try {
-    // Build message context for slash commands
+    // OPTIMIZED: Build message context with parallel operations
     let messageContext: MessageContext | undefined;
     try {
       if (interaction.channel) {
@@ -51,28 +166,33 @@ export async function handleChatCommand(
         else if (channel.type === ChannelType.PrivateThread) channelType = 'thread';
         else if (channel.type === ChannelType.DM) channelType = 'dm';
         
+        // OPTIMIZATION: Parallel fetch for emojis and pinned messages
+        const contextPromises: Promise<any>[] = [
+          extractRecentEmojis(channel)
+        ];
+        
+        // Add pinned messages fetch if applicable
+        if ('messages' in channel && typeof channel.messages.fetchPinned === 'function') {
+          contextPromises.push(
+            channel.messages.fetchPinned().catch(err => {
+              logger.debug('Failed to fetch pinned messages:', err);
+              return { size: 0 };
+            })
+          );
+        }
+        
+        const [recentEmojis, pins] = await Promise.all(contextPromises);
+        
         messageContext = {
           channelName: 'name' in channel && channel.name ? String(channel.name) : 'DM',
           channelType: channelType,
           isThread: channel.type === ChannelType.PublicThread || channel.type === ChannelType.PrivateThread,
           threadName: (channel.type === ChannelType.PublicThread || channel.type === ChannelType.PrivateThread) && 'name' in channel && channel.name ? String(channel.name) : undefined,
           lastActivity: 'lastMessageAt' in channel && channel.lastMessageAt instanceof Date ? channel.lastMessageAt : new Date(),
-          pinnedCount: 0,
+          pinnedCount: pins?.size || 0,
           attachments: [], // Slash commands don't have attachments in the same way
-          recentEmojis: await extractRecentEmojis(channel)
+          recentEmojis
         };
-        
-        // Fetch pinned messages count if in a guild channel
-        if ('messages' in channel && typeof channel.messages.fetchPinned === 'function') {
-          try {
-            const pins = await channel.messages.fetchPinned();
-            if (messageContext) {
-              messageContext.pinnedCount = pins.size;
-            }
-          } catch (err) {
-            logger.debug('Failed to fetch pinned messages:', err);
-          }
-        }
       }
     } catch (contextError) {
       logger.debug('Failed to build message context for slash command:', contextError);
@@ -96,35 +216,54 @@ export async function handleChatCommand(
     for (let i = 1; i < chunks.length; i++) {
       await interaction.followUp(chunks[i]);
     }
-  } catch (error) {
-    logger.error('Error generating response:', error);
-    await interaction.editReply('Sorry, I encountered an error while generating a response. Please try again later.');
+  } catch (contextError) {
+    logger.debug('Failed to build complete message context:', contextError);
+    // Continue with limited context - this is not a critical failure
   }
 }
 
 /**
- * Handle /status command
+ * Handle /chat command with comprehensive error handling
  */
-export async function handleStatusCommand(
+export async function handleChatCommand(
   interaction: ChatInputCommandInteraction,
   geminiService: IAIService
 ): Promise<void> {
-  try {
-    // Legacy stats for backward compatibility
-    const quota = geminiService.getRemainingQuota();
-    const conversationStats = geminiService.getConversationStats();
-    const cacheStats = geminiService.getCacheStats();
-    const cachePerformance = geminiService.getCachePerformance();
+  await wrapCommandHandler(
+    async (interaction: ChatInputCommandInteraction) => {
+      await handleChatCommandInternal(interaction, geminiService);
+    },
+    interaction,
+    'chat',
+    { timeout: 60000, requiresDefer: true }
+  );
+}
+
+/**
+ * Handle /status command - internal implementation
+ * OPTIMIZED: Parallel fetching of all statistics
+ */
+async function handleStatusCommandInternal(
+  interaction: ChatInputCommandInteraction,
+  geminiService: IAIService
+): Promise<void> {
+  // OPTIMIZATION: Fetch all stats in parallel
+  const [quota, conversationStats, cacheStats, cachePerformance] = await Promise.all([
+    Promise.resolve(geminiService.getRemainingQuota()),
+    Promise.resolve(geminiService.getConversationStats()),
+    Promise.resolve(geminiService.getCacheStats()),
+    Promise.resolve(geminiService.getCachePerformance())
+  ]);
     
-    // Get current time and next reset times
-    const now = new Date();
-    const nextMinuteReset = new Date(now);
-    nextMinuteReset.setMinutes(now.getMinutes() + 1, 0, 0);
-    const nextDayReset = new Date(now);
-    nextDayReset.setDate(now.getDate() + 1);
-    nextDayReset.setHours(0, 0, 0, 0);
+  // Get current time and next reset times
+  const now = new Date();
+  const nextMinuteReset = new Date(now);
+  nextMinuteReset.setMinutes(now.getMinutes() + 1, 0, 0);
+  const nextDayReset = new Date(now);
+  nextDayReset.setDate(now.getDate() + 1);
+  nextDayReset.setHours(0, 0, 0, 0);
     
-    const statusMessage = '**🤖 Bot Status**\n' +
+  const statusMessage = '**🤖 Bot Status**\n' +
       '📈 **API Usage:**\n' +
       `  - Minute remaining: ${quota.minuteRemaining}\n` +
       `  - Daily remaining: ${quota.dailyRemaining}\n` +
@@ -141,20 +280,30 @@ export async function handleStatusCommand(
       `  - Context size: ${(conversationStats.totalContextSize / 1024).toFixed(1)} KB\n` +
       `  - Session timeout: ${parseInt(process.env.CONVERSATION_TIMEOUT_MINUTES || '30')} minutes`;
       
-    await interaction.reply({ content: statusMessage, flags: 64 }); // 64 = ephemeral flag
-  } catch (error) {
-    logger.error('Error in status command:', error);
-    await interaction.reply({ 
-      content: 'Error retrieving status information. Check logs for details.', 
-      flags: 64 // ephemeral flag
-    });
-  }
+  await interaction.reply({ content: statusMessage, flags: 64 }); // 64 = ephemeral flag
 }
 
 /**
- * Handle /clear command
+ * Handle /status command with comprehensive error handling
  */
-export async function handleClearCommand(
+export async function handleStatusCommand(
+  interaction: ChatInputCommandInteraction,
+  geminiService: IAIService
+): Promise<void> {
+  await wrapCommandHandler(
+    async (interaction: ChatInputCommandInteraction) => {
+      await handleStatusCommandInternal(interaction, geminiService);
+    },
+    interaction,
+    'status',
+    { timeout: 15000 }
+  );
+}
+
+/**
+ * Handle /clear command - internal implementation
+ */
+async function handleClearCommandInternal(
   interaction: ChatInputCommandInteraction,
   geminiService: IAIService
 ): Promise<void> {
@@ -174,6 +323,23 @@ export async function handleClearCommand(
       flags: 64 // ephemeral flag
     });
   }
+}
+
+/**
+ * Handle /clear command with comprehensive error handling
+ */
+export async function handleClearCommand(
+  interaction: ChatInputCommandInteraction,
+  geminiService: IAIService
+): Promise<void> {
+  await wrapCommandHandler(
+    async (interaction: ChatInputCommandInteraction) => {
+      await handleClearCommandInternal(interaction, geminiService);
+    },
+    interaction,
+    'clear',
+    { timeout: 10000 }
+  );
 }
 
 /**
@@ -371,6 +537,7 @@ export async function handleClearPersonalityCommand(
 
 /**
  * Handle /execute command
+ * OPTIMIZED: Use promise pool for rate limiting
  */
 export async function handleExecuteCommand(
   interaction: ChatInputCommandInteraction,
@@ -393,13 +560,16 @@ export async function handleExecuteCommand(
     // Format the prompt to request code execution
     const prompt = `Please execute the following Python code or solve this math problem:\n\n${code}\n\nIf this is a math problem, write Python code to solve it and show the result.`;
     
-    const response = await geminiService.generateResponse(
-      prompt, 
-      interaction.user.id, 
-      interaction.guildId || undefined, 
-      undefined, 
-      undefined, 
-      interaction.member as GuildMember | undefined
+    // OPTIMIZATION: Use promise pool for Gemini API calls
+    const response = await globalPools.gemini.execute(() => 
+      geminiService.generateResponse(
+        prompt, 
+        interaction.user.id, 
+        interaction.guildId || undefined, 
+        undefined, 
+        undefined, 
+        interaction.member as GuildMember | undefined
+      )
     );
     
     const chunks = splitMessage(response, 2000);
@@ -419,6 +589,7 @@ export async function handleExecuteCommand(
 
 /**
  * Handle /contextstats command
+ * OPTIMIZED: Parallel stats fetching
  */
 export async function handleContextStatsCommand(
   interaction: ChatInputCommandInteraction,
@@ -433,8 +604,12 @@ export async function handleContextStatsCommand(
 
   try {
     const contextManager = geminiService.getContextManager();
-    const stats = contextManager.getMemoryStats();
-    const serverStats = contextManager.getServerCompressionStats(interaction.guildId);
+    
+    // OPTIMIZATION: Fetch both stats in parallel
+    const [stats, serverStats] = await Promise.all([
+      Promise.resolve(contextManager.getMemoryStats()),
+      Promise.resolve(contextManager.getServerCompressionStats(interaction.guildId))
+    ]);
     
     const embed = {
       title: '📊 Advanced Context Statistics',

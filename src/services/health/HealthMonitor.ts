@@ -14,6 +14,7 @@ import * as path from 'path';
 import { logger } from '../../utils/logger';
 import { BaseService } from '../base/BaseService';
 import { DataStore, DataValidator } from '../../utils/DataStore';
+import { globalResourceManager } from '../../utils/ResourceManager';
 import type { IContextManager } from '../interfaces/ContextManagementInterfaces';
 import type { IRateLimiter } from '../interfaces/RateLimitingInterfaces';
 import type { IAIService } from '../interfaces/AIServiceInterfaces';
@@ -111,21 +112,30 @@ export class HealthMonitor extends BaseService implements IHealthMonitor {
       await this.ensureDataDirectory();
       await this.loadMetricsData();
       
-      // Start metrics collection
-      this.createInterval('metricsCollection', async () => {
+      // Register health monitor resources with global resource manager
+      this.registerHealthMonitorResources();
+      
+      // Start metrics collection with enhanced resource tracking
+      this.createManagedInterval('metricsCollection', async () => {
         await this.collectMetricsSnapshot();
-      }, this.COLLECTION_INTERVAL_MS);
+      }, this.COLLECTION_INTERVAL_MS, { priority: 'high', coalesce: true });
       
-      // Start cleanup process
-      this.createInterval('cleanup', async () => {
+      // Start cleanup process with enhanced resource tracking
+      this.createManagedInterval('cleanup', async () => {
         await this.performCleanup();
-      }, this.CLEANUP_INTERVAL_MS);
+      }, this.CLEANUP_INTERVAL_MS, { priority: 'medium', coalesce: true });
       
-      logger.info('HealthMonitor initialized', {
+      // Start resource monitoring
+      this.createManagedInterval('resourceMonitoring', async () => {
+        await this.monitorResourceHealth();
+      }, 30000, { priority: 'medium' }); // Every 30 seconds
+      
+      logger.info('HealthMonitor initialized with resource tracking', {
         retentionDays: this.RETENTION_DAYS,
         collectionIntervalMs: this.COLLECTION_INTERVAL_MS,
         maxSnapshots: this.MAX_SNAPSHOTS,
         alertsEnabled: this.alertConfig.enabled,
+        resourceTrackingEnabled: true
       });
     } catch (error) {
       logger.error('Failed to initialize HealthMonitor:', error);
@@ -134,9 +144,18 @@ export class HealthMonitor extends BaseService implements IHealthMonitor {
   }
   
   protected async performShutdown(): Promise<void> {
-    // Force final metrics save
-    await this.saveMetricsData();
-    logger.info('HealthMonitor shutdown completed');
+    try {
+      // Force final metrics save with resource tracking
+      await this.saveMetricsData();
+      
+      // Cleanup health monitor specific resources
+      await this.cleanupHealthMonitorResources();
+      
+      logger.info('HealthMonitor shutdown completed with resource cleanup');
+    } catch (error) {
+      logger.error('Error during HealthMonitor shutdown', error);
+      throw error;
+    }
   }
   
   // ============================================================================
@@ -465,6 +484,238 @@ export class HealthMonitor extends BaseService implements IHealthMonitor {
           errorDetails: error instanceof Error ? error.stack : String(error),
         }
       };
+    }
+  }
+
+  // ============================================================================
+  // Resource Tracking Integration
+  // ============================================================================
+
+  /**
+   * Register health monitor specific resources with global resource manager
+   */
+  private registerHealthMonitorResources(): void {
+    // Register data store as critical resource
+    globalResourceManager.register({
+      type: 'health-data-store',
+      id: 'main',
+      cleanup: async () => {
+        try {
+          await this.saveMetricsData();
+          logger.info('Health monitor data store cleanup completed');
+        } catch (error) {
+          logger.error('Failed to cleanup health monitor data store', error);
+        }
+      },
+      priority: 'critical',
+      metadata: {
+        service: 'HealthMonitor',
+        dataFile: this.dataFile,
+        maxSnapshots: this.MAX_SNAPSHOTS
+      }
+    });
+
+    // Register metrics collection process
+    globalResourceManager.register({
+      type: 'health-metrics-collection',
+      id: 'main',
+      cleanup: async () => {
+        try {
+          // Perform final metrics collection
+          await this.collectMetricsSnapshot();
+          logger.info('Health monitor metrics collection cleanup completed');
+        } catch (error) {
+          logger.error('Failed to cleanup health monitor metrics collection', error);
+        }
+      },
+      priority: 'high',
+      metadata: {
+        service: 'HealthMonitor',
+        collectionInterval: this.COLLECTION_INTERVAL_MS,
+        retentionDays: this.RETENTION_DAYS
+      }
+    });
+
+    // Register alert system if enabled
+    if (this.alertConfig.enabled) {
+      globalResourceManager.register({
+        type: 'health-alert-system',
+        id: 'main',
+        cleanup: async () => {
+          try {
+            // Final alert processing
+            logger.info('Health monitor alert system cleanup completed');
+          } catch (error) {
+            logger.error('Failed to cleanup health monitor alert system', error);
+          }
+        },
+        priority: 'medium',
+        metadata: {
+          service: 'HealthMonitor',
+          alertConfig: this.alertConfig
+        }
+      });
+    }
+
+    logger.debug('Health monitor resources registered with global resource manager', {
+      dataStore: true,
+      metricsCollection: true,
+      alertSystem: this.alertConfig.enabled
+    });
+  }
+
+  /**
+   * Monitor resource health and detect potential issues
+   */
+  private async monitorResourceHealth(): Promise<void> {
+    try {
+      const globalResourceStats = globalResourceManager.getResourceStats();
+      const serviceResourceStats = this.resources.getResourceStats();
+
+      // Check for resource leaks
+      if (globalResourceStats.leakDetected || serviceResourceStats.leakDetected) {
+        logger.warn('Resource leaks detected in health monitoring', {
+          global: globalResourceStats.leakDetected,
+          service: serviceResourceStats.leakDetected,
+          globalResources: globalResourceStats.total,
+          serviceResources: serviceResourceStats.total
+        });
+      }
+
+      // Check for excessive resource usage
+      const totalResources = globalResourceStats.total + serviceResourceStats.total;
+      const RESOURCE_WARNING_THRESHOLD = 1000;
+      
+      if (totalResources > RESOURCE_WARNING_THRESHOLD) {
+        logger.warn('High resource usage detected', {
+          totalResources,
+          threshold: RESOURCE_WARNING_THRESHOLD,
+          globalByType: globalResourceStats.byType,
+          serviceByType: serviceResourceStats.byType
+        });
+      }
+
+      // Check for failed cleanups
+      const totalFailedCleanups = globalResourceStats.failedCleanups + serviceResourceStats.failedCleanups;
+      if (totalFailedCleanups > 0) {
+        logger.warn('Resource cleanup failures detected', {
+          globalFailures: globalResourceStats.failedCleanups,
+          serviceFailures: serviceResourceStats.failedCleanups,
+          total: totalFailedCleanups
+        });
+      }
+
+      // Monitor data store health
+      if (this.metricsDataStore) {
+        try {
+          const dataStoreMetrics = this.metricsCollector.getDetailedDataStoreMetrics();
+          
+          // Check for data store resource issues
+          if (dataStoreMetrics && typeof dataStoreMetrics === 'object') {
+            const metrics = dataStoreMetrics as Record<string, any>;
+            
+            if (metrics.compressionRatio && metrics.compressionRatio < 0.5) {
+              logger.info('Data store compression efficiency is high', {
+                compressionRatio: metrics.compressionRatio
+              });
+            }
+            
+            if (metrics.cleanupCount && metrics.cleanupCount > 10) {
+              logger.warn('Frequent data store cleanups detected', {
+                cleanupCount: metrics.cleanupCount
+              });
+            }
+          }
+        } catch (error) {
+          logger.warn('Failed to monitor data store health', error);
+        }
+      }
+
+    } catch (error) {
+      logger.error('Resource health monitoring failed', error);
+    }
+  }
+
+  /**
+   * Cleanup health monitor specific resources
+   */
+  private async cleanupHealthMonitorResources(): Promise<void> {
+    try {
+      logger.info('Starting health monitor resource cleanup');
+
+      // Cleanup global resources registered by this service
+      const resourceTypes = ['health-data-store', 'health-metrics-collection', 'health-alert-system'];
+      
+      for (const type of resourceTypes) {
+        try {
+          await globalResourceManager.cleanup(type);
+          logger.debug(`Cleaned up ${type} resources`);
+        } catch (error) {
+          logger.warn(`Failed to cleanup ${type} resources`, error);
+        }
+      }
+
+      // Final metrics save with error handling
+      try {
+        await this.saveMetricsData();
+        logger.info('Final metrics data saved during cleanup');
+      } catch (error) {
+        logger.error('Failed to save final metrics data during cleanup', error);
+      }
+
+      // Clear in-memory data
+      this.metricsData.clear();
+      
+      logger.info('Health monitor resource cleanup completed');
+    } catch (error) {
+      logger.error('Health monitor resource cleanup failed', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get comprehensive resource statistics for health reporting
+   */
+  getResourceStatistics() {
+    const now = Date.now();
+    
+    return {
+      global: globalResourceManager.getResourceStats(),
+      service: this.resources.getResourceStats(),
+      healthMonitor: {
+        dataStoreSize: this.metricsData.size,
+        metricsCount: this.metricsData.size,
+        alertsEnabled: this.alertConfig.enabled,
+        uptime: this.initStartTime ? now - this.initStartTime : 0,
+        resourceTrackingEnabled: true
+      }
+    };
+  }
+
+  /**
+   * Perform emergency resource cleanup if needed
+   */
+  async performEmergencyResourceCleanup(): Promise<void> {
+    logger.warn('Performing emergency resource cleanup for HealthMonitor');
+    
+    try {
+      // Emergency cleanup of global resources
+      await globalResourceManager.emergencyCleanup();
+      
+      // Emergency cleanup of service resources
+      await this.resources.cleanup(undefined, { force: true, timeout: 5000 });
+      
+      // Force save any pending data
+      try {
+        await this.saveMetricsData();
+      } catch (error) {
+        logger.error('Failed to save data during emergency cleanup', error);
+      }
+      
+      logger.info('Emergency resource cleanup completed');
+    } catch (error) {
+      logger.error('Emergency resource cleanup failed', error);
+      throw error;
     }
   }
 }

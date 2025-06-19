@@ -1,0 +1,267 @@
+{
+  "summary": {
+    "totalDuplicates": 47,
+    "criticalDuplicates": 12,
+    "moderateDuplicates": 19,
+    "minorDuplicates": 16,
+    "estimatedLinesSaved": 2850,
+    "duplicateCoverage": "18.5%"
+  },
+  "duplicates": [
+    {
+      "id": "DUP001",
+      "severity": "critical",
+      "pattern": "Error handling with logger.error",
+      "description": "Duplicate error handling pattern with logger.error and 'Failed to' messages",
+      "occurrences": 59,
+      "locations": [
+        "src/services/base/BaseService.ts:247-251",
+        "src/services/rateLimiter.ts:405-408",
+        "src/services/cacheManager.ts:561-565",
+        "src/services/conversationManager.ts:591-597",
+        "src/services/analyticsManager.ts:246-249"
+      ],
+      "duplicatedCode": "logger.error(`Failed to ${operation}`, {\n  service: this.getServiceName(),\n  error: error instanceof Error ? error.message : 'Unknown error'\n});",
+      "suggestedRefactor": {
+        "location": "src/utils/ErrorHandlingUtils.ts",
+        "method": "logServiceError",
+        "example": "export function logServiceError(service: string, operation: string, error: unknown): void {\n  logger.error(`Failed to ${operation}`, {\n    service,\n    error: error instanceof Error ? error.message : 'Unknown error',\n    stack: error instanceof Error ? error.stack : undefined\n  });\n}"
+      }
+    },
+    {
+      "id": "DUP002",
+      "severity": "critical",
+      "pattern": "Mutex initialization and locking",
+      "description": "Duplicate mutex initialization and acquire/release patterns",
+      "occurrences": 18,
+      "locations": [
+        "src/services/rateLimiter.ts:52-54",
+        "src/services/cacheManager.ts:101",
+        "src/services/health/HealthMonitor.ts",
+        "src/services/analytics/EventTrackingService.ts:64",
+        "src/services/analytics/EventBatchingService.ts"
+      ],
+      "duplicatedCode": "private readonly mutex = new Mutex();\n...\nconst release = await this.mutex.acquire();\ntry {\n  // operations\n} finally {\n  release();\n}",
+      "suggestedRefactor": {
+        "location": "src/utils/MutexManager.ts",
+        "method": "withMutex",
+        "example": "export async function withMutex<T>(\n  mutex: Mutex,\n  operation: () => Promise<T>\n): Promise<T> {\n  const release = await mutex.acquire();\n  try {\n    return await operation();\n  } finally {\n    release();\n  }\n}"
+      }
+    },
+    {
+      "id": "DUP003",
+      "severity": "critical",
+      "pattern": "Timer management with intervals",
+      "description": "Duplicate interval timer creation and cleanup patterns",
+      "occurrences": 9,
+      "locations": [
+        "src/services/conversationManager.ts:89-103",
+        "src/services/cacheManager.ts:118-122",
+        "src/services/rateLimiter.ts:143-151",
+        "src/services/contextManager.ts",
+        "src/services/analyticsManager.ts"
+      ],
+      "duplicatedCode": "this.createInterval('cleanup', () => {\n  this.performCleanup();\n}, CLEANUP_INTERVAL_MS);",
+      "suggestedRefactor": {
+        "note": "Already using BaseService.createInterval, but pattern is duplicated across services",
+        "suggestion": "Create service-specific timer configurations in a centralized location"
+      }
+    },
+    {
+      "id": "DUP004",
+      "severity": "moderate",
+      "pattern": "Health status collection",
+      "description": "Duplicate health status building and metrics collection",
+      "occurrences": 8,
+      "locations": [
+        "src/services/base/BaseService.ts:325-332",
+        "src/services/analyticsManager.ts:301-320",
+        "src/services/cacheManager.ts:477-491",
+        "src/services/conversationManager.ts:115-128",
+        "src/services/rateLimiter.ts:548-589"
+      ],
+      "duplicatedCode": "protected isHealthy(): boolean {\n  return this.isInitialized && !this.isShuttingDown;\n}\n\nprotected getHealthErrors(): string[] {\n  const errors: string[] = [];\n  if (!this.isInitialized) {\n    errors.push('Service not initialized');\n  }\n  if (this.isShuttingDown) {\n    errors.push('Service is shutting down');\n  }\n  return errors;\n}",
+      "suggestedRefactor": {
+        "note": "BaseService already provides this, but services override with similar patterns",
+        "suggestion": "Create health check mixins or decorators for common patterns"
+      }
+    },
+    {
+      "id": "DUP005",
+      "severity": "moderate",
+      "pattern": "Service initialization pattern",
+      "description": "Duplicate performInitialization implementations",
+      "occurrences": 18,
+      "locations": [
+        "src/services/analyticsManager.ts:70-137",
+        "src/services/cacheManager.ts:117-127",
+        "src/services/conversationManager.ts:88-107",
+        "src/services/rateLimiter.ts:130-152",
+        "src/services/contextManager.ts"
+      ],
+      "duplicatedCode": "protected async performInitialization(): Promise<void> {\n  try {\n    // Load state/config\n    await this.loadState();\n    // Start timers\n    this.createInterval(...);\n    logger.info(`${this.getServiceName()} initialized`);\n  } catch (error) {\n    logger.error(...);\n    throw error;\n  }\n}",
+      "suggestedRefactor": {
+        "location": "src/services/base/BaseService.ts",
+        "method": "initializeWithState",
+        "suggestion": "Add template methods for common initialization patterns"
+      }
+    },
+    {
+      "id": "DUP006",
+      "severity": "moderate",
+      "pattern": "Configuration validation",
+      "description": "Duplicate configuration validation logic",
+      "occurrences": 7,
+      "locations": [
+        "src/services/rateLimiter.ts:501-532",
+        "src/config/ConfigurationValidator.ts",
+        "src/services/config/ConfigurationManager.ts",
+        "src/services/preferences/PreferenceValidator.ts"
+      ],
+      "duplicatedCode": "const batch = batchValidate()\n  .add('field', validate(value, 'Field').isNumber().numberRange(min, max).validate())\n  .validateAll();",
+      "suggestedRefactor": {
+        "location": "src/utils/validation.ts",
+        "method": "createConfigValidator",
+        "suggestion": "Create a configuration validation builder pattern"
+      }
+    },
+    {
+      "id": "DUP007",
+      "severity": "moderate",
+      "pattern": "Cache key generation",
+      "description": "Duplicate cache key generation logic",
+      "occurrences": 4,
+      "locations": [
+        "src/services/cacheManager.ts:136-139",
+        "src/utils/CacheKeyGenerator.ts",
+        "src/services/context/ContextCacheManager.ts",
+        "src/services/conversationManager.ts:233"
+      ],
+      "duplicatedCode": "const key = `${prefix}_${userId}_${serverId || 'global'}_${hash}`;",
+      "suggestedRefactor": {
+        "note": "CacheKeyGenerator exists but not used consistently",
+        "suggestion": "Enforce CacheKeyGenerator usage across all services"
+      }
+    },
+    {
+      "id": "DUP008",
+      "severity": "minor",
+      "pattern": "Service metrics collection",
+      "description": "Duplicate collectServiceMetrics implementations",
+      "occurrences": 15,
+      "locations": [
+        "src/services/analyticsManager.ts:356-389",
+        "src/services/cacheManager.ts:405-409",
+        "src/services/conversationManager.ts:115-128",
+        "src/services/rateLimiter.ts:591-620"
+      ],
+      "duplicatedCode": "protected collectServiceMetrics(): Record<string, unknown> {\n  return {\n    serviceName: {\n      metric1: value1,\n      metric2: value2,\n      ...\n    }\n  };\n}",
+      "suggestedRefactor": {
+        "location": "src/services/base/BaseService.ts",
+        "method": "createMetricsCollector",
+        "suggestion": "Add metrics builder pattern to BaseService"
+      }
+    },
+    {
+      "id": "DUP009",
+      "severity": "critical",
+      "pattern": "Data store initialization",
+      "description": "Duplicate DataStore creation and validation patterns",
+      "occurrences": 8,
+      "locations": [
+        "src/services/rateLimiter.ts:111-124",
+        "src/utils/DataStoreFactory.ts",
+        "src/services/preferences/PreferenceStore.ts",
+        "src/services/analytics/MetricsCollectionService.ts"
+      ],
+      "duplicatedCode": "const validator: DataValidator<T> = (data: unknown): data is T => {\n  // validation logic\n};\nthis.dataStore = dataStoreFactory.createStateStore<T>(file, validator);",
+      "suggestedRefactor": {
+        "location": "src/utils/DataStoreFactory.ts",
+        "method": "createValidatedStore",
+        "suggestion": "Add higher-level factory methods with built-in validators"
+      }
+    },
+    {
+      "id": "DUP010",
+      "severity": "moderate",
+      "pattern": "Async operation wrapping",
+      "description": "Duplicate async operation error handling patterns",
+      "occurrences": 12,
+      "locations": [
+        "src/services/conversationManager.ts:469-498",
+        "src/utils/ErrorHandlingUtils.ts",
+        "src/services/gemini/GeminiService.ts",
+        "src/services/responseProcessingService.ts"
+      ],
+      "duplicatedCode": "const result = await handleAsyncOperation(\n  async () => { /* operation */ },\n  { maxRetries, retryDelay, timeout },\n  fallback,\n  context\n);",
+      "suggestedRefactor": {
+        "note": "ErrorHandlingUtils exists but usage is inconsistent",
+        "suggestion": "Create service-specific operation wrappers extending base patterns"
+      }
+    },
+    {
+      "id": "DUP011",
+      "severity": "minor",
+      "pattern": "Logger initialization",
+      "description": "Duplicate logger import and usage patterns",
+      "occurrences": 85,
+      "locations": [
+        "Almost all service files"
+      ],
+      "duplicatedCode": "import { logger } from '../utils/logger';",
+      "suggestedRefactor": {
+        "note": "Standard pattern, but could be injected",
+        "suggestion": "Consider dependency injection for logger"
+      }
+    },
+    {
+      "id": "DUP012",
+      "severity": "moderate",
+      "pattern": "Window calculation",
+      "description": "Duplicate time window calculation logic",
+      "occurrences": 4,
+      "locations": [
+        "src/services/rateLimiter.ts:297-334",
+        "src/services/rateLimiter.ts:420-430",
+        "src/services/analytics/MetricsCollectionService.ts",
+        "src/services/analytics/UserBehaviorAnalytics.ts"
+      ],
+      "duplicatedCode": "private getCurrentMinuteWindow(): number {\n  const now = new Date();\n  now.setSeconds(0, 0);\n  return now.getTime();\n}\n\nprivate getCurrentDayWindow(): number {\n  const now = new Date();\n  now.setHours(0, 0, 0, 0);\n  return now.getTime();\n}",
+      "suggestedRefactor": {
+        "location": "src/utils/timeUtils.ts",
+        "method": "TimeWindowCalculator",
+        "suggestion": "Create centralized time window calculation utilities"
+      }
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "title": "Create Error Handling Mixins",
+      "description": "Consolidate error handling patterns into reusable mixins or decorators",
+      "impact": "Reduce 500+ lines of duplicate error handling code",
+      "effort": "medium"
+    },
+    {
+      "priority": "high",
+      "title": "Standardize Mutex Usage",
+      "description": "Use MutexManager.withMutex consistently across all services",
+      "impact": "Reduce 200+ lines of mutex boilerplate",
+      "effort": "low"
+    },
+    {
+      "priority": "medium",
+      "title": "Create Service Template Classes",
+      "description": "Extend BaseService with template classes for common service patterns",
+      "impact": "Reduce 800+ lines of similar initialization/shutdown code",
+      "effort": "high"
+    },
+    {
+      "priority": "medium",
+      "title": "Centralize Time Utilities",
+      "description": "Create shared time window calculation utilities",
+      "impact": "Reduce 150+ lines of duplicate time logic",
+      "effort": "low"
+    }
+  ]
+}

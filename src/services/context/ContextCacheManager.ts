@@ -511,6 +511,13 @@ export class ContextCacheManager {
   }
 
   /**
+   * Clear all caches (alias for clearAll)
+   */
+  public clear(): void {
+    this.clearAll();
+  }
+
+  /**
    * Shutdown and cleanup
    */
   public shutdown(): void {

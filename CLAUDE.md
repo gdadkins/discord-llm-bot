@@ -126,11 +126,12 @@ For detailed improvement processes, see [docs/CONTINUOUS_IMPROVEMENT.md](docs/CO
 ## Claude Orchestrator v3.0 - Unified Workflow Template Framework
 
 ### What It Actually Is
-- **Structured Workflow Templates**: ~15 unified workflow templates (40% reduction from v2.1) for comprehensive codebase analysis
-- **Schema-Driven Output**: JSON task definitions with validation schemas + human-readable Markdown reports
+- **Structured Workflow Templates**: 15 core workflows + 20+ gallery workflows for comprehensive codebase analysis
+- **Workflow Composition Language (WCL)**: Powerful DSL for composing, extending, and customizing workflows without modification
+- **Schema-Driven Parameter System**: JSON schema validation for all workflow parameters with inheritance and type safety
+- **Shared Component Architecture**: Modular components reducing code duplication by 40% with reusable discovery, reporting, validation, and manifest generation modules
 - **CI/CD Integration Templates**: Export templates for GitHub Actions, Jenkins, and other platforms
 - **Best Practices Library**: Industry-standard workflow patterns requiring Claude Code for execution
-- **Parameter-Based Configuration**: Single workflows with domain-specific parameters instead of separate templates
 
 ### Core Unified Workflows
 - `Execute comprehensive analysis workflow` - Complete codebase discovery and analysis
@@ -141,6 +142,13 @@ For detailed improvement processes, see [docs/CONTINUOUS_IMPROVEMENT.md](docs/CO
 - `Execute microservices audit workflow` - Architecture audit generating executable modernization tasks
 - `Execute unified infrastructure transformation workflow` - IaC adoption, legacy modernization, cloud migration
 - `Execute unified infrastructure operations workflow` - Incident response, chaos engineering, automation
+- `Execute innovation enhancement professional workflow` - Suggests industry best practices and modern alternatives for professional-grade applications
+- `Execute innovation enhancement casual workflow` - Suggests modern, trendy improvements for startups and creative projects
+- `Execute technical debt archaeology workflow` - Historical analysis and debt pattern recognition with prioritized remediation
+- `Execute ai readiness assessment workflow` - Evaluate codebase for AI/ML integration opportunities and readiness
+- `Execute dx optimization workflow` - Developer experience analysis with workflow friction detection and tooling improvements
+- `Execute cost optimization workflow` - Cloud resource analysis with savings opportunities and monitoring setup
+- `Execute green software assessment workflow` - Sustainability analysis with carbon footprint calculation and efficiency recommendations
 
 ### Parameter-Based Execution
 **Performance:** Domain-specific targeting
@@ -166,9 +174,32 @@ Execute infrastructure transformation workflow with:
   project_path=./terraform
 ```
 
+### Workflow Composition Language (WCL)
+Create custom workflows by composing existing ones:
+
+```wcl
+compose MySecurityAudit {
+  base: security-audit-unified
+  include: [performance-optimization-unified.analysis]
+  parameters: {
+    security.compliance_frameworks: ["PCI-DSS", "HIPAA"],
+    performance.targets.response_time: "200ms"
+  }
+}
+```
+
+**Advanced Composition Features:**
+- **Conditional Logic**: Execute different workflows based on parameters
+- **Iterative Execution**: Loop over services, modules, or configurations
+- **Phase Selection**: Include specific phases from different workflows
+- **Parameter Transformation**: Transform and merge parameters between workflows
+- **Multi-Stage Pipelines**: Chain workflows with data passing
+
 ### How to Deploy
 1. **Copy Framework**: `cp -r claude-orchestrator /your/project/`
-2. **Execute Workflows**: Use natural language with parameters: "Execute unified security audit workflow with audit_type=vulnerability"
+2. **Execute Workflows**: 
+   - Natural language: "Execute unified security audit workflow with audit_type=vulnerability"
+   - WCL composition: Create custom .wcl files and execute them
 3. **Review Outputs**: Generated files in `outputs/workflow_name_timestamp/`
 4. **Export Integration**: Use templates in `exports/` for CI/CD setup
 
@@ -181,26 +212,89 @@ All workflows generate:
 
 ### Format Reference
 - **Workflows**: XML embedded in `.workflow.md` files
+- **Workflow Composition**: WCL (`.wcl`) files using custom DSL syntax
+- **Parameters**: JSON schema validation (`schemas/parameter-schema.json`)
 - **Tasks**: JSON with strict schema validation (`templates/task-schema.json`)
-- **Config**: YAML hierarchical settings (`config/defaults.yaml`) - 63% reduction in configuration lines
+- **Config**: YAML hierarchical settings (`config/defaults.yaml`)
 - **Metadata**: Standardized XML structure (`templates/workflow-metadata-standard.xml`)
 
 ### Locations
 - `/claude-orchestrator/workflows/` - Core unified workflow templates
-- `/claude-orchestrator/workflows/gallery/` - Remaining specialized workflows  
+- `/claude-orchestrator/workflows/gallery/` - Specialized workflows organized by category:
+  - `/gallery/mobile/` - React Native, Flutter, cross-platform workflows
+  - `/gallery/ai-ml/` - Model deployment, ML pipeline, MLOps workflows
+  - `/gallery/sustainability/` - Carbon reduction, energy efficiency workflows
+  - `/gallery/developer-experience/` - Onboarding, toolchain, productivity workflows
+- `/claude-orchestrator/shared/` - Reusable modules (discovery, reporting, validation, manifest generation)
+- `/claude-orchestrator/components/` - Component library with agent implementations
+- `/claude-orchestrator/wcl-parser/` - WCL parser and composition resolver
+- `/claude-orchestrator/wcl-examples/` - Example WCL compositions
 - `/claude-orchestrator/templates/` - Schemas and MD generation templates
-- `/claude-orchestrator/config/` - Simplified configuration (170 lines vs 457 lines in v2.1)
+- `/claude-orchestrator/schemas/` - Parameter schema definitions
+- `/claude-orchestrator/config/` - Configuration files
 - `/claude-orchestrator/exports/` - CI/CD integration templates
 
 ### Dependencies
 - **Requires Claude Code**: Framework needs Claude Code to interpret and execute workflow templates
 - **Template-Based**: No standalone execution engine - relies on Claude Code for runtime
-- **Simplified Configuration**: Streamlined config system with 63% fewer settings
+- **WCL Parser**: TypeScript-based parser for workflow composition
+- **Schema Validation**: JSON Schema validation for parameters
+
+### Key Features
+- **Shared Module Architecture**: Reusable components for discovery, validation, reporting, and manifest generation
+- **Parameter Schema System**: Type-safe parameters with validation, inheritance, and documentation generation
+- **Workflow Composition Language**: Powerful DSL for creating custom workflows without modifying originals
+- **Gallery Organization**: 20+ specialized workflows organized by domain (mobile, AI/ML, sustainability, DX)
+- **Comprehensive Testing**: Built-in testing framework for workflows and agents
 
 ### Execution Examples
-**Unified Performance:** "Execute unified performance optimization workflow with domain=frontend project_path=./webapp"
-**Unified Security:** "Execute unified security audit workflow with audit_type=comprehensive compliance_frameworks=[OWASP,NIST]"
-**Infrastructure:** "Execute infrastructure transformation workflow with transformation_focus=legacy_modernization"
+
+**Natural Language Execution:**
+- "Execute unified performance optimization workflow with domain=frontend project_path=./webapp"
+- "Execute unified security audit workflow with audit_type=comprehensive compliance_frameworks=[OWASP,NIST]"
+- "Execute technical debt archaeology workflow with time_range=last_year focus=backend"
+- "Execute ai readiness assessment workflow with ml_use_cases=true infrastructure_check=true"
+
+**WCL Composition Examples:**
+```wcl
+// Industry-specific audit
+compose HealthcareCompliance {
+  base: security-audit-unified
+  include: [ai-readiness-assessment.data-discovery]
+  parameters: {
+    security.compliance_frameworks: ["HIPAA"],
+    security.phi_detection: true,
+    ai.privacy_preserving: true
+  }
+}
+
+// Full-stack analysis with performance focus
+compose FullStackPerformance {
+  sequence: [
+    comprehensive-analysis,
+    performance-optimization-unified with { domain: "frontend" },
+    performance-optimization-unified with { domain: "backend" },
+    cost-optimization
+  ]
+}
+```
+
+### Innovation Enhancement Workflows
+Two new workflows designed to suggest **better ways to achieve project goals** by introducing modern practices and alternatives:
+
+**Professional Version** - For enterprise and professional applications:
+- Suggests replacing emojis with professional SVG icon libraries (Lucide React, Heroicons)
+- Recommends enterprise patterns (Clean Architecture, DDD, CQRS)
+- Proposes security hardening (OAuth2, secret management, SAST/DAST)
+- Suggests scalability improvements (CDN, caching layers, edge computing)
+- Recommends compliance patterns (GDPR, SOC2, HIPAA)
+
+**Casual Version** - For startups and creative projects:
+- Suggests trendy UI features (glassmorphism, micro-interactions, confetti animations)
+- Recommends engagement features (reactions, gamification, social sharing)
+- Proposes modern tech stack (Next.js 14, Tailwind, Supabase)
+- Suggests AI integrations (OpenAI, image generation, smart search)
+- Recommends growth hacks (referral systems, viral loops)
 
 ### Critical Output Generation Requirements
 **MANDATORY**: When executing any Claude Orchestrator workflow, you MUST generate all specified outputs in the correct nested folder structure:

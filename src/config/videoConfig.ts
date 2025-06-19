@@ -4,6 +4,7 @@
  */
 
 import { VIDEO_CONSTANTS } from './constants';
+import { getConfigValue } from '../utils/ConfigurationValidator';
 
 export interface VideoConfiguration {
   /** Enable/disable video processing entirely */
@@ -195,42 +196,40 @@ export class VideoUXHelper {
 }
 
 /**
- * Get video configuration from environment variables
+ * Get video configuration from environment variables using ConfigurationValidator
  */
 export function getVideoConfigFromEnv(): Partial<VideoConfiguration> {
   const config: Partial<VideoConfiguration> = {};
   
-  if (process.env.VIDEO_SUPPORT_ENABLED !== undefined) {
-    config.videoSupportEnabled = process.env.VIDEO_SUPPORT_ENABLED === 'true';
+  // Use ConfigurationValidator for type-safe configuration parsing
+  const videoSupportEnabled = getConfigValue<boolean>('VIDEO_SUPPORT_ENABLED');
+  if (videoSupportEnabled !== undefined) {
+    config.videoSupportEnabled = videoSupportEnabled;
   }
   
-  if (process.env.MAX_VIDEO_DURATION_SECONDS) {
-    const duration = parseInt(process.env.MAX_VIDEO_DURATION_SECONDS);
-    if (!isNaN(duration) && duration > 0) {
-      config.maxVideoDurationSeconds = duration;
-    }
+  const maxVideoDurationSeconds = getConfigValue<number>('MAX_VIDEO_DURATION_SECONDS');
+  if (maxVideoDurationSeconds !== undefined) {
+    config.maxVideoDurationSeconds = maxVideoDurationSeconds;
   }
   
-  if (process.env.VIDEO_TOKEN_WARNING_THRESHOLD) {
-    const threshold = parseInt(process.env.VIDEO_TOKEN_WARNING_THRESHOLD);
-    if (!isNaN(threshold) && threshold > 0) {
-      config.videoTokenWarningThreshold = threshold;
-    }
+  const videoTokenWarningThreshold = getConfigValue<number>('VIDEO_TOKEN_WARNING_THRESHOLD');
+  if (videoTokenWarningThreshold !== undefined) {
+    config.videoTokenWarningThreshold = videoTokenWarningThreshold;
   }
   
-  if (process.env.YOUTUBE_URL_SUPPORT_ENABLED !== undefined) {
-    config.youtubeUrlSupportEnabled = process.env.YOUTUBE_URL_SUPPORT_ENABLED === 'true';
+  const youtubeUrlSupportEnabled = getConfigValue<boolean>('YOUTUBE_URL_SUPPORT_ENABLED');
+  if (youtubeUrlSupportEnabled !== undefined) {
+    config.youtubeUrlSupportEnabled = youtubeUrlSupportEnabled;
   }
   
-  if (process.env.VIDEO_FILE_SIZE_LIMIT_MB) {
-    const limit = parseInt(process.env.VIDEO_FILE_SIZE_LIMIT_MB);
-    if (!isNaN(limit) && limit > 0) {
-      config.videoFileSizeLimitMB = limit;
-    }
+  const videoFileSizeLimitMB = getConfigValue<number>('VIDEO_FILE_SIZE_LIMIT_MB');
+  if (videoFileSizeLimitMB !== undefined) {
+    config.videoFileSizeLimitMB = videoFileSizeLimitMB;
   }
   
-  if (process.env.REQUIRE_VIDEO_CONFIRMATION !== undefined) {
-    config.requireVideoConfirmation = process.env.REQUIRE_VIDEO_CONFIRMATION === 'true';
+  const requireVideoConfirmation = getConfigValue<boolean>('REQUIRE_VIDEO_CONFIRMATION');
+  if (requireVideoConfirmation !== undefined) {
+    config.requireVideoConfirmation = requireVideoConfirmation;
   }
   
   return config;
@@ -243,3 +242,6 @@ export function createVideoConfiguration(): VideoConfiguration {
   const envConfig = getVideoConfigFromEnv();
   return { ...DEFAULT_VIDEO_CONFIG, ...envConfig };
 }
+
+// Note: Configuration validation is performed during bot initialization
+// to avoid duplicate validation errors during module loading

@@ -114,7 +114,7 @@ export const ENV_VAR_SCHEMAS: Record<string, EnvVarSchema> = {
   // Gemini Model Configuration
   GEMINI_MODEL: {
     type: 'string',
-    defaultValue: 'gemini-2.0-flash-exp',
+    defaultValue: 'gemini-2.5-flash-preview-05-20',
     pattern: /^gemini-/,
     description: 'Gemini AI model to use'
   },
@@ -410,6 +410,85 @@ export const ENV_VAR_SCHEMAS: Record<string, EnvVarSchema> = {
     deprecated: true,
     deprecationMessage: 'Use GEMINI_ENABLE_STRUCTURED_OUTPUT instead',
     description: 'Legacy structured output (deprecated)'
+  },
+
+  // Video Processing Configuration
+  VIDEO_SUPPORT_ENABLED: {
+    type: 'boolean',
+    defaultValue: false,
+    description: 'Enable video processing capabilities'
+  },
+  MAX_VIDEO_DURATION_SECONDS: {
+    type: 'integer',
+    defaultValue: 83,
+    minValue: 1,
+    maxValue: 300,
+    description: 'Maximum video duration in seconds (83 seconds = 25k tokens at 300 tokens/sec)'
+  },
+  VIDEO_TOKEN_WARNING_THRESHOLD: {
+    type: 'integer',
+    defaultValue: 25000,
+    minValue: 1000,
+    maxValue: 100000,
+    description: 'Token threshold for video processing warnings'
+  },
+  YOUTUBE_URL_SUPPORT_ENABLED: {
+    type: 'boolean',
+    defaultValue: false,
+    description: 'Enable YouTube URL processing (requires VIDEO_SUPPORT_ENABLED=true)'
+  },
+  VIDEO_FILE_SIZE_LIMIT_MB: {
+    type: 'integer',
+    defaultValue: 20,
+    minValue: 1,
+    maxValue: 100,
+    description: 'Maximum video file size in MB'
+  },
+  REQUIRE_VIDEO_CONFIRMATION: {
+    type: 'boolean',
+    defaultValue: false,
+    description: 'Require user confirmation before processing videos'
+  },
+  PARTIAL_VIDEO_PROCESSING_ENABLED: {
+    type: 'boolean',
+    defaultValue: false,
+    description: 'Enable partial video processing for long videos (requires VIDEO_SUPPORT_ENABLED=true)'
+  },
+  PARTIAL_VIDEO_MAX_SECONDS: {
+    type: 'integer',
+    defaultValue: 83,
+    minValue: 1,
+    maxValue: 300,
+    description: 'Maximum seconds to process for partial video processing'
+  },
+
+  // Google Search and Grounding (legacy support)
+  ENABLE_GOOGLE_SEARCH: {
+    type: 'boolean',
+    deprecated: true,
+    deprecationMessage: 'Use GEMINI_ENABLE_GOOGLE_SEARCH instead',
+    description: 'Legacy Google Search enablement (deprecated)'
+  },
+
+  // Thinking Mode Configuration  
+  THINKING_ENABLED: {
+    type: 'boolean',
+    defaultValue: false,
+    description: 'Enable thinking mode for complex reasoning'
+  },
+
+  // Audio Processing Configuration
+  AUDIO_SUPPORT_ENABLED: {
+    type: 'boolean',
+    defaultValue: false,
+    description: 'Enable audio processing capabilities'
+  },
+
+  // Content Filtering
+  UNFILTERED_MODE: {
+    type: 'boolean',
+    defaultValue: false,
+    description: 'Enable unfiltered responses (use responsibly)'
   }
 };
 
@@ -614,6 +693,59 @@ export class ConfigurationValidator {
         );
       }
 
+      // Validate video processing dependencies
+      const videoEnabled = config.VIDEO_SUPPORT_ENABLED as boolean || false;
+      const youtubeEnabled = config.YOUTUBE_URL_SUPPORT_ENABLED as boolean || false;
+      const partialVideoEnabled = config.PARTIAL_VIDEO_PROCESSING_ENABLED as boolean || false;
+      
+      if (youtubeEnabled && !videoEnabled) {
+        errors.push({
+          field: 'YOUTUBE_URL_SUPPORT_ENABLED',
+          value: 'true',
+          message: 'YouTube URL support requires video support to be enabled',
+          expected: 'VIDEO_SUPPORT_ENABLED=true when YOUTUBE_URL_SUPPORT_ENABLED=true'
+        });
+      }
+      
+      if (partialVideoEnabled && !videoEnabled) {
+        errors.push({
+          field: 'PARTIAL_VIDEO_PROCESSING_ENABLED',
+          value: 'true',
+          message: 'Partial video processing requires video support to be enabled',
+          expected: 'VIDEO_SUPPORT_ENABLED=true when PARTIAL_VIDEO_PROCESSING_ENABLED=true'
+        });
+      }
+
+      // Validate video processing limits
+      const maxVideoDuration = config.MAX_VIDEO_DURATION_SECONDS as number || 83;
+      const partialVideoMax = config.PARTIAL_VIDEO_MAX_SECONDS as number || 83;
+      const videoFileLimit = config.VIDEO_FILE_SIZE_LIMIT_MB as number || 20;
+      
+      if (partialVideoMax > maxVideoDuration) {
+        warnings.push(
+          `Partial video max duration (${partialVideoMax}s) is greater than max video duration (${maxVideoDuration}s). Partial processing will be limited by the overall maximum.`
+        );
+      }
+      
+      if (videoFileLimit > 100) {
+        warnings.push(
+          `Video file size limit (${videoFileLimit}MB) is very high. This may cause memory issues and processing delays.`
+        );
+      }
+
+      // Validate feature dependencies for advanced AI features
+      const googleSearchEnabled = config.GEMINI_ENABLE_GOOGLE_SEARCH as boolean || config.ENABLE_GOOGLE_SEARCH as boolean || false;
+      const codeExecutionEnabled = config.GEMINI_ENABLE_CODE_EXECUTION as boolean || config.ENABLE_CODE_EXECUTION as boolean || false;
+      const structuredOutputEnabled = config.GEMINI_ENABLE_STRUCTURED_OUTPUT as boolean || config.ENABLE_STRUCTURED_OUTPUT as boolean || false;
+      const thinkingEnabled = config.THINKING_ENABLED as boolean || false;
+      const audioEnabled = config.AUDIO_SUPPORT_ENABLED as boolean || false;
+      
+      if ((googleSearchEnabled || codeExecutionEnabled || structuredOutputEnabled || thinkingEnabled || videoEnabled || audioEnabled) && !process.env.GOOGLE_API_KEY) {
+        warnings.push(
+          'Advanced AI features are enabled but may require higher API quotas. Monitor your usage carefully.'
+        );
+      }
+
     } catch (error) {
       // Don't fail validation if business logic check fails
       logger.warn('Business logic validation failed:', error);
@@ -801,12 +933,47 @@ export class ConfigurationValidator {
 
 /**
  * Validates the current environment and throws on critical errors
+ * In development mode, missing API keys are warnings instead of errors
  */
 export function validateEnvironment(): ValidationResult {
   const validator = ConfigurationValidator.getInstance();
   const result = validator.validateEnvironment();
+  const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
   
-  if (!result.isValid) {
+  // Check for missing required environment variables
+  const missingApiKeys = result.errors.filter(error => 
+    ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'GOOGLE_API_KEY'].includes(error.field)
+  );
+  const otherErrors = result.errors.filter(error => 
+    !['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'GOOGLE_API_KEY'].includes(error.field)
+  );
+  
+  // In development, convert missing API key errors to warnings
+  if (isDevelopment && missingApiKeys.length > 0) {
+    logger.warn('\n⚠️  DEVELOPMENT MODE: Missing required environment variables');
+    logger.warn('📋 To fix this, copy .env.example to .env and fill in your API keys:');
+    logger.warn('   cp .env.example .env');
+    logger.warn('   Then edit .env and add your Discord and Google API credentials\n');
+    
+    for (const error of missingApiKeys) {
+      logger.warn(`⚠️  ${error.field}: ${error.expected || error.message}`);
+    }
+  }
+  
+  // If there are other errors (not just missing API keys), still throw
+  if (otherErrors.length > 0) {
+    const errorResult = {
+      isValid: false,
+      errors: otherErrors,
+      warnings: result.warnings
+    };
+    const errorMessage = validator.formatValidationErrors(errorResult);
+    logger.error(errorMessage);
+    throw new Error(errorMessage);
+  }
+  
+  // In production, throw on any validation errors including missing API keys
+  if (!isDevelopment && !result.isValid) {
     const errorMessage = validator.formatValidationErrors(result);
     logger.error(errorMessage);
     throw new Error(errorMessage);

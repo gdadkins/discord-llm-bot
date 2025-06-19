@@ -7,6 +7,7 @@ import { logger } from '../utils/logger';
 import { BaseService } from './base/BaseService';
 import { GuildMember, Guild } from 'discord.js';
 import { BehaviorAnalyzer, UserBehaviorPattern } from './analytics/behavior';
+import { globalPools } from '../utils/PromisePool';
 import { 
   ContextItem, 
   RichContext, 
@@ -63,9 +64,24 @@ export class ContextManager extends BaseService implements IContextManager {
   private userContextBuilder: UserContextBuilder;
   private contextCacheManager: ContextCacheManager;
   
+  // Memory management - Weak references for user-specific data
+  private userDataWeakMap: WeakMap<object, unknown> = new WeakMap();
+  
   // Timers
   private readonly MEMORY_CHECK_INTERVAL = 300000; // 5 minutes
   private readonly SUMMARIZATION_INTERVAL = 1800000; // 30 minutes
+  private readonly STALE_DATA_CLEANUP_INTERVAL = 3600000; // 1 hour
+  private readonly MEMORY_MONITOR_INTERVAL = 30000; // 30 seconds
+  
+  // Memory thresholds
+  private readonly MEMORY_WARNING_THRESHOLD_MB = 400;
+  private readonly MEMORY_CRITICAL_THRESHOLD_MB = 500;
+  private readonly STALE_DATA_DAYS = 30;
+  
+  // Context cache configuration
+  private readonly CONTEXT_CACHE_TTL = 300000; // 5 minutes
+  private readonly CONTEXT_CACHE_MAX_ENTRIES = 1000;
+  private contextCache: Map<string, { content: string; hash: string; timestamp: number }> = new Map();
   
   constructor() {
     super();
@@ -109,8 +125,18 @@ export class ContextManager extends BaseService implements IContextManager {
     this.createInterval('summarization', () => {
       this.performScheduledSummarization();
     }, this.SUMMARIZATION_INTERVAL);
+    
+    // Start stale data cleanup
+    this.createInterval('staleDataCleanup', () => {
+      this.performStaleDataCleanup();
+    }, this.STALE_DATA_CLEANUP_INTERVAL);
+    
+    // Start memory usage monitoring
+    this.createInterval('memoryUsageMonitor', () => {
+      this.monitorMemoryUsage();
+    }, this.MEMORY_MONITOR_INTERVAL);
 
-    logger.info('ContextManager initialized with memory monitoring and summarization');
+    logger.info('ContextManager initialized with memory monitoring, summarization, and stale data cleanup');
   }
 
   protected async performShutdown(): Promise<void> {
@@ -129,7 +155,9 @@ export class ContextManager extends BaseService implements IContextManager {
     this.userContextBuilder.clearAllCaches();
     this.serverContextBuilder.clearAllCaches();
     
+    // Clear all caches
     this.serverContext.clear();
+    this.contextCache.clear();
     logger.info('ContextManager shutdown complete');
   }
 
@@ -204,7 +232,7 @@ export class ContextManager extends BaseService implements IContextManager {
     const context = this.serverContext.get(serverId);
     if (!context) return '';
 
-    // Check cache first
+    // OPTIMIZATION: Check cache first
     const cacheKey = `super_context_${serverId}_${userId}`;
     const cached = this.contextCacheManager.getString(cacheKey);
     if (cached) {
@@ -280,8 +308,17 @@ export class ContextManager extends BaseService implements IContextManager {
       ? result.substring(0, maxLength) + '...' 
       : result;
     
-    // Cache the result (5 minute TTL)
-    this.contextCacheManager.setString(cacheKey, finalResult, 300000);
+    // Store in enhanced cache with hash validation
+    const contextHash = this.generateContextHash(context, userId);
+    const now = Date.now();
+    this.contextCache.set(cacheKey, {
+      content: finalResult,
+      hash: contextHash,
+      timestamp: now
+    });
+    
+    // Evict old cache entries if cache is too large
+    this.evictOldCacheEntries();
     
     return finalResult;
   }
@@ -435,9 +472,15 @@ export class ContextManager extends BaseService implements IContextManager {
 
   /**
    * Analyze a message for behavioral patterns
+   * OPTIMIZED: Fire-and-forget with promise pool
    */
   public async analyzeMessageBehavior(userId: string, message: string): Promise<void> {
-    await this.behaviorAnalyzer.analyzeMessage(userId, message);
+    // Use promise pool for non-critical background analysis
+    globalPools.context.execute(async () => {
+      await this.behaviorAnalyzer.analyzeMessage(userId, message);
+    }).catch(error => {
+      logger.error('Failed to analyze message behavior', { error, userId });
+    });
   }
 
   /**
@@ -1006,6 +1049,168 @@ export class ContextManager extends BaseService implements IContextManager {
   /**
    * Get cross-server insights for a user
    */
+  /**
+   * Generate a hash of the context for cache validation
+   */
+  private generateContextHash(context: RichContext, userId: string): string {
+    // Simple hash based on key data points
+    const factors = [
+      context.embarrassingMoments.length,
+      context.runningGags.length,
+      context.codeSnippets.get(userId)?.length || 0,
+      context.lastSummarization,
+      context.approximateSize
+    ];
+    return factors.join('-');
+  }
+  
+  /**
+   * Evict old cache entries when cache grows too large
+   */
+  private evictOldCacheEntries(): void {
+    if (this.contextCache.size <= this.CONTEXT_CACHE_MAX_ENTRIES) {
+      return;
+    }
+    
+    // Sort entries by timestamp and remove oldest
+    const entries = Array.from(this.contextCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    
+    const toRemove = entries.slice(0, entries.length - this.CONTEXT_CACHE_MAX_ENTRIES);
+    toRemove.forEach(([key]) => this.contextCache.delete(key));
+    
+    logger.info(`Evicted ${toRemove.length} old cache entries`);
+  }
+  
+  /**
+   * Perform stale data cleanup - removes data older than 30 days
+   */
+  private performStaleDataCleanup(): void {
+    const now = Date.now();
+    const staleThreshold = now - (this.STALE_DATA_DAYS * 24 * 60 * 60 * 1000);
+    let cleanedServers = 0;
+    let totalItemsRemoved = 0;
+    
+    for (const [, context] of this.serverContext.entries()) {
+      let itemsRemoved = 0;
+      
+      // Clean up embarrassing moments
+      const freshMoments = context.embarrassingMoments.filter(item => item.timestamp > staleThreshold);
+      itemsRemoved += context.embarrassingMoments.length - freshMoments.length;
+      context.embarrassingMoments = freshMoments;
+      
+      // Clean up running gags
+      const freshGags = context.runningGags.filter(item => item.timestamp > staleThreshold);
+      itemsRemoved += context.runningGags.length - freshGags.length;
+      context.runningGags = freshGags;
+      
+      // Clean up code snippets
+      for (const [userId, snippets] of context.codeSnippets.entries()) {
+        const freshSnippets = snippets.filter(item => item.timestamp > staleThreshold);
+        if (freshSnippets.length === 0) {
+          context.codeSnippets.delete(userId);
+          itemsRemoved += snippets.length;
+        } else if (freshSnippets.length < snippets.length) {
+          context.codeSnippets.set(userId, freshSnippets);
+          itemsRemoved += snippets.length - freshSnippets.length;
+        }
+      }
+      
+      // Clean up summarized facts
+      const freshFacts = context.summarizedFacts.filter(item => item.timestamp > staleThreshold);
+      itemsRemoved += context.summarizedFacts.length - freshFacts.length;
+      context.summarizedFacts = freshFacts;
+      
+      // Clean up social graph entries
+      for (const [userId, graph] of context.socialGraph.entries()) {
+        let hasRecentInteraction = false;
+        for (const [, lastInteraction] of graph.lastInteraction.entries()) {
+          if (lastInteraction.getTime() > staleThreshold) {
+            hasRecentInteraction = true;
+            break;
+          }
+        }
+        if (!hasRecentInteraction) {
+          context.socialGraph.delete(userId);
+          itemsRemoved++;
+        }
+      }
+      
+      if (itemsRemoved > 0) {
+        cleanedServers++;
+        totalItemsRemoved += itemsRemoved;
+        // Refresh size after cleanup
+        this.memoryOptimizationService.refreshApproximateSize(context);
+      }
+    }
+    
+    if (totalItemsRemoved > 0) {
+      logger.info('Stale data cleanup completed', {
+        serversCleanedUp: cleanedServers,
+        totalItemsRemoved,
+        staleThresholdDays: this.STALE_DATA_DAYS
+      });
+    }
+  }
+  
+  /**
+   * Monitor heap memory usage and trigger aggressive cleanup if needed
+   */
+  private monitorMemoryUsage(): void {
+    const memoryUsage = process.memoryUsage();
+    const heapUsedMB = Math.round(memoryUsage.heapUsed / 1024 / 1024);
+    const heapTotalMB = Math.round(memoryUsage.heapTotal / 1024 / 1024);
+    const externalMB = Math.round(memoryUsage.external / 1024 / 1024);
+    
+    // Log memory stats periodically
+    logger.info('Memory usage stats', {
+      heapUsedMB,
+      heapTotalMB,
+      externalMB,
+      serverCount: this.serverContext.size,
+      cacheEntries: this.contextCache.size
+    });
+    
+    // Warning threshold
+    if (heapUsedMB > this.MEMORY_WARNING_THRESHOLD_MB) {
+      logger.warn(`Memory usage warning: ${heapUsedMB}MB used (threshold: ${this.MEMORY_WARNING_THRESHOLD_MB}MB)`);
+    }
+    
+    // Critical threshold - trigger aggressive cleanup
+    if (heapUsedMB > this.MEMORY_CRITICAL_THRESHOLD_MB) {
+      logger.error(`Memory usage critical: ${heapUsedMB}MB used (threshold: ${this.MEMORY_CRITICAL_THRESHOLD_MB}MB)`);
+      this.performAggressiveCleanup();
+    }
+  }
+  
+  /**
+   * Perform aggressive memory cleanup when memory usage is critical
+   */
+  private performAggressiveCleanup(): void {
+    logger.warn('Starting aggressive memory cleanup');
+    
+    // Clear all caches
+    this.contextCache.clear();
+    this.contextCacheManager.clear();
+    
+    // Force summarization on all contexts
+    for (const [, context] of this.serverContext.entries()) {
+      this.memoryOptimizationService.summarizeServerContext(context);
+    }
+    
+    // Clear builder caches
+    this.userContextBuilder.clearAllCaches();
+    this.serverContextBuilder.clearAllCaches();
+    
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+      logger.info('Forced garbage collection');
+    }
+    
+    logger.info('Aggressive memory cleanup completed');
+  }
+  
   getCrossServerInsights(userId: string): CrossServerInsights {
     const globalPatterns: string[] = [];
     let totalInteractions = 0;

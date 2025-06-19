@@ -5,7 +5,7 @@
  * Used primarily for user summary/analysis commands.
  */
 
-import type { User, Client, Message } from 'discord.js';
+import type { User, Client, Message, TextChannel, GuildMember, Guild } from 'discord.js';
 import type { IService } from './CoreServiceInterfaces';
 import type { IAIService } from './AIServiceInterfaces';
 import type { LocalAnalysisResult } from '../../utils/localUserAnalyzer';
@@ -50,7 +50,7 @@ export interface IUserAnalysisService extends IService {
    */
   fetchUserMessages(
     client: Client,
-    channel: any,
+    channel: TextChannel,
     targetUserId: string,
     limit?: number
   ): Promise<string[]>;
@@ -73,8 +73,8 @@ export interface IUserAnalysisService extends IService {
     aiService: IAIService,
     requestingUserId: string,
     guildId?: string,
-    member?: any,
-    guild?: any
+    member?: GuildMember | null,
+    guild?: Guild | null
   ): Promise<UserAnalysisResult>;
 
   /**

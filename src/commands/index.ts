@@ -705,27 +705,100 @@ const commands = [
 ];
 
 export async function registerCommands(_client: Client) {
-  const rest = new REST().setToken(process.env.DISCORD_TOKEN!);
+  const startTime = Date.now();
+  const requestId = `register_commands_${Date.now()}`;
+  
+  const { enrichError, createTimeoutPromise, handleAsyncOperation } = await import('../utils/ErrorHandlingUtils');
+  
+  const result = await handleAsyncOperation(
+    async () => {
+      logger.info('Started refreshing application (/) commands.', { requestId });
 
-  try {
-    logger.info('Started refreshing application (/) commands.');
+      const clientId = process.env.DISCORD_CLIENT_ID;
+      if (!clientId) {
+        throw enrichError(new Error('DISCORD_CLIENT_ID not found in environment variables'), {
+          category: 'VALIDATION' as const,
+          operation: 'validateClientId',
+          requestId
+        });
+      }
 
-    const clientId = process.env.DISCORD_CLIENT_ID;
-    if (!clientId) {
-      throw new Error('DISCORD_CLIENT_ID not found in environment variables');
-    }
+      const discordToken = process.env.DISCORD_TOKEN;
+      if (!discordToken) {
+        throw enrichError(new Error('DISCORD_TOKEN not found in environment variables'), {
+          category: 'VALIDATION' as const,
+          operation: 'validateDiscordToken',
+          requestId
+        });
+      }
 
-    await rest.put(Routes.applicationCommands(clientId), {
-      body: commands.map((command) => command.toJSON()),
+      const rest = new REST().setToken(discordToken);
+
+      // Validate commands before registering
+      const commandsData = commands.map((command, index) => {
+        try {
+          return command.toJSON();
+        } catch (error) {
+          throw enrichError(new Error(`Failed to serialize command at index ${index}`), {
+            operation: 'command.toJSON',
+            commandIndex: index,
+            commandName: command.name,
+            requestId
+          });
+        }
+      });
+
+      logger.info(`Registering ${commandsData.length} commands with Discord API`, {
+        requestId,
+        commandCount: commandsData.length
+      });
+
+      // Register commands with timeout protection
+      await Promise.race([
+        rest.put(Routes.applicationCommands(clientId), {
+          body: commandsData,
+        }),
+        createTimeoutPromise(30000).then(() => {
+          throw enrichError(new Error('Command registration timeout'), {
+            operation: 'rest.put',
+            timeout: 30000,
+            requestId
+          });
+        })
+      ]);
+
+      const duration = Date.now() - startTime;
+      logger.info('Successfully reloaded application (/) commands.', {
+        duration,
+        requestId,
+        commandCount: commandsData.length
+      });
+    },
+    {
+      maxRetries: 2, // Retry command registration up to 2 times
+      retryDelay: 5000,
+      retryMultiplier: 2.0,
+      timeout: 45000
+    },
+    undefined,
+    { operation: 'registerCommands', requestId }
+  );
+
+  if (!result.success) {
+    const error = result.error!;
+    logger.error('Failed to register commands after retries', {
+      error,
+      retryCount: result.retryCount,
+      duration: Date.now() - startTime,
+      requestId
     });
-
-    logger.info('Successfully reloaded application (/) commands.');
-  } catch (error) {
-    logger.error('Error registering commands:', error);
+    throw error;
   }
 }
 
 export async function handleAutocomplete(interaction: AutocompleteInteraction, userPreferenceManager: UserPreferenceManager) {
+  const startTime = Date.now();
+  const requestId = `autocomplete_${interaction.id}_${Date.now()}`;
   const { commandName, options } = interaction;
   const focusedOption = options.getFocused(true);
   const userId = interaction.user.id;
@@ -733,89 +806,134 @@ export async function handleAutocomplete(interaction: AutocompleteInteraction, u
 
   let choices: string[] = [];
 
+  const { enrichError, createTimeoutPromise } = await import('../utils/ErrorHandlingUtils');
+
   try {
-    switch (commandName) {
-    case 'preferences':
-      if (focusedOption.name === 'value') {
-        const key = options.getString('key');
-        choices = getPreferenceValueSuggestions(key, focusedOption.value);
-      }
-      break;
+    // Wrap autocomplete logic with timeout protection
+    await Promise.race([
+      (async () => {
+        switch (commandName) {
+        case 'preferences':
+          if (focusedOption.name === 'value') {
+            const key = options.getString('key');
+            choices = getPreferenceValueSuggestions(key, focusedOption.value);
+          }
+          break;
 
-    case 'alias':
-      if (focusedOption.name === 'command') {
-        const availableCommands = getAllCommandNames();
-        choices = userPreferenceManager.getCommandSuggestions(
-          userId, 
-          serverId, 
-          focusedOption.value, 
-          availableCommands
-        );
-      } else if (focusedOption.name === 'alias') {
-        const userPrefs = await userPreferenceManager.getUserPreferencesForServer(userId, serverId);
-        choices = Object.keys(userPrefs.commandAliases).filter(alias =>
-          alias.toLowerCase().includes(focusedOption.value.toLowerCase())
-        );
-      }
-      break;
+        case 'alias':
+          if (focusedOption.name === 'command') {
+            const availableCommands = getAllCommandNames();
+            choices = userPreferenceManager.getCommandSuggestions(
+              userId, 
+              serverId, 
+              focusedOption.value, 
+              availableCommands
+            );
+          } else if (focusedOption.name === 'alias') {
+            const userPrefs = await userPreferenceManager.getUserPreferencesForServer(userId, serverId);
+            choices = Object.keys(userPrefs.commandAliases).filter(alias =>
+              alias.toLowerCase().includes(focusedOption.value.toLowerCase())
+            );
+          }
+          break;
 
-    case 'history':
-      if (focusedOption.name === 'command_id') {
-        const history = await userPreferenceManager.getCommandHistory(userId, serverId, 20);
-        choices = history
-          .filter(entry => entry.id.includes(focusedOption.value) || 
+        case 'history':
+          if (focusedOption.name === 'command_id') {
+            const history = await userPreferenceManager.getCommandHistory(userId, serverId, 20);
+            choices = history
+              .filter(entry => entry.id.includes(focusedOption.value) || 
                            entry.command.toLowerCase().includes(focusedOption.value.toLowerCase()))
-          .map(entry => `${entry.id} - ${entry.command}`)
-          .slice(0, 10);
-      }
-      break;
+              .map(entry => `${entry.id} - ${entry.command}`)
+              .slice(0, 10);
+          }
+          break;
 
-    case 'schedule':
-      if (focusedOption.name === 'command') {
-        const availableCommands = getAllCommandNames();
-        choices = userPreferenceManager.getCommandSuggestions(
-          userId, 
-          serverId, 
-          focusedOption.value, 
-          availableCommands
-        );
-      } else if (focusedOption.name === 'command_id') {
-        const scheduled = userPreferenceManager.getScheduledCommands(userId, serverId);
-        choices = scheduled
-          .filter(cmd => cmd.id.includes(focusedOption.value) || 
+        case 'schedule':
+          if (focusedOption.name === 'command') {
+            const availableCommands = getAllCommandNames();
+            choices = userPreferenceManager.getCommandSuggestions(
+              userId, 
+              serverId, 
+              focusedOption.value, 
+              availableCommands
+            );
+          } else if (focusedOption.name === 'command_id') {
+            const scheduled = userPreferenceManager.getScheduledCommands(userId, serverId);
+            choices = scheduled
+              .filter(cmd => cmd.id.includes(focusedOption.value) || 
                           cmd.command.toLowerCase().includes(focusedOption.value.toLowerCase()))
-          .map(cmd => `${cmd.id} - ${cmd.command}`)
-          .slice(0, 10);
-      }
-      break;
+              .map(cmd => `${cmd.id} - ${cmd.command}`)
+              .slice(0, 10);
+          }
+          break;
 
-    case 'bulk':
-      if (focusedOption.name === 'operation_id') {
-        // This would need access to bulk operations
-        choices = ['No active operations'];
-      }
-      break;
+        case 'bulk':
+          if (focusedOption.name === 'operation_id') {
+            // This would need access to bulk operations
+            choices = ['No active operations'];
+          }
+          break;
 
-    case 'help':
-      if (focusedOption.name === 'command') {
-        const availableCommands = getAllCommandNames();
-        choices = availableCommands.filter(cmd =>
-          cmd.toLowerCase().includes(focusedOption.value.toLowerCase())
-        );
-      }
-      break;
-    }
+        case 'help':
+          if (focusedOption.name === 'command') {
+            const availableCommands = getAllCommandNames();
+            choices = availableCommands.filter(cmd =>
+              cmd.toLowerCase().includes(focusedOption.value.toLowerCase())
+            );
+          }
+          break;
+        }
 
-    // Limit choices to Discord's maximum of 25
-    const limitedChoices = choices.slice(0, 25).map(choice => ({
-      name: choice.length > 100 ? choice.substring(0, 97) + '...' : choice,
-      value: choice.length > 100 ? choice.substring(0, 100) : choice,
-    }));
+        // Limit choices to Discord's maximum of 25
+        const limitedChoices = choices.slice(0, 25).map(choice => ({
+          name: choice.length > 100 ? choice.substring(0, 97) + '...' : choice,
+          value: choice.length > 100 ? choice.substring(0, 100) : choice,
+        }));
 
-    await interaction.respond(limitedChoices);
+        await interaction.respond(limitedChoices);
+      })(),
+      createTimeoutPromise(5000).then(() => {
+        throw enrichError(new Error('Autocomplete processing timeout'), {
+          operation: 'autocomplete.process',
+          commandName,
+          timeout: 5000,
+          requestId
+        });
+      })
+    ]);
+
+    const duration = Date.now() - startTime;
+    logger.debug('Autocomplete processed successfully', {
+      commandName,
+      duration,
+      choicesCount: choices.length,
+      requestId
+    });
+
   } catch (error) {
-    logger.error('Error in autocomplete handler:', error);
-    await interaction.respond([]);
+    const enrichedError = enrichError(error as Error, {
+      commandName,
+      userId,
+      serverId,
+      focusedOption: focusedOption.name,
+      requestId,
+      duration: Date.now() - startTime
+    });
+
+    logger.error('Error in autocomplete handler', {
+      error: enrichedError,
+      errorCategory: enrichedError.category
+    });
+
+    try {
+      await interaction.respond([]);
+    } catch (responseError) {
+      logger.error('Failed to send empty autocomplete response', {
+        error: responseError,
+        originalError: enrichedError,
+        requestId
+      });
+    }
   }
 }
 

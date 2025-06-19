@@ -1,0 +1,291 @@
+# Code Quality Audit Orchestration Manifest
+# Generated: 2025-01-16
+# Project: discord-llm-bot
+# Total Execution Time: 8 weeks
+# Total Tasks: 31
+# Critical Path: Type Safety → Testing → Complexity → Architecture
+
+metadata:
+  workflow: code-quality-audit
+  version: 3.0
+  generated_by: claude-orchestrator
+  project: discord-llm-bot
+  audit_date: 2025-01-16
+  total_issues: 207
+  critical_issues: 31
+  
+execution_summary:
+  phases: 5
+  total_duration: 8_weeks
+  developer_count: 2
+  parallel_execution: enabled
+  monitoring_required: true
+
+phase_1_emergency_fixes:
+  name: "Type Safety & Critical Testing"
+  duration: 1_week
+  priority: CRITICAL
+  blocking: true
+  
+  tasks:
+    - id: TS001
+      name: "Replace 50 explicit 'any' types"
+      type: type-safety
+      priority: CRITICAL
+      effort: 2_days
+      files_affected: 20
+      assigned_to: agent_1
+      dependencies: []
+      implementation:
+        - Create TypeScript interfaces for all API responses
+        - Define strict types for event handlers
+        - Add generic constraints to utility functions
+      verification:
+        - Run tsc --noEmit
+        - Verify zero 'any' usage with eslint
+      
+    - id: TS002
+      name: "Enable TypeScript strict mode"
+      type: configuration
+      priority: CRITICAL
+      effort: 1_day
+      assigned_to: agent_1
+      dependencies: [TS001]
+      implementation:
+        - Update tsconfig.json with strict: true
+        - Fix resulting compilation errors
+        - Add type guards where needed
+        
+    - id: TEST001
+      name: "Add tests for 6 Gemini AI services"
+      type: testing
+      priority: CRITICAL
+      effort: 3_days
+      assigned_to: agent_2
+      dependencies: []
+      files:
+        - GeminiService.test.ts
+        - GeminiAPIClient.test.ts
+        - GeminiConfigValidator.test.ts
+        - MultimodalContentHandler.test.ts
+        - RoastingEngine.test.ts
+        - GeminiChatCompleter.test.ts
+      verification:
+        - Achieve 80% coverage for Gemini services
+        - All tests passing
+
+phase_2_complexity_reduction:
+  name: "Decompose God Classes"
+  duration: 2_weeks
+  priority: HIGH
+  
+  tasks:
+    - id: REF001
+      name: "Refactor BaseService.ts (1,222 lines)"
+      type: refactoring
+      priority: HIGH
+      effort: 4_days
+      assigned_to: agent_3
+      dependencies: []
+      decomposition:
+        - Extract TimerManagementMixin (200 lines)
+        - Extract HealthMonitoringMixin (150 lines)
+        - Extract LifecycleManagementMixin (100 lines)
+        - Core BaseService (<300 lines)
+      verification:
+        - All existing tests pass
+        - No functionality changes
+        
+    - id: REF002
+      name: "Split contextManager.ts (1,394 lines)"
+      type: refactoring
+      priority: HIGH
+      effort: 5_days
+      assigned_to: agent_4
+      dependencies: []
+      decomposition:
+        - ConversationMemoryManager (300 lines)
+        - ContextBuilderOrchestrator (250 lines)
+        - TokenManager (200 lines)
+        - StateManager (200 lines)
+        
+    - id: REF003
+      name: "Implement Command Registry pattern"
+      type: refactoring
+      priority: HIGH
+      effort: 3_days
+      assigned_to: agent_5
+      dependencies: []
+      target: commands/index.ts
+      approach:
+        - Create ICommand interface
+        - Implement CommandRegistry class
+        - Convert switch to registry lookups
+
+phase_3_architecture_improvements:
+  name: "Dependency Injection & Patterns"
+  duration: 2_weeks
+  priority: MEDIUM
+  
+  tasks:
+    - id: ARCH001
+      name: "Implement tsyringe dependency injection"
+      type: architecture
+      priority: HIGH
+      effort: 3_days
+      assigned_to: agent_6
+      dependencies: [REF001, REF002]
+      implementation:
+        - Install and configure tsyringe
+        - Add @injectable decorators
+        - Create container configuration
+        - Refactor service instantiation
+        
+    - id: ARCH002
+      name: "Apply Repository pattern to DataStore"
+      type: architecture
+      priority: MEDIUM
+      effort: 4_days
+      assigned_to: agent_7
+      dependencies: [ARCH001]
+      repositories:
+        - UserRepository
+        - ConversationRepository
+        - ConfigurationRepository
+        - AnalyticsRepository
+        
+    - id: ARCH003
+      name: "Extract service mixins"
+      type: architecture
+      priority: MEDIUM
+      effort: 3_days
+      assigned_to: agent_8
+      dependencies: [REF001]
+
+phase_4_dry_cleanup:
+  name: "Eliminate Duplication"
+  duration: 2_weeks
+  priority: MEDIUM
+  
+  tasks:
+    - id: DRY001
+      name: "Consolidate configuration constants"
+      type: dry-violation
+      priority: HIGH
+      effort: 2_days
+      assigned_to: agent_9
+      violations: 15
+      
+    - id: DRY002
+      name: "Extract BatchProcessor utility"
+      type: dry-violation
+      priority: MEDIUM
+      effort: 2_days
+      assigned_to: agent_10
+      violations: 5
+      
+    - id: DRY003
+      name: "Create ServiceInitializer base"
+      type: dry-violation
+      priority: MEDIUM
+      effort: 3_days
+      assigned_to: agent_11
+      violations: 8
+
+phase_5_validation:
+  name: "Testing & Documentation"
+  duration: 1_week
+  priority: HIGH
+  
+  tasks:
+    - id: VAL001
+      name: "Achieve 80% test coverage"
+      type: testing
+      priority: HIGH
+      effort: 3_days
+      assigned_to: [agent_1, agent_2, agent_3]
+      
+    - id: VAL002
+      name: "Performance benchmarking"
+      type: validation
+      priority: MEDIUM
+      effort: 2_days
+      assigned_to: agent_4
+      
+    - id: VAL003
+      name: "Update documentation"
+      type: documentation
+      priority: MEDIUM
+      effort: 2_days
+      assigned_to: agent_5
+
+monitoring_requirements:
+  metrics:
+    - type_safety_score:
+        current: 70.24
+        target: 95
+        measurement: "tsc --strict analysis"
+    - test_coverage:
+        current: 25.9
+        target: 80
+        measurement: "jest --coverage"
+    - file_size:
+        current: "7 files >1000 lines"
+        target: "0 files >500 lines"
+        measurement: "wc -l analysis"
+    - cyclomatic_complexity:
+        current: "max 85"
+        target: "max 15"
+        measurement: "complexity analysis"
+        
+  checkpoints:
+    - week_1:
+        - All 'any' types replaced
+        - Gemini services tested
+        - TypeScript strict mode enabled
+    - week_3:
+        - God classes refactored
+        - File sizes <500 lines
+        - Complexity <20
+    - week_5:
+        - Dependency injection implemented
+        - Repository pattern applied
+        - Architecture score >8.5
+    - week_8:
+        - 80% test coverage achieved
+        - All DRY violations resolved
+        - Performance targets met
+
+rollback_procedures:
+  - phase_1: "Revert tsconfig.json changes"
+  - phase_2: "Git reset to pre-refactoring tags"
+  - phase_3: "Remove DI framework, restore direct instantiation"
+  - phase_4: "Keep improvements, low risk"
+  - phase_5: "No rollback needed"
+
+success_criteria:
+  technical:
+    - Zero TypeScript errors with strict mode
+    - 80%+ test coverage with quality assertions
+    - No files exceeding 500 lines
+    - Cyclomatic complexity <15 for all methods
+    - Zero critical DRY violations
+    
+  business:
+    - 70% reduction in production incidents
+    - 2x faster feature development velocity
+    - 50% reduction in bug fix time
+    - Improved developer satisfaction scores
+
+next_steps:
+  immediate:
+    - Review and approve manifest
+    - Allocate developer resources
+    - Set up monitoring dashboard
+    - Create feature flags for gradual rollout
+    
+  ongoing:
+    - Weekly progress reviews
+    - Metric tracking and reporting
+    - Risk assessment updates
+    - Stakeholder communication

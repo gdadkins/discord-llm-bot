@@ -21,6 +21,7 @@ import type {
 import type { ServiceHealthStatus } from '../interfaces/CoreServiceInterfaces';
 import Database from 'better-sqlite3';
 import { dataStoreFactory } from '../../utils/DataStoreFactory';
+import { EventBatchingService, type IEventBatchingService, type BatchableEvent, type DataStoreEvent, type BatchConfig } from './EventBatchingService';
 
 export interface IEventTrackingService extends IAnalyticsTracker {
   /**
@@ -41,6 +42,16 @@ export interface IEventTrackingService extends IAnalyticsTracker {
     errors: number;
     performance: number;
   } | null>;
+  
+  /**
+   * Configure batching settings
+   */
+  configureBatching(enabled: boolean, config?: Partial<BatchConfig>): Promise<void>;
+  
+  /**
+   * Force flush batched events
+   */
+  flushBatchedEvents(): Promise<void>;
 }
 
 /**
@@ -51,9 +62,11 @@ export interface IEventTrackingService extends IAnalyticsTracker {
 export class EventTrackingService extends BaseService implements IEventTrackingService {
   private database: Database.Database | null = null;
   private readonly mutex = new Mutex();
+  private batchingService: IEventBatchingService | null = null;
   
   // Configuration
   private enabled: boolean;
+  private useBatching: boolean = true; // Enable batching by default
   
   // Function to get privacy settings
   private getUserPrivacySettings: (userId: string) => Promise<UserPrivacySettings>;
@@ -83,9 +96,16 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
    * Perform service-specific initialization
    */
   protected async performInitialization(): Promise<void> {
+    // Initialize batching service if enabled
+    if (this.useBatching && this.database) {
+      this.batchingService = new EventBatchingService(this.database);
+      await this.batchingService.initialize();
+    }
+    
     logger.info('EventTrackingService initialized', {
       enabled: this.enabled,
-      databaseAvailable: !!this.database
+      databaseAvailable: !!this.database,
+      batchingEnabled: this.useBatching && !!this.batchingService
     });
   }
 
@@ -93,7 +113,11 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
    * Perform service-specific shutdown
    */
   protected async performShutdown(): Promise<void> {
-    // No specific cleanup needed
+    // Shutdown batching service
+    if (this.batchingService) {
+      await this.batchingService.shutdown();
+      this.batchingService = null;
+    }
   }
 
   /**
@@ -109,26 +133,47 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
     const privacy = await this.getUserPrivacySettings(event.userHash);
     if (privacy.optedOut) return;
 
-    const release = await this.mutex.acquire();
-    try {
-      const stmt = this.database.prepare(`
-        INSERT INTO command_usage 
-        (timestamp, command_name, user_hash, server_hash, success, duration_ms, error_type, error_category)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+    const commandEvent: CommandUsageEvent = {
+      ...event,
+      timestamp: Date.now(),
+      userHash,
+      serverHash,
+      errorCategory: this.categorizeError(event.errorType)
+    };
 
-      stmt.run(
-        Date.now(),
-        event.commandName,
-        userHash,
-        serverHash,
-        event.success ? 1 : 0,
-        event.durationMs,
-        event.errorType || null,
-        this.categorizeError(event.errorType)
-      );
-    } finally {
-      release();
+    // Use batching if available
+    if (this.useBatching && this.batchingService) {
+      const batchableEvent: BatchableEvent = {
+        type: 'command',
+        priority: event.success ? 'normal' : 'high', // Failed commands are high priority
+        data: commandEvent,
+        timestamp: commandEvent.timestamp
+      };
+      
+      await this.batchingService.queueEvent(batchableEvent);
+    } else {
+      // Fallback to direct write
+      const release = await this.mutex.acquire();
+      try {
+        const stmt = this.database.prepare(`
+          INSERT INTO command_usage 
+          (timestamp, command_name, user_hash, server_hash, success, duration_ms, error_type, error_category)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        stmt.run(
+          commandEvent.timestamp,
+          commandEvent.commandName,
+          commandEvent.userHash,
+          commandEvent.serverHash,
+          commandEvent.success ? 1 : 0,
+          commandEvent.durationMs,
+          commandEvent.errorType || null,
+          commandEvent.errorCategory
+        );
+      } finally {
+        release();
+      }
     }
   }
 
@@ -156,39 +201,63 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
   ): Promise<void> {
     if (!this.enabled || !this.database) return;
 
-    const release = await this.mutex.acquire();
-    try {
-      const errorHash = crypto.SHA256(errorMessage).toString().substring(0, 16);
-      const errorCategory = this.categorizeError(errorType);
+    const errorHash = crypto.SHA256(errorMessage).toString().substring(0, 16);
+    const errorCategory = this.categorizeError(errorType);
+    
+    const userHash = context?.userId ? this.hashIdentifier(context.userId) : null;
+    const serverHash = context?.serverId ? this.hashIdentifier(context.serverId) : null;
+
+    // Check if user opted out (if applicable)
+    if (userHash && context?.userId) {
+      const privacy = await this.getUserPrivacySettings(context.userId);
+      if (privacy.optedOut) return;
+    }
+
+    const errorEvent: ErrorEvent = {
+      timestamp: Date.now(),
+      errorType,
+      errorCategory: errorCategory as any,
+      commandContext: context?.commandName,
+      userHash: userHash || undefined,
+      serverHash: serverHash || undefined,
+      errorHash,
+      count: 1
+    };
+
+    // Use batching if available
+    if (this.useBatching && this.batchingService) {
+      const batchableEvent: BatchableEvent = {
+        type: 'error',
+        priority: 'high', // Errors are high priority
+        data: errorEvent,
+        timestamp: errorEvent.timestamp
+      };
       
-      const userHash = context?.userId ? this.hashIdentifier(context.userId) : null;
-      const serverHash = context?.serverId ? this.hashIdentifier(context.serverId) : null;
+      await this.batchingService.queueEvent(batchableEvent);
+    } else {
+      // Fallback to direct write
+      const release = await this.mutex.acquire();
+      try {
+        const stmt = this.database.prepare(`
+          INSERT INTO error_events 
+          (timestamp, error_type, error_category, command_context, user_hash, server_hash, error_hash, count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+          ON CONFLICT(error_hash, DATE(timestamp / 1000, 'unixepoch')) 
+          DO UPDATE SET count = count + 1, timestamp = excluded.timestamp
+        `);
 
-      // Check if user opted out (if applicable)
-      if (userHash && context?.userId) {
-        const privacy = await this.getUserPrivacySettings(context.userId);
-        if (privacy.optedOut) return;
+        stmt.run(
+          errorEvent.timestamp,
+          errorEvent.errorType,
+          errorEvent.errorCategory,
+          errorEvent.commandContext || null,
+          errorEvent.userHash || null,
+          errorEvent.serverHash || null,
+          errorEvent.errorHash
+        );
+      } finally {
+        release();
       }
-
-      const stmt = this.database.prepare(`
-        INSERT INTO error_events 
-        (timestamp, error_type, error_category, command_context, user_hash, server_hash, error_hash, count)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-        ON CONFLICT(error_hash, DATE(timestamp / 1000, 'unixepoch')) 
-        DO UPDATE SET count = count + 1, timestamp = excluded.timestamp
-      `);
-
-      stmt.run(
-        Date.now(),
-        errorType,
-        errorCategory,
-        context?.commandName || null,
-        userHash,
-        serverHash,
-        errorHash
-      );
-    } finally {
-      release();
     }
   }
 
@@ -202,16 +271,44 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
   ): Promise<void> {
     if (!this.enabled || !this.database) return;
 
-    const release = await this.mutex.acquire();
-    try {
-      const stmt = this.database.prepare(`
-        INSERT INTO performance_events (timestamp, metric, value, context)
-        VALUES (?, ?, ?, ?)
-      `);
+    const performanceEvent: PerformanceEvent = {
+      timestamp: Date.now(),
+      metric,
+      value,
+      context
+    };
 
-      stmt.run(Date.now(), metric, value, context || null);
-    } finally {
-      release();
+    // Use batching if available
+    if (this.useBatching && this.batchingService) {
+      // Determine priority based on metric type
+      let priority: 'high' | 'normal' | 'low' = 'normal';
+      if (metric === 'api_latency' && value > 5000) {
+        priority = 'high'; // High latency is concerning
+      } else if (metric === 'cache_hit_rate' || metric === 'memory_usage') {
+        priority = 'low'; // These are less critical
+      }
+      
+      const batchableEvent: BatchableEvent = {
+        type: 'performance',
+        priority,
+        data: performanceEvent,
+        timestamp: performanceEvent.timestamp
+      };
+      
+      await this.batchingService.queueEvent(batchableEvent);
+    } else {
+      // Fallback to direct write
+      const release = await this.mutex.acquire();
+      try {
+        const stmt = this.database.prepare(`
+          INSERT INTO performance_events (timestamp, metric, value, context)
+          VALUES (?, ?, ?, ?)
+        `);
+
+        stmt.run(performanceEvent.timestamp, metric, value, context || null);
+      } finally {
+        release();
+      }
     }
   }
 
@@ -226,36 +323,112 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
   ): Promise<void> {
     if (!this.enabled || !this.database) return;
 
-    const release = await this.mutex.acquire();
-    try {
-      // Track as performance metric
-      const metric = operation === 'save' ? 'datastore_save_latency' : 
-        operation === 'load' ? 'datastore_load_latency' : 
-          'datastore_error_rate';
-      
-      const stmt = this.database.prepare(`
-        INSERT INTO performance_events (timestamp, metric, value, context)
-        VALUES (?, ?, ?, ?)
-      `);
+    const dataStoreEvent: DataStoreEvent = {
+      timestamp: Date.now(),
+      operation,
+      storeType,
+      latency,
+      bytesProcessed
+    };
 
-      const context = JSON.stringify({ 
-        storeType, 
-        operation,
-        bytesProcessed: bytesProcessed || 0 
-      });
+    // Use batching if available
+    if (this.useBatching && this.batchingService) {
+      const priority = operation === 'error' ? 'high' : 'normal';
       
-      stmt.run(Date.now(), metric, latency, context);
+      const batchableEvent: BatchableEvent = {
+        type: 'datastore',
+        priority,
+        data: dataStoreEvent,
+        timestamp: dataStoreEvent.timestamp
+      };
       
-      // Also track aggregate metrics
+      await this.batchingService.queueEvent(batchableEvent);
+      
+      // Also track aggregate metrics through batching
       if (operation !== 'error') {
-        await this.trackPerformance(
-          operation === 'save' ? 'datastore_save_time' : 'datastore_load_time',
-          latency,
-          storeType
-        );
+        const performanceEvent: PerformanceEvent = {
+          timestamp: Date.now(),
+          metric: operation === 'save' ? 'datastore_save_time' : 'datastore_load_time',
+          value: latency,
+          context: storeType
+        };
+        
+        await this.batchingService.queueEvent({
+          type: 'performance',
+          priority: 'low',
+          data: performanceEvent,
+          timestamp: performanceEvent.timestamp
+        });
       }
-    } finally {
-      release();
+    } else {
+      // Fallback to direct write
+      const release = await this.mutex.acquire();
+      try {
+        // Track as performance metric
+        const metric = operation === 'save' ? 'datastore_save_latency' : 
+          operation === 'load' ? 'datastore_load_latency' : 
+            'datastore_error_rate';
+        
+        const stmt = this.database.prepare(`
+          INSERT INTO performance_events (timestamp, metric, value, context)
+          VALUES (?, ?, ?, ?)
+        `);
+
+        const context = JSON.stringify({ 
+          storeType, 
+          operation,
+          bytesProcessed: bytesProcessed || 0 
+        });
+        
+        stmt.run(Date.now(), metric, latency, context);
+        
+        // Also track aggregate metrics
+        if (operation !== 'error') {
+          await this.trackPerformance(
+            operation === 'save' ? 'datastore_save_time' : 'datastore_load_time',
+            latency,
+            storeType
+          );
+        }
+      } finally {
+        release();
+      }
+    }
+  }
+
+  /**
+   * Configure batching settings
+   */
+  async configureBatching(enabled: boolean, config?: Partial<BatchConfig>): Promise<void> {
+    this.useBatching = enabled;
+    
+    if (enabled && !this.batchingService && this.database) {
+      // Initialize batching service if not already initialized
+      this.batchingService = new EventBatchingService(this.database);
+      await this.batchingService.initialize();
+    } else if (!enabled && this.batchingService) {
+      // Flush and shutdown batching service
+      await this.batchingService.shutdown();
+      this.batchingService = null;
+    }
+    
+    // Update configuration if provided
+    if (config && this.batchingService) {
+      this.batchingService.updateConfig(config);
+    }
+    
+    logger.info('Event batching configured', {
+      enabled,
+      config: config || 'default'
+    });
+  }
+
+  /**
+   * Force flush batched events
+   */
+  async flushBatchedEvents(): Promise<void> {
+    if (this.batchingService) {
+      await this.batchingService.flush();
     }
   }
 
@@ -319,7 +492,16 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
    * Check if service is healthy
    */
   protected isHealthy(): boolean {
-    return this.enabled && !!this.database;
+    const baseHealthy = this.enabled && !!this.database;
+    if (!baseHealthy) return false;
+    
+    // Check batching service health if enabled
+    if (this.useBatching && this.batchingService) {
+      const batchingStatus = this.batchingService.getBatchingHealthStatus();
+      return batchingStatus.healthy;
+    }
+    
+    return baseHealthy;
   }
   
   /**
@@ -333,6 +515,15 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
     if (!this.database) {
       errors.push('Database connection not available');
     }
+    
+    // Check batching service errors if enabled
+    if (this.useBatching && this.batchingService) {
+      const batchingStatus = this.batchingService.getBatchingHealthStatus();
+      if (!batchingStatus.healthy) {
+        errors.push(...batchingStatus.errors.map((e: string) => `Batching: ${e}`));
+      }
+    }
+    
     return errors;
   }
   
@@ -350,10 +541,19 @@ export class EventTrackingService extends BaseService implements IEventTrackingS
       }
     }
     
-    return {
+    const metrics: Record<string, unknown> = {
       enabled: this.enabled,
       databaseAvailable: !!this.database,
+      batchingEnabled: this.useBatching,
       eventCounts: eventCounts || { commands: 0, errors: 0, performance: 0 }
     };
+    
+    // Add batching metrics if available
+    if (this.useBatching && this.batchingService) {
+      metrics.batchingMetrics = this.batchingService.getMetrics();
+      metrics.batchingConfig = this.batchingService.getConfig();
+    }
+    
+    return metrics;
   }
 }

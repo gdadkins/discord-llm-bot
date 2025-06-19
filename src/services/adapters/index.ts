@@ -26,6 +26,7 @@ import type {
   ConfigurationChange,
   RateLimitCheckResult
 } from '../interfaces';
+import { EventListener } from '../../types';
 
 /**
  * Base adapter that provides common IService implementation
@@ -434,9 +435,15 @@ export class ConfigurationServiceAdapter extends ServiceAdapter implements IConf
     return this.configManager.importConfiguration(configData, format, modifiedBy, reason);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on(event: string | symbol, listener: (...args: any[]) => void): this {
-    this.configManager.on(event, listener);
+  on(event: 'config:changed', listener: (changes: ConfigurationChange[]) => void): this;
+  on(event: 'config:validated', listener: (valid: boolean, errors?: string[]) => void): this;
+  on(event: 'config:reloaded', listener: (version: string) => void): this;
+  on(event: 'config:error', listener: (error: Error) => void): this;
+  on(event: 'config:rollback', listener: (fromVersion: string, toVersion: string) => void): this;
+  on(event: string | symbol, listener: (...args: unknown[]) => void): this;
+  on(event: string | symbol, listener: Function): this {
+    // Delegate to the underlying configuration manager
+    this.configManager.on(event as never, listener as never);
     return this;
   }
 

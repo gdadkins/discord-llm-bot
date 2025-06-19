@@ -12,6 +12,8 @@
 
 import { logger } from '../../utils/logger';
 import { largeContextHandler } from '../../utils/largeContextHandler';
+import { globalPools } from '../../utils/PromisePool';
+import { globalCoalescers } from '../../utils/RequestCoalescer';
 import type { MessageContext } from '../../commands';
 import type { GuildMember, Client, Guild } from 'discord.js';
 import type { 
@@ -208,6 +210,7 @@ export class GeminiService implements IAIService {
 
   /**
    * Main AI generation method orchestrating all modules
+   * OPTIMIZED: Parallel execution of independent operations
    */
   async generateResponse(
     prompt: string,
@@ -225,39 +228,56 @@ export class GeminiService implements IAIService {
       size?: number;
     }>
   ): Promise<string> {
-    // Check degradation status first
-    const degradationResponse = await this.handleDegradationCheck(userId, prompt, respond, serverId);
-    if (degradationResponse !== null) {
-      return degradationResponse;
-    }
+    // Use request coalescing for identical simultaneous requests
+    const coalescerKey = `${prompt}-${userId}-${serverId || 'dm'}`;
+    return globalCoalescers.geminiGeneration.execute(coalescerKey, async () => {
+      // OPTIMIZATION: Run independent checks in parallel
+      const [degradationResult, cacheResult, validationResult] = await Promise.allSettled([
+        this.handleDegradationCheck(userId, prompt, respond, serverId),
+        this.handleCacheLookup(prompt, userId, serverId),
+        this.validateInputAndRateLimits(prompt)
+      ]);
 
-    // Check cache
-    const { response: cachedResponse, bypassCache } = await this.handleCacheLookup(prompt, userId, serverId);
-    if (cachedResponse) {
-      return cachedResponse;
-    }
+      // Check degradation status first (highest priority)
+      if (degradationResult.status === 'fulfilled' && degradationResult.value !== null) {
+        return degradationResult.value;
+      }
 
-    // Validate input and rate limits
-    await this.validateInputAndRateLimits(prompt);
+      // Check cache (if validation passed)
+      if (validationResult.status === 'rejected') {
+        throw validationResult.reason;
+      }
 
-    // Use retry handler for the main operation
-    try {
-      const result = await this.retryHandler.executeWithRetry(
-        async () => this.performAIGeneration(prompt, userId, serverId, messageContext, member, guild, imageAttachments),
-        { maxRetries: 3, retryDelay: 1000, retryMultiplier: 2.0 }
-      );
+      if (cacheResult.status === 'fulfilled') {
+        const { response: cachedResponse, bypassCache } = cacheResult.value;
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+      }
 
-      // Handle post-generation tasks
-      await this.handlePostGeneration(userId, prompt, result, bypassCache, serverId);
-      
-      return result;
-    } catch (error) {
-      return await this.handleGenerationError(error, prompt, userId, serverId);
-    }
+      // Use retry handler for the main operation
+      try {
+        const result = await this.retryHandler.executeWithRetry(
+          async () => this.performAIGeneration(prompt, userId, serverId, messageContext, member, guild, imageAttachments),
+          { maxRetries: 3, retryDelay: 1000, retryMultiplier: 2.0 }
+        );
+
+        // OPTIMIZATION: Fire-and-forget for post-generation tasks
+        // These don't affect the response, so we don't need to wait
+        const bypassCache = cacheResult.status === 'fulfilled' ? cacheResult.value.bypassCache : false;
+        this.handlePostGenerationAsync(userId, prompt, result, bypassCache, serverId)
+          .catch(error => logger.error('Post-generation task failed', { error }));
+        
+        return result;
+      } catch (error) {
+        return await this.handleGenerationError(error, prompt, userId, serverId);
+      }
+    });
   }
 
   /**
    * Core AI generation process coordinating all modules
+   * OPTIMIZED: Parallel context assembly where possible
    */
   private async performAIGeneration(
     prompt: string,
@@ -274,24 +294,24 @@ export class GeminiService implements IAIService {
       size?: number;
     }>
   ): Promise<string> {
+    // OPTIMIZATION: Run independent operations in parallel
+    const hasImages = imageAttachments && imageAttachments.length > 0;
+    
     // Determine roasting personality
     const shouldRoastNow = this.roastingEngine.shouldRoast(userId, prompt, serverId);
     
-    // Use context processor to aggregate context
-    const hasImages = imageAttachments && imageAttachments.length > 0;
+    // Assemble context sources synchronously (assembleContext is not async)
     const contextSources = this.contextProcessor.assembleContext(
       userId, serverId, messageContext, member, guild, prompt, hasImages
     );
     
-    // Build complete prompt
-    const fullPrompt = await this.contextProcessor.buildSystemContext(
-      shouldRoastNow, contextSources, prompt
-    );
-    
-    // Calculate dynamic thinking budget
-    const dynamicBudget = this.contextProcessor.calculateThinkingBudget(
-      prompt, contextSources.superContext ? 'medium' : 'low'
-    );
+    // Build complete prompt and calculate budget in parallel
+    const [fullPrompt, dynamicBudget] = await Promise.all([
+      this.contextProcessor.buildSystemContext(shouldRoastNow, contextSources, prompt),
+      Promise.resolve(this.contextProcessor.calculateThinkingBudget(
+        prompt, contextSources.superContext ? 'medium' : 'low'
+      ))
+    ]);
     
     // Execute API call through API client
     const response = await this.apiClient.executeAPICall(
@@ -407,6 +427,28 @@ export class GeminiService implements IAIService {
     if (!bypassCache) {
       await this.cacheManager.set(prompt, userId, result, serverId);
     }
+  }
+
+  /**
+   * OPTIMIZED: Async version for fire-and-forget execution
+   */
+  private async handlePostGenerationAsync(
+    userId: string,
+    prompt: string,
+    result: string,
+    bypassCache: boolean,
+    serverId?: string
+  ): Promise<void> {
+    // Use promise pool to limit concurrent operations
+    await globalPools.context.execute(async () => {
+      // Run both operations in parallel since they're independent
+      await Promise.all([
+        // Store conversation history (synchronous operation)
+        Promise.resolve(this.conversationManager.addToConversation(userId, prompt, result)),
+        // Cache the response if needed (async operation)
+        !bypassCache ? this.cacheManager.set(prompt, userId, result, serverId) : Promise.resolve()
+      ]);
+    });
   }
 
   /**

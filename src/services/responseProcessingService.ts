@@ -16,6 +16,7 @@ import type {
 } from './interfaces/ResponseProcessingInterfaces';
 import type { ServiceHealthStatus } from './interfaces/CoreServiceInterfaces';
 import type { ProcessedAttachment } from './interfaces/MultimodalContentInterfaces'; // eslint-disable-line @typescript-eslint/no-unused-vars
+import { PerformanceMetadata } from '../types';
 
 /**
  * Response Processing Service Implementation
@@ -253,8 +254,15 @@ export class ResponseProcessingService implements IResponseProcessingService {
   /**
    * Formats thinking text with response text for Discord display
    */
-  formatThinkingResponse(thinkingText: string, responseText: string, maxLength: number, metadata?: any): string {
-    return formatThinkingResponse(thinkingText, responseText, maxLength, metadata);
+  formatThinkingResponse(thinkingText: string, responseText: string, maxLength: number, metadata?: PerformanceMetadata): string {
+    // Convert PerformanceMetadata to the expected thinking metadata format
+    const thinkingMetadata = metadata ? {
+      confidence: (metadata as any).confidence,
+      complexity: (metadata as any).complexity as 'low' | 'medium' | 'high' | undefined,
+      tokenCount: (metadata as any).tokenCount
+    } : undefined;
+    
+    return formatThinkingResponse(thinkingText, responseText, maxLength, thinkingMetadata);
   }
   
   /**

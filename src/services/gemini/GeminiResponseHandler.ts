@@ -18,8 +18,10 @@ import type {
 import type {
   IResponseProcessingService,
   IHealthMonitor,
-  StructuredOutputOptions
+  StructuredOutputOptions,
+  ProcessedResponse
 } from '../interfaces';
+import { ProcessedResponse as GeminiProcessedResponse, GeminiConfig, GroundingChunk, GroundingSource } from '../../types';
 
 export class GeminiResponseHandler implements IGeminiResponseHandler {
   private healthMonitor?: IHealthMonitor;
@@ -163,13 +165,25 @@ export class GeminiResponseHandler implements IGeminiResponseHandler {
     this.logProcessingResults(processed);
     
     if (processed.hasThinking) {
-      await this.trackThinkingAnalytics(processed, config);
+      // Convert to GeminiProcessedResponse for analytics
+      const geminiProcessed: GeminiProcessedResponse = {
+        content: processed.text,
+        text: processed.text,
+        thinking: processed.imageContext, // Adapt from different field names
+        hasThinking: processed.hasThinking,
+        thinkingLength: processed.thinkingLength,
+        wasTruncated: processed.wasTruncated,
+        warnings: processed.warnings,
+        isMultimodal: processed.isMultimodal,
+        imageContext: processed.imageContext
+      };
+      await this.trackThinkingAnalytics(geminiProcessed, config);
     }
     
     return processed.text;
   }
 
-  private logProcessingResults(processed: any): void {
+  private logProcessingResults(processed: ProcessedResponse): void {
     if (processed.warnings.length > 0) {
       logger.warn('Response processing warnings:', processed.warnings);
     }
@@ -187,12 +201,12 @@ export class GeminiResponseHandler implements IGeminiResponseHandler {
     }
   }
 
-  private async trackThinkingAnalytics(processed: any, config: any): Promise<void> {
+  private async trackThinkingAnalytics(processed: GeminiProcessedResponse, config: GeminiConfig): Promise<void> {
     try {
       if (this.healthMonitor) {
-        const analyticsService = (this.healthMonitor as any).getService?.('AnalyticsManager');
-        if (analyticsService && typeof analyticsService.trackPerformance === 'function') {
-          await analyticsService.trackPerformance(
+        const analyticsService = (this.healthMonitor as IHealthMonitor & { getService?: (name: string) => unknown }).getService?.('AnalyticsManager');
+        if (analyticsService && typeof (analyticsService as any).trackPerformance === 'function') {
+          await (analyticsService as any).trackPerformance(
             'api_latency',
             processed.thinkingLength,
             `thinking_tokens_budget_${config.thinkingBudget}`
@@ -202,7 +216,7 @@ export class GeminiResponseHandler implements IGeminiResponseHandler {
           const thinkingRatio = processed.thinkingLength / responseLength;
           const effectiveness = Math.min(Math.round(thinkingRatio * 100), 100);
           
-          await analyticsService.trackPerformance(
+          await (analyticsService as any).trackPerformance(
             'cache_hit_rate',
             effectiveness,
             'thinking_effectiveness_ratio'
@@ -377,8 +391,8 @@ export class GeminiResponseHandler implements IGeminiResponseHandler {
         return null;
       }
       
-      const sources = groundingMetadata.groundingChunks.map((chunk: any) => {
-        const source: any = {
+      const sources = groundingMetadata.groundingChunks.map((chunk: GroundingChunk) => {
+        const source: GroundingSource = {
           title: chunk.web?.title || 'Unknown Source',
           url: chunk.web?.uri || ''
         };

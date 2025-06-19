@@ -1,6 +1,10 @@
 /**
  * Configuration Factory Module
  * Provides type-safe factory methods for creating bot configuration with validation
+ * 
+ * @deprecated This factory is being phased out in favor of ConfigurationManager.
+ * Please use ConfigurationManager.getInstance() for new implementations.
+ * This factory is maintained for backward compatibility during the transition period.
  */
 
 import type { 
@@ -91,12 +95,18 @@ const RATE_LIMITING_CONFIG_SCHEMA: Schema = {
 
 /**
  * Configuration factory for creating and validating bot configuration
+ * @deprecated Use ConfigurationManager.getInstance() instead
  */
 export class ConfigurationFactory {
+  private static hasWarnedDeprecation = false;
+
   /**
    * Creates complete bot configuration from environment variables
+   * @deprecated Use ConfigurationManager.getInstance().getConfiguration() instead
    */
   static createBotConfiguration(): BotConfiguration {
+    this.warnDeprecation('createBotConfiguration', 'ConfigurationManager.getInstance().getConfiguration()');
+    
     // Validate environment variables first
     validateEnvironment();
     
@@ -113,8 +123,11 @@ export class ConfigurationFactory {
 
   /**
    * Creates Discord configuration with validation
+   * @deprecated Use ConfigurationManager.getInstance().getDiscordConfig() instead
    */
   static createDiscordConfig(): DiscordConfig {
+    this.warnDeprecation('createDiscordConfig', 'ConfigurationManager.getInstance().getDiscordConfig()');
+    
     const intents = ['guilds', 'guildMessages', 'messageContent', 'guildMessageReactions'];
     
     return {
@@ -126,8 +139,11 @@ export class ConfigurationFactory {
 
   /**
    * Creates Gemini AI configuration with validation
+   * @deprecated Use ConfigurationManager.getInstance().getGeminiConfig() instead
    */
   static createGeminiConfig(): GeminiConfig {
+    this.warnDeprecation('createGeminiConfig', 'ConfigurationManager.getInstance().getGeminiConfig()');
+    
     const config: GeminiConfig = {
       model: getStringWithDefault('GEMINI_MODEL', 'gemini-2.0-flash-exp'),
       temperature: parseFloatWithDefault('GEMINI_TEMPERATURE', 0.9, 0.0, 2.0),
@@ -167,8 +183,11 @@ export class ConfigurationFactory {
 
   /**
    * Creates rate limiting configuration with validation
+   * @deprecated Use ConfigurationManager.getInstance().getRateLimitingConfig() instead
    */
   static createRateLimitingConfig(): RateLimitingConfig {
+    this.warnDeprecation('createRateLimitingConfig', 'ConfigurationManager.getInstance().getRateLimitingConfig()');
+    
     const config: RateLimitingConfig = {
       rpm: parseIntWithDefault('RATE_LIMIT_RPM', 15, 1, 60),
       daily: parseIntWithDefault('RATE_LIMIT_DAILY', 1000, 1, 10000),
@@ -194,8 +213,11 @@ export class ConfigurationFactory {
 
   /**
    * Creates feature configuration with all sub-configs
+   * @deprecated Use ConfigurationManager.getInstance().getFeatureConfig() instead
    */
   static createFeatureConfig(): FeatureConfig {
+    this.warnDeprecation('createFeatureConfig', 'ConfigurationManager.getInstance().getFeatureConfig()');
+    
     return {
       roasting: this.createRoastingConfig(),
       codeExecution: parseBooleanWithDefault('GEMINI_ENABLE_CODE_EXECUTION', false),
@@ -358,8 +380,11 @@ export class ConfigurationFactory {
 
   /**
    * Validates API key availability using ConfigurationValidator
+   * @deprecated Use ConfigurationManager.getInstance().getConfigValue('gemini.apiKey') instead
    */
   static validateApiKey(): string {
+    this.warnDeprecation('validateApiKey', 'ConfigurationManager.getInstance().getConfigValue()');
+    
     // The validateEnvironment call will already check for required vars
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -372,8 +397,11 @@ export class ConfigurationFactory {
 
   /**
    * Gets complete configuration with API key
+   * @deprecated Use ConfigurationManager.getInstance() methods instead
    */
   static getConfigurationWithApiKey(): { config: BotConfiguration; apiKey: string } {
+    this.warnDeprecation('getConfigurationWithApiKey', 'ConfigurationManager.getInstance().getConfiguration()');
+    
     const apiKey = this.validateApiKey();
     const config = this.createBotConfiguration();
     return { config, apiKey };
@@ -382,6 +410,7 @@ export class ConfigurationFactory {
   /**
    * Creates additional Gemini-specific configuration not in main config
    * This is for backward compatibility with services that need these values
+   * @deprecated Use ConfigurationManager.getInstance().getGeminiModelConfig() instead
    */
   static createGeminiServiceConfig(): {
     systemInstruction: string;
@@ -395,6 +424,8 @@ export class ConfigurationFactory {
     enableGoogleSearch: boolean;
     unfilteredMode: boolean;
     } {
+    this.warnDeprecation('createGeminiServiceConfig', 'ConfigurationManager.getInstance().getGeminiModelConfig()');
+    
     return {
       systemInstruction: getStringWithDefault(
         'GEMINI_SYSTEM_INSTRUCTION',
@@ -410,5 +441,20 @@ export class ConfigurationFactory {
       enableGoogleSearch: parseBooleanWithDefault('GEMINI_ENABLE_GOOGLE_SEARCH', false),
       unfilteredMode: parseBooleanWithDefault('UNFILTERED_MODE', false)
     };
+  }
+
+  /**
+   * Helper method to emit deprecation warnings
+   */
+  private static warnDeprecation(methodName: string, replacement: string): void {
+    if (!this.hasWarnedDeprecation) {
+      console.warn(
+        `\n⚠️  DEPRECATION WARNING: ConfigurationFactory.${methodName}() is deprecated.\n` +
+        `📋 Please migrate to: ${replacement}\n` +
+        '🔧 ConfigurationFactory will be removed in a future version.\n' +
+        '📖 See ConfigurationManager documentation for migration guide.\n'
+      );
+      this.hasWarnedDeprecation = true;
+    }
   }
 }

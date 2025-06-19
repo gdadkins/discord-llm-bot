@@ -56,7 +56,7 @@ export interface IGeminiAPIClient {
   buildGenerationConfig(
     profile: string,
     optionsOrBudget?: GeminiGenerationOptions | number
-  ): any;
+  ): Record<string, unknown>;
 
   /**
    * Gets the configured AI instance
