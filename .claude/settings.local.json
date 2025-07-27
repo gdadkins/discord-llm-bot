@@ -15,7 +15,8 @@
       "Bash(~/.claude/fix-mcp-servers.sh:*)",
       "Bash(jq:*)",
       "Bash(python3:*)",
-      "Bash(/dev/null)"
+      "Bash(/dev/null)",
+      "Bash(npm audit:*)"
     ],
     "deny": []
   }

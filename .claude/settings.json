@@ -1,41 +1,7 @@
 {
-  "allowedDirectories": [
-    "/mnt/c/github/",
-    "/home/gary/.claude"
-  ],
-  "allowedTools": [
-    "Bash",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "mcp__server-filesystem__read_file",
-    "mcp__server-filesystem__read_multiple_files",
-    "mcp__server-filesystem__write_file",
-    "mcp__server-filesystem__edit_file",
-    "mcp__server-filesystem__create_directory",
-    "mcp__server-filesystem__list_directory",
-    "mcp__server-filesystem__directory_tree",
-    "mcp__server-filesystem__move_file",
-    "mcp__server-filesystem__search_files",
-    "mcp__server-filesystem__get_file_info",
-    "mcp__server-filesystem__list_allowed_directories",
-    "mcp__ide__getDiagnostics",
-    "mcp__ide__executeCode",
-    "mcp__ide__confirmEdit",
-    "mcp__ide__rejectEdit",
-    "Task",
-    "Glob",
-    "Grep",
-    "LS",
-    "Read",
-    "NotebookRead",
-    "NotebookEdit",
-    "WebFetch",
-    "TodoRead",
-    "TodoWrite",
-    "WebSearch",
-    "mcp__context7__resolve-library-id",
-    "mcp__context7__get-library-docs",
-    "mcp__sequential-thinking__sequential_thinking"
-  ]
+  "permissions": {
+    "additionalDirectories": [
+      "/mnt/c/github/"
+    ]
+  }
 }

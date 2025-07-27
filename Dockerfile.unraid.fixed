@@ -12,10 +12,11 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY package.json ./
 
 # Install all dependencies (including dev dependencies)
-RUN npm ci
+# Using npm install instead of npm ci for flexibility
+RUN npm install
 
 # Copy TypeScript config and source files
 COPY tsconfig.json ./
@@ -32,18 +33,19 @@ RUN apk add --no-cache \
     sqlite-dev \
     tini
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+# Create unRAID compatible user (UID 99, GID 100)
+RUN addgroup -g 100 -S appuser && \
+    adduser -S appuser -u 99 -G appuser
 
 # Set working directory
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY package.json ./
 
 # Install only production dependencies
-RUN npm ci --only=production && \
+# Using npm install instead of npm ci for flexibility
+RUN npm install --omit=dev && \
     npm cache clean --force
 
 # Copy built application from builder stage
@@ -52,19 +54,13 @@ COPY --from=builder /app/dist ./dist
 # Copy necessary files
 COPY .env.example ./
 
-# Copy entrypoint script (optional)
-# COPY docker/entrypoint.sh /app/entrypoint.sh
-# RUN chmod +x /app/entrypoint.sh
-
 # Create necessary directories with correct permissions
 RUN mkdir -p data logs temp && \
-    chown -R nodejs:nodejs /app
+    chown -R appuser:appuser /app && \
+    chmod -R 755 data logs temp
 
-# Switch to non-root user
-USER nodejs
-
-# Expose any ports if needed (Discord bots typically don't need ports exposed)
-# EXPOSE 3000
+# Switch to unRAID user
+USER appuser
 
 # Health check (checks if the node process is running)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
