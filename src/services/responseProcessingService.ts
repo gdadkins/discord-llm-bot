@@ -5,7 +5,7 @@
  * across different AI providers.
  */
 
-import { FinishReason, BlockedReason } from '@google/genai';
+import { FinishReason, BlockedReason } from '@google/generative-ai';
 import { logger } from '../utils/logger';
 import { formatThinkingResponse } from '../utils/thinkingFormatter';
 import type { 

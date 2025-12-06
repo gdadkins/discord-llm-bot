@@ -11,6 +11,8 @@ This file provides context about the `discord-llm-bot` project to help the Gemin
 - **Never browse any folder higher level than where project files reside in Explorer
 - **Always use best practice programming standards
 - **Never use emoji in code or output
+- **Never change the api model being used for the API call unless allowed because of API free usage availablity
+- **When performing tests, use a reasoable timeout to keep it from running forever, and using transpileOnly(or something else) to date*-time*-log_fast.txt for compile errors
 
 ## Key Files
 

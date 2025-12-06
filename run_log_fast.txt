@@ -1,0 +1,226 @@
+[32minfo[39m: DataStoreFactory initialized with DSE-006 configuration {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:19.635Z"}
+[32minfo[39m: CircuitBreakerHealthIntegration initialized {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.077Z"}
+[32minfo[39m: YouTubeUrlDetector initialized {"maxTokensPerVideo":25000,"maxVideoLength":"83s","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.349Z","tokensPerMinute":18000,"warningThreshold":25000}
+[33mwarn[39m: Environment variable GEMINI_RATE_LIMIT_RPM is deprecated. Use RATE_LIMIT_RPM instead {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.821Z"}
+[33mwarn[39m: Environment variable GEMINI_RATE_LIMIT_DAILY is deprecated. Use RATE_LIMIT_DAILY instead {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.821Z"}
+[33mwarn[39m: Environment variable CONVERSATION_TIMEOUT_MINUTES is deprecated. Use CONTEXT_TIMEOUT_MINUTES instead {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.821Z"}
+[33mwarn[39m: Environment variable MAX_CONVERSATION_MESSAGES is deprecated. Use CONTEXT_MAX_MESSAGES instead {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.822Z"}
+[33mwarn[39m: Environment variable MAX_CONTEXT_CHARS is deprecated. Use CONTEXT_MAX_CHARS instead {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.822Z"}
+[33mwarn[39m: Environment variable THINKING_BUDGET is deprecated. Use GEMINI_THINKING_BUDGET instead {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.822Z"}
+[33mwarn[39m: Environment variable INCLUDE_THOUGHTS is deprecated. Use GEMINI_INCLUDE_THOUGHTS instead {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:22.822Z"}
+[32minfo[39m: [READY-mk069v] Registering ready event handler... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:23.741Z"}
+[32minfo[39m: [READY-mk069v] Ready event fired! {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.344Z"}
+[32minfo[39m: Initializing bot services with dependency injection and distributed tracing... {"requestId":"init_1765044204344","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.345Z"}
+[32minfo[39m: Initializing distributed tracing system {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.345Z"}
+[32minfo[39m: Distributed tracing system initialized successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.345Z"}
+[32minfo[39m: Trace analysis insights {"errorCount":0,"insights":["Most active operation category: Other (1 operations)"],"performance":{"averageDuration":0,"percentiles":{"p50":0,"p90":0,"p95":0,"p99":0},"slowestOperation":{"duration":0,"operationName":"root","spanId":"root_1765044204345_e3dxm"}},"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.346Z","traceId":"trace_miulqwc9_t4vhropf5"}
+[32minfo[39m: Loaded 10 environment overrides {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.363Z"}
+[32minfo[39m: Starting loadConfiguration method {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.363Z"}
+[32minfo[39m: Starting loadConfiguration method {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.363Z"}
+[32minfo[39m: Checking if config file exists at: ./data/bot-config.json {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.363Z"}
+[32minfo[39m: Config file does not exist, creating default... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.364Z"}
+[32minfo[39m: Environment overrides applied to default config {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.365Z"}
+[32minfo[39m: Created default configuration file {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.372Z"}
+[32minfo[39m: Configuration validation passed {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.372Z"}
+[32minfo[39m: Configuration loaded from ./data/bot-config.json {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.372Z"}
+[32minfo[39m: loadConfiguration method completed successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.372Z"}
+[32minfo[39m: Configuration file watching started {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.373Z"}
+[32minfo[39m: ConfigurationManager initialized successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.373Z"}
+[32minfo[39m: Discord circuit breakers initialized {"operations":["send_message","edit_message","add_reaction","remove_reaction"],"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.377Z"}
+[32minfo[39m: Service circuit breakers initialized {"enableFallbacks":true,"service":"discord-llm-bot","services":["gemini","database","cache","external_api","search_api","file_storage"],"timestamp":"2025-12-06T18:03:24.377Z"}
+[32minfo[39m: Registered fallback strategy: CachedResponseStrategy {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.377Z"}
+[32minfo[39m: Registered fallback strategy: MaintenanceModeStrategy {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.378Z"}
+[32minfo[39m: Registered fallback strategy: GenericFallbackStrategy {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.378Z"}
+[32minfo[39m: ResponseProcessingService initialized {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.378Z"}
+[32minfo[39m: MultimodalContentHandler initialized with config: {"hasResponseProcessor":false,"maxFileSize":"20MB","maxImages":10,"service":"discord-llm-bot","supportedTypes":["image/png","image/jpeg","image/jpg","image/webp","video/mp4","video/mpeg","video/mov","video/avi","video/x-flv","video/mpg","video/webm","video/wmv","video/3gpp","audio/mp3","audio/mpeg","audio/wav","audio/ogg","audio/webm","audio/flac"],"timestamp":"2025-12-06T18:03:24.378Z"}
+[32minfo[39m: Response processor set for MultimodalContentHandler {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.379Z"}
+
+⚠️  DEPRECATION WARNING: ConfigurationFactory.createGeminiServiceConfig() is deprecated.
+📋 Please migrate to: ConfigurationManager.getInstance().getGeminiModelConfig()
+🔧 ConfigurationFactory will be removed in a future version.
+📖 See ConfigurationManager documentation for migration guide.
+
+[32minfo[39m: GeminiAPIClient initialized with Gemini API integration {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.379Z"}
+[32minfo[39m: Google Search grounding configured with threshold: 0.7 (awaiting @google/genai package support) {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.379Z"}
+[32minfo[39m: Thinking mode configured with budget: 1024 tokens, include thoughts: true (enabled by default in Gemini 2.5) {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.379Z"}
+[32minfo[39m: Additional features: Code execution: false, Structured output: false, Google Search: true {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.380Z"}
+[32minfo[39m: Google Search grounding enabled with threshold: 0.7 {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.380Z"}
+[33mwarn[39m: ⚠️  UNFILTERED MODE ENABLED - Bot will provide unrestricted responses to all requests {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.380Z"}
+[32minfo[39m: Created 19 services {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.380Z"}
+[32minfo[39m: Batch instrumented services {"instrumentedServices":["configuration","analytics","rateLimiter","healthMonitor","contextManager","cacheManager","personalityManager","roastingEngine","gracefulDegradation","conversationManager","retryHandler","systemContextBuilder","responseProcessingService","multimodalContentHandler","aiService","userPreferences","helpSystem","behaviorAnalyzer","userAnalysisService"],"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.382Z","totalServices":19}
+[32minfo[39m: Registered service: configuration {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.382Z"}
+[32minfo[39m: Registered service: analytics {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.383Z"}
+[32minfo[39m: Registered service: rateLimiter {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.383Z"}
+[32minfo[39m: Registered service: healthMonitor {"dependencies":["rateLimiter","contextManager"],"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.383Z"}
+[32minfo[39m: Registered service: contextManager {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.383Z"}
+[32minfo[39m: Registered service: cacheManager {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.383Z"}
+[32minfo[39m: Registered service: personalityManager {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.383Z"}
+[32minfo[39m: Registered service: roastingEngine {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.384Z"}
+[32minfo[39m: Registered service: gracefulDegradation {"dependencies":["healthMonitor"],"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.384Z"}
+[32minfo[39m: Registered service: conversationManager {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.384Z"}
+[32minfo[39m: Registered service: retryHandler {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.384Z"}
+[32minfo[39m: Registered service: systemContextBuilder {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.384Z"}
+[32minfo[39m: Registered service: responseProcessingService {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.384Z"}
+[32minfo[39m: Registered service: multimodalContentHandler {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.384Z"}
+[32minfo[39m: Registered service: aiService {"dependencies":["rateLimiter","contextManager","personalityManager","cacheManager","gracefulDegradation","roastingEngine","conversationManager","retryHandler","systemContextBuilder","responseProcessingService"],"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.385Z"}
+[32minfo[39m: Registered service: userPreferences {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.385Z"}
+[32minfo[39m: Registered service: helpSystem {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.385Z"}
+[32minfo[39m: Registered service: behaviorAnalyzer {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.385Z"}
+[32minfo[39m: Registered service: userAnalysisService {"dependencies":"none","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.385Z"}
+[32minfo[39m: Starting service initialization... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.385Z"}
+[32minfo[39m: Initializing service: configuration {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.385Z"}
+[33mwarn[39m: ConfigurationManager already initialized {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.386Z"}
+[32minfo[39m: Service initialized: configuration {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.386Z"}
+[32minfo[39m: Initializing service: analytics {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.387Z"}
+[32minfo[39m: Initializing AnalyticsManager... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.387Z"}
+[32minfo[39m: Analytics disabled in configuration {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.387Z"}
+[32minfo[39m: AnalyticsManager initialized successfully {"duration":1,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.388Z"}
+[32minfo[39m: Service initialized: analytics {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.388Z"}
+[32minfo[39m: Initializing service: rateLimiter {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.388Z"}
+[32minfo[39m: Initializing RateLimiter... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.388Z"}
+[32minfo[39m: Loaded 1 server culture entries from cache (0 expired) {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.391Z"}
+[32minfo[39m: No persisted rate limit state found, starting fresh {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.392Z"}
+[32minfo[39m: Created timer coalescing group for 10000ms interval {"coalescedInterval":10000,"originalInterval":5000,"service":"RateLimiter","timestamp":"2025-12-06T18:03:24.392Z"}
+[32minfo[39m: Created timer coalescing group for 30000ms interval {"coalescedInterval":30000,"originalInterval":30000,"service":"RateLimiter","timestamp":"2025-12-06T18:03:24.392Z"}
+[32minfo[39m: RateLimiter initialized successfully {"duration":5,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.393Z"}
+[32minfo[39m: Service initialized: rateLimiter {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.393Z"}
+[32minfo[39m: Initializing service: contextManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.393Z"}
+[32minfo[39m: ContextManager initialized successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.393Z"}
+[32minfo[39m: Service initialized: contextManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.393Z"}
+[32minfo[39m: Initializing service: healthMonitor {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.393Z"}
+[32minfo[39m: Initializing HealthMonitor... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.394Z"}
+[32minfo[39m: Loaded 0 health metric snapshots from disk (1 expired) {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.396Z"}
+[32minfo[39m: Created timer coalescing group for 30000ms interval {"coalescedInterval":30000,"originalInterval":30000,"service":"HealthMonitor","timestamp":"2025-12-06T18:03:24.397Z"}
+[32minfo[39m: Created timer coalescing group for 300000ms interval {"coalescedInterval":300000,"originalInterval":300000,"service":"HealthMonitor","timestamp":"2025-12-06T18:03:24.397Z"}
+[32minfo[39m: HealthMonitor initialized with resource tracking {"alertsEnabled":false,"collectionIntervalMs":30000,"maxSnapshots":20160,"resourceTrackingEnabled":true,"retentionDays":7,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.397Z"}
+[32minfo[39m: HealthMonitor initialized successfully {"duration":3,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.397Z"}
+[32minfo[39m: Service initialized: healthMonitor {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.397Z"}
+[32minfo[39m: Initializing service: cacheManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.397Z"}
+[32minfo[39m: Initializing CacheManager... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.398Z"}
+[32minfo[39m: Created timer coalescing group for 60000ms interval {"coalescedInterval":60000,"originalInterval":60000,"service":"CacheManager","timestamp":"2025-12-06T18:03:24.398Z"}
+[32minfo[39m: Warming cache with common prompts... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.398Z"}
+[32minfo[39m: Cache warmed with 7 common prompts {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.400Z"}
+[32minfo[39m: CacheManager initialized with 5-minute TTL, LRU eviction, and compression {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.400Z"}
+[32minfo[39m: CacheManager initialized successfully {"duration":2,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.400Z"}
+[32minfo[39m: Service initialized: cacheManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.400Z"}
+[32minfo[39m: Initializing service: personalityManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.401Z"}
+[32minfo[39m: Initializing PersonalityManager... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.401Z"}
+[32minfo[39m: PersonalityManager initialized with existing personality data {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.403Z"}
+[32minfo[39m: PersonalityManager initialized successfully {"duration":3,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.404Z"}
+[32minfo[39m: Service initialized: personalityManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.404Z"}
+[32minfo[39m: Initializing service: roastingEngine {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.404Z"}
+[32minfo[39m: Initializing RoastingEngine... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.404Z"}
+[32minfo[39m: RoastingEngine initialized successfully {"duration":1,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.405Z"}
+[32minfo[39m: Service initialized: roastingEngine {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.405Z"}
+[32minfo[39m: Initializing service: gracefulDegradation {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.405Z"}
+[32minfo[39m: Initializing GracefulDegradation... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.405Z"}
+[32minfo[39m: Created timer coalescing group for 30000ms interval {"coalescedInterval":30000,"originalInterval":30000,"service":"GracefulDegradation","timestamp":"2025-12-06T18:03:24.405Z"}
+[32minfo[39m: Created timer coalescing group for 60000ms interval {"coalescedInterval":60000,"originalInterval":60000,"service":"GracefulDegradation","timestamp":"2025-12-06T18:03:24.406Z"}
+[32minfo[39m: GracefulDegradation service initialized {"config":{"enableCachedResponses":true,"enableGenericFallbacks":true,"enableMaintenanceMode":true,"errorRateThreshold":10,"halfOpenMaxRetries":3,"maxFailures":5,"maxQueueSize":100,"maxQueueTimeMs":300000,"maxRetries":3,"memoryThresholdMB":400,"resetTimeoutMs":60000,"responseTimeThresholdMs":10000,"retryIntervalMs":30000},"queueSize":0,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.406Z"}
+[32minfo[39m: GracefulDegradation initialized successfully {"duration":1,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.406Z"}
+[32minfo[39m: Service initialized: gracefulDegradation {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.406Z"}
+[32minfo[39m: Initializing service: conversationManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.406Z"}
+[32minfo[39m: Initializing ConversationManager... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.407Z"}
+[32minfo[39m: Created timer coalescing group for 300000ms interval {"coalescedInterval":300000,"originalInterval":300000,"service":"ConversationManager","timestamp":"2025-12-06T18:03:24.407Z"}
+[32minfo[39m: Created timer coalescing group for 3600000ms interval {"coalescedInterval":3600000,"originalInterval":3600000,"service":"ConversationManager","timestamp":"2025-12-06T18:03:24.407Z"}
+[32minfo[39m: Created timer coalescing group for 30000ms interval {"coalescedInterval":30000,"originalInterval":30000,"service":"ConversationManager","timestamp":"2025-12-06T18:03:24.407Z"}
+[32minfo[39m: Timeout: 60min, Max messages: 100, Max context: 32000 chars {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.407Z"}
+[32minfo[39m: ConversationManager initialized successfully {"duration":2,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.408Z"}
+[32minfo[39m: Service initialized: conversationManager {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.408Z"}
+[32minfo[39m: Initializing service: retryHandler {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.408Z"}
+[32minfo[39m: RetryHandler initialized {"maxRetries":3,"retryDelay":1000,"retryMultiplier":2,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.408Z"}
+[32minfo[39m: Service initialized: retryHandler {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.408Z"}
+[32minfo[39m: Initializing service: systemContextBuilder {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.408Z"}
+[32minfo[39m: SystemContextBuilder initialized {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.408Z"}
+[32minfo[39m: Service initialized: systemContextBuilder {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.409Z"}
+[32minfo[39m: Initializing service: responseProcessingService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.409Z"}
+[32minfo[39m: Initializing ResponseProcessingService... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.409Z"}
+[32minfo[39m: ResponseProcessingService initialization complete {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.409Z"}
+[32minfo[39m: Service initialized: responseProcessingService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.409Z"}
+[32minfo[39m: Initializing service: multimodalContentHandler {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.409Z"}
+[32minfo[39m: Initializing MultimodalContentHandler... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.409Z"}
+[32minfo[39m: MultimodalContentHandler initialization complete {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.410Z"}
+[32minfo[39m: Service initialized: multimodalContentHandler {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.410Z"}
+[32minfo[39m: Initializing service: aiService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.410Z"}
+[32minfo[39m: LargeContextHandler initialized {"service":"discord-llm-bot","tempDir":"/mnt/c/github/discord/discord-llm-bot/temp/context","timestamp":"2025-12-06T18:03:24.411Z"}
+[32minfo[39m: Large context handler initialized for conversation summarization {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.411Z"}
+[32minfo[39m: GeminiService initialized with Gemini API integration {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.411Z"}
+[32minfo[39m: Google Search grounding configured with threshold: 0.7 (awaiting @google/genai package support) {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.411Z"}
+[32minfo[39m: Thinking mode configured with budget: 1024 tokens, include thoughts: true (enabled by default in Gemini 2.5) {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.411Z"}
+[32minfo[39m: Additional features: Code execution: false, Structured output: false, Google Search: true {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.412Z"}
+[32minfo[39m: Google Search grounding enabled with threshold: 0.7 {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.412Z"}
+[33mwarn[39m: UNFILTERED MODE ENABLED - Bot will provide unrestricted responses to all requests {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.412Z"}
+[32minfo[39m: Service initialized: aiService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.412Z"}
+[32minfo[39m: Initializing service: userPreferences {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.413Z"}
+[32minfo[39m: PreferenceStore initialized with 0 user preferences {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.415Z"}
+[32minfo[39m: UserPreferenceManager initialized successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.415Z"}
+[32minfo[39m: Service initialized: userPreferences {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.416Z"}
+[32minfo[39m: Initializing service: helpSystem {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.416Z"}
+[32minfo[39m: HelpSystem initialized successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.416Z"}
+[32minfo[39m: Service initialized: helpSystem {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.416Z"}
+[32minfo[39m: Initializing service: behaviorAnalyzer {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.416Z"}
+[32minfo[39m: BehaviorAnalyzer initialized successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.416Z"}
+[32minfo[39m: Service initialized: behaviorAnalyzer {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.416Z"}
+[32minfo[39m: Initializing service: userAnalysisService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.417Z"}
+[32minfo[39m: Initializing UserAnalysisService... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.417Z"}
+[32minfo[39m: UserAnalysisService initialized successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.417Z"}
+[32minfo[39m: Service initialized: userAnalysisService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.417Z"}
+[32minfo[39m: All services initialized successfully in 32ms {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.417Z"}
+[32minfo[39m: Discord client set for system context awareness {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.417Z"}
+[32minfo[39m: Started refreshing application (/) commands. {"requestId":"register_commands_1765044204418","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.420Z"}
+[32minfo[39m: Registering 30 commands with Discord API {"commandCount":30,"requestId":"register_commands_1765044204418","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.421Z"}
+[32minfo[39m: Successfully reloaded application (/) commands. {"commandCount":30,"duration":253,"requestId":"register_commands_1765044204418","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.671Z"}
+[32minfo[39m: Bot services initialized successfully with dependency injection and distributed tracing {"duration":327,"requestId":"init_1765044204344","service":"discord-llm-bot","servicesCreated":19,"timestamp":"2025-12-06T18:03:24.671Z","tracingEnabled":true}
+[32minfo[39m: Trace analysis insights {"errorCount":0,"insights":["Most active operation category: Other (33 operations)"],"performance":{"averageDuration":10.919354838709678,"memoryUsage":{"memoryDeltaMB":0,"memoryEfficiency":"good","peakMemoryMB":79},"percentiles":{"p50":0,"p90":3,"p95":28,"p99":328},"slowestOperation":{"duration":328,"operationName":"root","spanId":"root_1765044204344_adywa"}},"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.672Z","traceId":"trace_miulqwc8_w87u6emjy"}
+[32minfo[39m: [READY-mk069v] Calling setupEventHandlers with tracing... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.672Z"}
+[32minfo[39m: Setting up Discord event handlers... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.672Z"}
+[32minfo[39m: Discord event handlers setup complete {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.673Z"}
+[32minfo[39m: Bot initialization complete with distributed tracing enabled {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.673Z"}
+[32minfo[39m: Tracing system operational {"avgSpansPerTrace":31.5,"memoryUsageMB":0,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:24.673Z","totalSpans":63,"totalTraces":2}
+[32minfo[39m: SIGTERM received, performing graceful shutdown {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.708Z"}
+[33mwarn[39m: Performing emergency cleanup {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.709Z"}
+[32minfo[39m: Starting resource cleanup {"count":3,"priorities":{"critical":1,"high":2},"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.709Z","type":"all"}
+[32minfo[39m: Received SIGTERM, shutting down gracefully... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.710Z"}
+[32minfo[39m: Final tracing report {"metadata":{"exportTime":1765044206711,"tracingStats":{"avgSpansPerTrace":31.5,"memoryUsageMB":0,"totalSpans":63,"totalTraces":2}},"performanceOverview":{"recentMetrics":[{"avgResponseTime":0,"commonBottlenecks":[],"errorRate":0,"slowOperationThreshold":1000,"throughput":null},{"avgResponseTime":10.919354838709678,"commonBottlenecks":[],"errorRate":0,"slowOperationThreshold":1000,"throughput":91.5805022156573}],"serviceHealth":[{"avgDuration":90.25,"errorRate":0,"issues":[],"operationCount":4,"recommendations":[],"serviceName":"System","slowOperationCount":0,"status":"healthy"},{"avgDuration":28,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"Configuration","slowOperationCount":0,"status":"healthy"},{"avgDuration":2.75,"errorRate":0,"issues":[],"operationCount":4,"recommendations":[],"serviceName":"General","slowOperationCount":0,"status":"healthy"},{"avgDuration":0,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"configuration","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.2,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"AnalyticsManager","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.8,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"RateLimiter","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.5,"errorRate":0,"issues":[],"operationCount":2,"recommendations":[],"serviceName":"ContextManager","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.6,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"HealthMonitor","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.4,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"CacheManager","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.6,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"personalityManager","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.2,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"roastingEngine","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.2,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"gracefulDegradation","slowOperationCount":0,"status":"healthy"},{"avgDuration":0.2,"errorRate":0,"issues":[],"operationCount":5,"recommendations":[],"serviceName":"ConversationManager","slowOperationCount":0,"status":"healthy"},{"avgDuration":0,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"retryHandler","slowOperationCount":0,"status":"healthy"},{"avgDuration":0,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"responseProcessingService","slowOperationCount":0,"status":"healthy"},{"avgDuration":1,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"multimodalContentHandler","slowOperationCount":0,"status":"healthy"},{"avgDuration":1,"errorRate":0,"issues":[],"operationCount":2,"recommendations":[],"serviceName":"aiService","slowOperationCount":0,"status":"healthy"},{"avgDuration":3,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"userPreferences","slowOperationCount":0,"status":"healthy"},{"avgDuration":0,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"helpSystem","slowOperationCount":0,"status":"healthy"},{"avgDuration":0,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"behaviorAnalyzer","slowOperationCount":0,"status":"healthy"},{"avgDuration":0,"errorRate":0,"issues":[],"operationCount":1,"recommendations":[],"serviceName":"userAnalysisService","slowOperationCount":0,"status":"healthy"},{"avgDuration":127,"errorRate":0,"issues":[],"operationCount":2,"recommendations":[],"serviceName":"Discord","slowOperationCount":0,"status":"healthy"}],"trends":{"avgResponseTimeTrend":"stable","errorRateTrend":"stable"}},"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.711Z"}
+[32minfo[39m: Race condition resources cleaned up {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.711Z"}
+[32minfo[39m: Shutting down bot services... {"requestId":"shutdown_1765044206711","service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.711Z"}
+[32minfo[39m: Starting service shutdown... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.712Z"}
+[32minfo[39m: Shutting down service: userAnalysisService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.712Z"}
+[32minfo[39m: Shutting down UserAnalysisService... {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.712Z"}
+[32minfo[39m: UserAnalysisService shut down successfully {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.712Z"}
+[32minfo[39m: Cleaned up all temp files {"count":0,"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.725Z"}
+[32minfo[39m: Large context handler cleanup complete {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.726Z"}
+[32minfo[39m: GeminiService shutdown complete {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.726Z"}
+[32minfo[39m: Service shut down: userAnalysisService {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.726Z"}
+[32minfo[39m: Shutting down service: behaviorAnalyzer {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.726Z"}
+[32minfo[39m: BehaviorAnalyzer shutdown completed {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.727Z"}
+[32minfo[39m: Service shut down: behaviorAnalyzer {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.727Z"}
+[32minfo[39m: Shutting down service: helpSystem {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.727Z"}
+[32minfo[39m: HelpSystem shutdown completed {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.727Z"}
+[32minfo[39m: Service shut down: helpSystem {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.728Z"}
+[32minfo[39m: Shutting down service: userPreferences {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:26.728Z"}
+[31merror[39m: Emergency cleanup timed out after 5s, forcing exit {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:31.711Z"}
+[32minfo[39m: Process exiting, performing synchronous cleanup {"service":"discord-llm-bot","timestamp":"2025-12-06T18:03:31.711Z"}
+
+  #  Node.js[2205]: void node::ResetStdio() at ../src/node.cc:766
+  #  Assertion failed: !(err != 0) || (err == -1 && (*__errno_location ()) == 1)
+
+----- Native stack trace -----
+
+ 1: 0xf6ea57 node::Assert(node::AssertionInfo const&) [node]
+ 2: 0xf13e24  [node]
+ 3: 0x7f6951d10a76  [/lib/x86_64-linux-gnu/libc.so.6]
+ 4: 0x7f6951d10bbe  [/lib/x86_64-linux-gnu/libc.so.6]
+ 5: 0xe6539f node::DefaultProcessExitHandlerInternal(node::Environment*, node::ExitCode) [node]
+ 6: 0xed1daf node::Environment::Exit(node::ExitCode) [node]
+ 7: 0x7f694adcf5e2 
+
+  #  Node.js[2205]: void node::ResetStdio() at ../src/node.cc:766
+  #  Assertion failed: !(err != 0) || (err == -1 && (*__errno_location ()) == 1)
+
+----- Native stack trace -----
+
+ 1: 0xf6ea57 node::Assert(node::AssertionInfo const&) [node]
+ 2: 0xf13e24  [node]
+ 3: 0xf14542 node::TrapWebAssemblyOrContinue(int, siginfo_t*, void*) [node]
+ 4: 0x7f6951d0e330  [/lib/x86_64-linux-gnu/libc.so.6]

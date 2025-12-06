@@ -12,7 +12,10 @@ import {
   RateLimitingConfig,
   FeatureConfig,
   RoastingConfig,
-  MonitoringConfig
+  MonitoringConfig,
+  IConfigurationService,
+  ConfigurationVersion,
+  ConfigurationChange
 } from '../interfaces/ConfigurationInterfaces';
 import { ConfigurationLoader } from './ConfigurationLoader';
 import { ConfigurationValidator } from './ConfigurationValidator';
@@ -29,7 +32,7 @@ import { DataValidator } from '../../utils/DataStore';
  * - Providing unified API for configuration access
  * - Event emission and error handling
  */
-class ConfigurationManager extends EventEmitter {
+class ConfigurationManager extends EventEmitter implements IConfigurationService {
   private mutex = new Mutex();
   private fileWatcher?: chokidar.FSWatcher;
   private currentConfig: BotConfiguration;

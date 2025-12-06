@@ -52,6 +52,7 @@ interface FileWatcherEntry {
 
 /**
  * Configuration Manager - Singleton class for unified configuration management
+ * @deprecated Use src/services/config/ConfigurationManager.ts instead.
  */
 export class ConfigurationManager extends EventEmitter implements IConfigurationService {
   private static instance: ConfigurationManager | null = null;
@@ -73,6 +74,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
   private constructor() {
     super();
     this.setMaxListeners(50); // Increase limit for multiple service subscriptions
+    console.warn('WARNING: Using deprecated ConfigurationManager (src/config/ConfigurationManager). Please migrate to src/services/config/ConfigurationManager.');
   }
 
   /**

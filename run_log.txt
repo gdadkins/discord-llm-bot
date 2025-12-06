@@ -1,0 +1,16 @@
+
+> discord-llm-bot@1.0.0 dev
+> ts-node src/index.ts
+
+[32minfo[39m: DataStoreFactory initialized with DSE-006 configuration {"service":"discord-llm-bot","timestamp":"2025-12-06T17:59:30.681Z"}
+[31merror[39m: Uncaught exception, performing emergency cleanup ⨯ Unable to compile TypeScript:
+src/services/gemini/GeminiService.ts(108,5): error TS2322: Type 'GeminiAPIClient' is not assignable to type 'IGeminiAPIClient'.
+  The types returned by 'buildGenerationConfig(...)' are incompatible between these types.
+    Type 'GenerationConfig' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'GenerationConfig'.
+src/services/gemini/GeminiService.ts(288,46): error TS2554: Expected 0 arguments, but got 2.
+ {"diagnosticCodes":[2322,2554],"service":"discord-llm-bot","stack":"TSError: ⨯ Unable to compile TypeScript:\nsrc/services/gemini/GeminiService.ts(108,5): error TS2322: Type 'GeminiAPIClient' is not assignable to type 'IGeminiAPIClient'.\n  The types returned by 'buildGenerationConfig(...)' are incompatible between these types.\n    Type 'GenerationConfig' is not assignable to type 'Record<string, unknown>'.\n      Index signature for type 'string' is missing in type 'GenerationConfig'.\nsrc/services/gemini/GeminiService.ts(288,46): error TS2554: Expected 0 arguments, but got 2.\n\n    at createTSError (/mnt/c/github/discord/discord-llm-bot/node_modules/ts-node/src/index.ts:859:12)\n    at reportTSError (/mnt/c/github/discord/discord-llm-bot/node_modules/ts-node/src/index.ts:863:19)\n    at getOutput (/mnt/c/github/discord/discord-llm-bot/node_modules/ts-node/src/index.ts:1077:36)\n    at Object.compile (/mnt/c/github/discord/discord-llm-bot/node_modules/ts-node/src/index.ts:1433:41)\n    at Module.m._compile (/mnt/c/github/discord/discord-llm-bot/node_modules/ts-node/src/index.ts:1617:30)\n    at node:internal/modules/cjs/loader:1895:10\n    at Object.require.extensions.<computed> [as .ts] (/mnt/c/github/discord/discord-llm-bot/node_modules/ts-node/src/index.ts:1621:12)\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)","timestamp":"2025-12-06T17:59:30.980Z"}
+[33mwarn[39m: Performing emergency cleanup {"service":"discord-llm-bot","timestamp":"2025-12-06T17:59:30.980Z"}
+[32minfo[39m: Starting resource cleanup {"count":1,"priorities":{"high":1},"service":"discord-llm-bot","timestamp":"2025-12-06T17:59:30.981Z","type":"all"}
+[32minfo[39m: Resource cleanup completed {"duration":1,"failed":0,"service":"discord-llm-bot","successful":1,"timestamp":"2025-12-06T17:59:30.982Z","total":1,"type":"all"}
+[32minfo[39m: Process exiting, performing synchronous cleanup {"service":"discord-llm-bot","timestamp":"2025-12-06T17:59:30.982Z"}

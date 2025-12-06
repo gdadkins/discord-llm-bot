@@ -10,7 +10,7 @@ import { validateEnvironment as validateEnvWithValidator } from '../utils/Config
 import { registerCommands } from '../commands';
 import { ServiceFactory } from '../services/interfaces/serviceFactory';
 import { ServiceRegistry } from '../services/interfaces/serviceRegistry';
-import { ConfigurationFactory } from '../config/ConfigurationFactory';
+import { ConfigurationManager } from '../services/config/ConfigurationManager';
 import type { IAIService, IUserAnalysisService, IService } from '../services/interfaces';
 import { enrichError, createTimeoutPromise, handleAsyncOperation } from '../utils/ErrorHandlingUtils';
 import { TracingIntegration } from '../services/tracing/TracingIntegration';
@@ -67,20 +67,24 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
         context.endSpan(tracingSpan.spanId);
         context.addLog('Tracing system initialized', 'info');
       
-        // Create bot configuration using factory with timeout
-        const configSpan = context.startSpan('configuration_creation');
-        const config = await Promise.race([
-          Promise.resolve(ConfigurationFactory.createBotConfiguration()),
+        // Initialize ConfigurationManager with timeout
+        const configSpan = context.startSpan('configuration_initialization');
+        const configManager = new ConfigurationManager();
+        
+        await Promise.race([
+          configManager.initialize(),
           createTimeoutPromise(10000).then(() => {
-            throw enrichError(new Error('Configuration creation timeout'), {
-              operation: 'ConfigurationFactory.createBotConfiguration',
+            throw enrichError(new Error('Configuration initialization timeout'), {
+              operation: 'ConfigurationManager.initialize',
               timeout: 10000,
               requestId
             });
           })
         ]);
+        
+        const config = configManager.getConfiguration();
         context.endSpan(configSpan.spanId);
-        context.addLog('Configuration created', 'info');
+        context.addLog('Configuration initialized', 'info');
         
         // Create service factory and registry
         const factorySpan = context.startSpan('service_factory_creation');
@@ -100,6 +104,9 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
             });
           })
         ]);
+
+        // Inject the initialized configuration manager
+        services.set('configuration', configManager);
         context.endSpan(servicesSpan.spanId);
         context.addLog(`Created ${services.size} services`, 'info');
       

@@ -7,7 +7,7 @@
 
 import type { Collection, Attachment } from 'discord.js';
 import type { IService } from './CoreServiceInterfaces';
-import type { Part, Content } from '@google/genai';
+import type { Part, Content } from '@google/generative-ai';
 import type { IResponseProcessingService } from './ResponseProcessingInterfaces';
 
 // ============================================================================

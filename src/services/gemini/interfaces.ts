@@ -3,7 +3,7 @@
  * These interfaces define contracts between the modular components
  */
 
-import type { GoogleGenAI, Content } from '@google/genai';
+import type { GoogleGenerativeAI, Content } from '@google/generative-ai';
 import type { MessageContext } from '../../commands';
 import type { GuildMember, Guild } from 'discord.js';
 import type { 
@@ -61,7 +61,7 @@ export interface IGeminiAPIClient {
   /**
    * Gets the configured AI instance
    */
-  getAI(): GoogleGenAI;
+  getAI(): GoogleGenerativeAI;
 
   /**
    * Gets current configuration values
