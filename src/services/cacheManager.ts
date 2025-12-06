@@ -29,9 +29,15 @@ class ReadWriteLock {
   private readMutex = new Mutex();
   private writeMutex = new Mutex();
   
-  async acquireRead(): Promise<() => void> {
+  async acquireRead(timeout = 5000): Promise<() => void> {
+    const startTime = Date.now();
     const release = await this.readMutex.acquire();
+
     while (this.writers > 0 || this.waitingWriters > 0) {
+      if (Date.now() - startTime > timeout) {
+        release();
+        throw new Error(`Read lock acquisition timeout after ${timeout}ms`);
+      }
       release();
       await new Promise(resolve => setTimeout(resolve, 1));
       await this.readMutex.acquire();
@@ -43,11 +49,17 @@ class ReadWriteLock {
     };
   }
   
-  async acquireWrite(): Promise<() => void> {
+  async acquireWrite(timeout = 5000): Promise<() => void> {
+    const startTime = Date.now();
     this.waitingWriters++;
     const release = await this.writeMutex.acquire();
     this.waitingWriters--;
+
     while (this.readers > 0 || this.writers > 0) {
+      if (Date.now() - startTime > timeout) {
+        release();
+        throw new Error(`Write lock acquisition timeout after ${timeout}ms`);
+      }
       release();
       await new Promise(resolve => setTimeout(resolve, 1));
       await this.writeMutex.acquire();

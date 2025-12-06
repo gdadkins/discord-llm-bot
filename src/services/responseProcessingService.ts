@@ -19,6 +19,26 @@ import type { ProcessedAttachment } from './interfaces/MultimodalContentInterfac
 import { PerformanceMetadata } from '../types';
 
 /**
+ * Extended part interface with role information
+ */
+interface ExtendedResponsePart {
+  text?: string;
+  thought?: boolean;
+  thinking?: string;
+  thoughtText?: string;
+  role?: string;
+}
+
+/**
+ * Thinking metadata for response formatting
+ */
+interface ThinkingMetadata {
+  confidence?: number;
+  complexity?: 'low' | 'medium' | 'high';
+  tokenCount?: number;
+}
+
+/**
  * Response Processing Service Implementation
  * 
  * Handles all aspects of AI response processing including:
@@ -75,12 +95,18 @@ export class ResponseProcessingService implements IResponseProcessingService {
     config: ResponseProcessingConfig
   ): Promise<ProcessedResponse> {
     try {
-      // Validate response exists
-      if (!response) {
-        throw new Error('No response received from API');
+      // Validate response exists and is an object
+      if (!response || typeof response !== 'object') {
+        throw new Error('Invalid response: not an object');
       }
 
       const res = response as RawAPIResponse;
+
+      // Validate critical properties exist before using
+      if (!('candidates' in res) && !('promptFeedback' in res)) {
+        throw new Error('Invalid response structure: missing candidates and promptFeedback');
+      }
+
       const warnings: string[] = [];
 
       // Check for prompt feedback (blocked before processing)
@@ -256,13 +282,27 @@ export class ResponseProcessingService implements IResponseProcessingService {
    */
   formatThinkingResponse(thinkingText: string, responseText: string, maxLength: number, metadata?: PerformanceMetadata): string {
     // Convert PerformanceMetadata to the expected thinking metadata format
-    const thinkingMetadata = metadata ? {
-      confidence: (metadata as any).confidence,
-      complexity: (metadata as any).complexity as 'low' | 'medium' | 'high' | undefined,
-      tokenCount: (metadata as any).tokenCount
+    const thinkingMetadata: ThinkingMetadata | undefined = metadata ? {
+      confidence: this.isValidNumber(metadata.confidence) ? metadata.confidence : undefined,
+      complexity: this.isValidComplexity(metadata.complexity) ? metadata.complexity : undefined,
+      tokenCount: this.isValidNumber(metadata.tokenCount) ? metadata.tokenCount : undefined
     } : undefined;
     
     return formatThinkingResponse(thinkingText, responseText, maxLength, thinkingMetadata);
+  }
+  
+  /**
+   * Type guard for complexity levels
+   */
+  private isValidComplexity(value: unknown): value is 'low' | 'medium' | 'high' {
+    return typeof value === 'string' && ['low', 'medium', 'high'].includes(value);
+  }
+  
+  /**
+   * Type guard for valid numbers
+   */
+  private isValidNumber(value: unknown): value is number {
+    return typeof value === 'number' && !isNaN(value);
   }
   
   /**
@@ -322,11 +362,14 @@ export class ResponseProcessingService implements IResponseProcessingService {
         parts.forEach((part, index) => {
           logger.debug(`Part ${index} keys:`, Object.keys(part));
           
+          // Cast to extended part interface for role access
+          const extendedPart = part as ExtendedResponsePart;
+          
           // Log part content preview with role information
           const partPreview = {
             text: part.text ? part.text.substring(0, 100) + '...' : 'none',
             thought: part.thought,
-            role: (part as any).role,
+            role: extendedPart.role,
             thinking: part.thinking ? 'present' : 'none',
             thoughtText: part.thoughtText ? 'present' : 'none'
           };
@@ -334,11 +377,11 @@ export class ResponseProcessingService implements IResponseProcessingService {
 
           // Enhanced thinking detection - check both part.thought and part.role
           const isThinkingPart = part.thought === true || 
-                                (part as any).role === 'model-thinking' ||
-                                (part as any).role === 'thinking';
+                                extendedPart.role === 'model-thinking' ||
+                                extendedPart.role === 'thinking';
 
           if (isThinkingPart && part.text) {
-            logger.debug(`Part ${index} identified as thinking content (thought=${part.thought}, role=${(part as any).role})`);
+            logger.debug(`Part ${index} identified as thinking content (thought=${part.thought}, role=${extendedPart.role})`);
             thinkingParts.push(String(part.text));
           } else if (part.text) {
             // Regular response text

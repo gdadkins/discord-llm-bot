@@ -22,13 +22,24 @@ import { EventEmitter } from 'events';
 import { EventListener } from '../types';
 
 /**
+ * Resource metadata interface for type safety
+ */
+export interface ResourceMetadata {
+  createdAt?: number;
+  description?: string;
+  source?: string;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
+/**
  * Managed resource interface
  */
 export interface ManagedResource {
   type: string;
   id: string;
   cleanup: () => Promise<void> | void;
-  metadata?: Record<string, any>;
+  metadata?: ResourceMetadata;
   createdAt?: number;
   lastAccessed?: number;
   priority?: 'low' | 'medium' | 'high' | 'critical';
@@ -552,7 +563,7 @@ export class ResourceManager extends EventEmitter {
   /**
    * Convenience methods for common resource types
    */
-  registerInterval(id: string, interval: NodeJS.Timeout, metadata?: Record<string, any>): void {
+  registerInterval(id: string, interval: NodeJS.Timeout, metadata?: ResourceMetadata): void {
     this.register({
       type: 'interval',
       id,
@@ -561,7 +572,7 @@ export class ResourceManager extends EventEmitter {
     });
   }
 
-  registerTimeout(id: string, timeout: NodeJS.Timeout, metadata?: Record<string, any>): void {
+  registerTimeout(id: string, timeout: NodeJS.Timeout, metadata?: ResourceMetadata): void {
     this.register({
       type: 'timeout',
       id,
@@ -575,7 +586,7 @@ export class ResourceManager extends EventEmitter {
     event: string,
     listener: EventListener,
     id: string = `${event}_${Date.now()}`,
-    metadata?: Record<string, unknown>
+    metadata?: ResourceMetadata
   ): void {
     this.register({
       type: 'event_listener',
@@ -589,14 +600,14 @@ export class ResourceManager extends EventEmitter {
       },
       metadata: { 
         ...metadata, 
-        targetType: target.constructor.name, 
+        targetType: target.constructor.name,
         event,
         createdAt: Date.now()
       }
     });
   }
 
-  registerFileHandle(id: string, handle: { close: () => Promise<void> | void }, metadata?: Record<string, any>): void {
+  registerFileHandle(id: string, handle: { close: () => Promise<void> | void }, metadata?: ResourceMetadata): void {
     this.register({
       type: 'file_handle',
       id,
@@ -608,7 +619,7 @@ export class ResourceManager extends EventEmitter {
     });
   }
 
-  registerDatabaseConnection(id: string, connection: { close: () => Promise<void> | void }, metadata?: Record<string, any>): void {
+  registerDatabaseConnection(id: string, connection: { close: () => Promise<void> | void }, metadata?: ResourceMetadata): void {
     this.register({
       type: 'database_connection',
       id,
@@ -813,10 +824,17 @@ process.on('exit', () => {
 
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, performing graceful shutdown');
+  const timeout = setTimeout(() => {
+    logger.error('Emergency cleanup timed out after 5s, forcing exit');
+    process.exit(1);
+  }, 5000);
+
   try {
     await globalResourceManager.emergencyCleanup();
+    clearTimeout(timeout);
     process.exit(0);
   } catch (error) {
+    clearTimeout(timeout);
     logger.error('Emergency cleanup failed', error);
     process.exit(1);
   }
@@ -824,10 +842,17 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, performing graceful shutdown');
+  const timeout = setTimeout(() => {
+    logger.error('Emergency cleanup timed out after 5s, forcing exit');
+    process.exit(1);
+  }, 5000);
+
   try {
     await globalResourceManager.emergencyCleanup();
+    clearTimeout(timeout);
     process.exit(0);
   } catch (error) {
+    clearTimeout(timeout);
     logger.error('Emergency cleanup failed', error);
     process.exit(1);
   }
@@ -835,9 +860,16 @@ process.on('SIGINT', async () => {
 
 process.on('uncaughtException', async (error) => {
   logger.error('Uncaught exception, performing emergency cleanup', error);
+  const timeout = setTimeout(() => {
+    logger.error('Emergency cleanup timed out after 3s, forcing exit');
+    process.exit(1);
+  }, 3000);
+
   try {
     await globalResourceManager.emergencyCleanup();
+    clearTimeout(timeout);
   } catch (cleanupError) {
+    clearTimeout(timeout);
     logger.error('Emergency cleanup failed', cleanupError);
   }
   process.exit(1);
@@ -845,9 +877,16 @@ process.on('uncaughtException', async (error) => {
 
 process.on('unhandledRejection', async (reason, promise) => {
   logger.error('Unhandled rejection, performing emergency cleanup', { reason, promise });
+  const timeout = setTimeout(() => {
+    logger.error('Emergency cleanup timed out after 3s, forcing exit');
+    process.exit(1);
+  }, 3000);
+
   try {
     await globalResourceManager.emergencyCleanup();
+    clearTimeout(timeout);
   } catch (cleanupError) {
+    clearTimeout(timeout);
     logger.error('Emergency cleanup failed', cleanupError);
   }
   process.exit(1);

@@ -269,15 +269,33 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
  * Validates environment configuration using ConfigurationValidator
  */
 export function validateEnvironment(): void {
-  // Use the centralized ConfigurationValidator which includes all validation logic
-  validateEnvWithValidator();
-  
+  try {
+    // Use the centralized ConfigurationValidator which includes all validation logic
+    validateEnvWithValidator();
+  } catch (error) {
+    const enrichedError = enrichError(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        operation: 'validateEnvironment',
+        environment: process.env.NODE_ENV || 'development'
+      }
+    );
+    logger.error('Environment validation failed', { error: enrichedError });
+    throw enrichedError;
+  }
+
   // Additional validation for Discord-specific requirements
   const discordToken = process.env.DISCORD_TOKEN;
   if (!discordToken) {
-    const error = 'DISCORD_TOKEN environment variable is required';
-    logger.error(error);
-    throw new Error(error);
+    const error = enrichError(
+      new Error('DISCORD_TOKEN environment variable is required'),
+      {
+        operation: 'validateDiscordToken',
+        environment: process.env.NODE_ENV || 'development'
+      }
+    );
+    logger.error('Discord token validation failed', { error });
+    throw error;
   }
 }
 

@@ -134,10 +134,15 @@ export class GeminiService implements IAIService {
   }
 
   async initialize(): Promise<void> {
-    // Initialize large context handler for handling oversized contexts
-    await largeContextHandler.initialize();
-    logger.info('Large context handler initialized for conversation summarization');
-    
+    try {
+      // Initialize large context handler for handling oversized contexts
+      await largeContextHandler.initialize();
+      logger.info('Large context handler initialized for conversation summarization');
+    } catch (error) {
+      logger.error('Failed to initialize large context handler', { error });
+      throw new Error(`Large context handler initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     const config = this.apiClient.getConfig();
     logger.info(
       'GeminiService initialized with Gemini API integration',
@@ -158,15 +163,20 @@ export class GeminiService implements IAIService {
       logger.info(`Google Search grounding enabled with threshold: ${config.groundingThreshold}`);
     }
     if (config.unfilteredMode) {
-      logger.warn('⚠️  UNFILTERED MODE ENABLED - Bot will provide unrestricted responses to all requests');
+      logger.warn('UNFILTERED MODE ENABLED - Bot will provide unrestricted responses to all requests');
     }
   }
 
   async shutdown(): Promise<void> {
-    // Clean up any temporary files from large context handler
-    await largeContextHandler.cleanupAll();
-    logger.info('Large context handler cleanup complete');
-    
+    try {
+      // Clean up any temporary files from large context handler
+      await largeContextHandler.cleanupAll();
+      logger.info('Large context handler cleanup complete');
+    } catch (error) {
+      // Log error but continue with shutdown - cleanup failures shouldn't block shutdown
+      logger.error('Error during large context handler cleanup', { error });
+    }
+
     // Dependencies will be shut down by the service registry
     logger.info('GeminiService shutdown complete');
   }
@@ -266,7 +276,18 @@ export class GeminiService implements IAIService {
         // These don't affect the response, so we don't need to wait
         const bypassCache = cacheResult.status === 'fulfilled' ? cacheResult.value.bypassCache : false;
         this.handlePostGenerationAsync(userId, prompt, result, bypassCache, serverId)
-          .catch(error => logger.error('Post-generation task failed', { error }));
+          .catch(error => {
+            logger.error('Post-generation task failed', {
+              error,
+              userId,
+              serverId,
+              promptLength: prompt.length
+            });
+            // Report to health monitor if available
+            if (this.healthMonitor) {
+              this.healthMonitor.recordError('GeminiService.postGeneration', error instanceof Error ? error : new Error(String(error)));
+            }
+          });
         
         return result;
       } catch (error) {
@@ -467,8 +488,14 @@ export class GeminiService implements IAIService {
       try {
         return await this.gracefulDegradation.generateFallbackResponse(prompt, userId, serverId);
       } catch (fallbackError) {
-        logger.error('Fallback response generation failed', { fallbackError });
-        return 'I\'m experiencing high load right now. Your message has been queued and I\'ll respond as soon as possible. Thanks for your patience!';
+        logger.error('Fallback response generation failed', {
+          fallbackError,
+          originalError: error,
+          userId,
+          serverId
+        });
+        // Throw error instead of returning hardcoded message - caller should handle degraded state
+        throw new Error('I\'m experiencing high load right now. Your message has been queued and I\'ll respond as soon as possible. Thanks for your patience!');
       }
     }
 
@@ -697,7 +724,9 @@ export class GeminiService implements IAIService {
       }
 
     } catch (error) {
-      errors.push(`Configuration validation error: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('Unexpected error during configuration validation', { error });
+      errors.push(`Configuration validation error: ${errorMessage}`);
     }
 
     return {
