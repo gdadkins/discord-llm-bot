@@ -11,7 +11,7 @@
 
 import { logger } from '../../utils/logger';
 import { largeContextHandler } from '../../utils/largeContextHandler';
-import { getBotCapabilitiesPrompt } from '../../config/botCapabilities';
+import { getBotCapabilitiesPrompt } from '../../utils/botCapabilities';
 import type { MessageContext } from '../../commands';
 import type { GuildMember, Guild, Client } from 'discord.js';
 import type { 

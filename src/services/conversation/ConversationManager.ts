@@ -1,13 +1,13 @@
-import { logger } from '../utils/logger';
-import { BaseService } from './base/BaseService';
-import type { IService } from './interfaces';
+import { logger } from '../../utils/logger';
+import { BaseService } from '../base/BaseService';
+import type { IService } from '../interfaces';
 import type { TextChannel, Message as DiscordMessage, Collection } from 'discord.js';
 import { 
   handleNetworkOperation, 
   handleAsyncOperation
-} from '../utils/ErrorHandlingUtils';
-import { globalPools } from '../utils/PromisePool';
-import { globalCoalescers } from '../utils/RequestCoalescer';
+} from '../../utils/ErrorHandlingUtils';
+import { globalPools } from '../../utils/PromisePool';
+import { globalCoalescers } from '../../utils/RequestCoalescer';
 
 interface Message {
   role: 'user' | 'assistant';

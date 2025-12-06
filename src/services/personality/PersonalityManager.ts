@@ -1,14 +1,14 @@
-import { logger } from '../utils/logger';
-import { DataStore, DataValidator } from '../utils/DataStore';
-import { dataStoreFactory } from '../utils/DataStoreFactory';
-import { BaseService } from './base/BaseService';
-import type { UserPersonality, IPersonalityManager } from './interfaces/PersonalityManagementInterfaces';
-import { PersonalityValidators } from '../utils/validation';
-import { MutexManager, createMutexManager } from '../utils/MutexManager';
+import { logger } from '../../utils/logger';
+import { DataStore, DataValidator } from '../../utils/DataStore';
+import { dataStoreFactory } from '../../utils/DataStoreFactory';
+import { BaseService } from '../base/BaseService';
+import type { UserPersonality, IPersonalityManager } from '../interfaces/PersonalityManagementInterfaces';
+import { PersonalityValidators } from '../../utils/validation';
+import { MutexManager, createMutexManager } from '../../utils/MutexManager';
 import { 
   handleDataStoreOperation, 
   handleFireAndForget
-} from '../utils/ErrorHandlingUtils';
+} from '../../utils/ErrorHandlingUtils';
 
 interface PersonalityData {
   descriptions: string[];

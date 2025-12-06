@@ -4,7 +4,6 @@
  */
 
 import { VIDEO_CONSTANTS } from './constants';
-import { getConfigValue } from '../utils/ConfigurationValidator';
 
 export interface VideoConfiguration {
   /** Enable/disable video processing entirely */
@@ -194,54 +193,3 @@ export class VideoUXHelper {
            'I\'ll process the first 83 seconds of the video.';
   }
 }
-
-/**
- * Get video configuration from environment variables using ConfigurationValidator
- */
-export function getVideoConfigFromEnv(): Partial<VideoConfiguration> {
-  const config: Partial<VideoConfiguration> = {};
-  
-  // Use ConfigurationValidator for type-safe configuration parsing
-  const videoSupportEnabled = getConfigValue<boolean>('VIDEO_SUPPORT_ENABLED');
-  if (videoSupportEnabled !== undefined) {
-    config.videoSupportEnabled = videoSupportEnabled;
-  }
-  
-  const maxVideoDurationSeconds = getConfigValue<number>('MAX_VIDEO_DURATION_SECONDS');
-  if (maxVideoDurationSeconds !== undefined) {
-    config.maxVideoDurationSeconds = maxVideoDurationSeconds;
-  }
-  
-  const videoTokenWarningThreshold = getConfigValue<number>('VIDEO_TOKEN_WARNING_THRESHOLD');
-  if (videoTokenWarningThreshold !== undefined) {
-    config.videoTokenWarningThreshold = videoTokenWarningThreshold;
-  }
-  
-  const youtubeUrlSupportEnabled = getConfigValue<boolean>('YOUTUBE_URL_SUPPORT_ENABLED');
-  if (youtubeUrlSupportEnabled !== undefined) {
-    config.youtubeUrlSupportEnabled = youtubeUrlSupportEnabled;
-  }
-  
-  const videoFileSizeLimitMB = getConfigValue<number>('VIDEO_FILE_SIZE_LIMIT_MB');
-  if (videoFileSizeLimitMB !== undefined) {
-    config.videoFileSizeLimitMB = videoFileSizeLimitMB;
-  }
-  
-  const requireVideoConfirmation = getConfigValue<boolean>('REQUIRE_VIDEO_CONFIRMATION');
-  if (requireVideoConfirmation !== undefined) {
-    config.requireVideoConfirmation = requireVideoConfirmation;
-  }
-  
-  return config;
-}
-
-/**
- * Create final video configuration by merging defaults with environment overrides
- */
-export function createVideoConfiguration(): VideoConfiguration {
-  const envConfig = getVideoConfigFromEnv();
-  return { ...DEFAULT_VIDEO_CONFIG, ...envConfig };
-}
-
-// Note: Configuration validation is performed during bot initialization
-// to avoid duplicate validation errors during module loading

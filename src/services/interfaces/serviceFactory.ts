@@ -39,28 +39,25 @@ import type {
 } from './index';
 
 // Import concrete implementations
-import { AnalyticsManager } from '../analyticsManager';
+import { AnalyticsManager } from '../analytics/AnalyticsManager';
 import { GeminiService } from '../gemini/GeminiService';
-import { ConfigurationManager } from '../configurationManager';
-import { HealthMonitor } from '../healthMonitor';
-import { RateLimiter } from '../rateLimiter';
-import { ContextManager } from '../contextManager';
-import { CacheManager } from '../cacheManager';
-import { PersonalityManager } from '../personalityManager';
-import { RoastingEngine } from '../roastingEngine';
+import { ConfigurationManager } from '../config/ConfigurationManager';
+import { HealthMonitor } from '../health/HealthMonitor';
+import { RateLimiter } from '../rate-limiting/RateLimiter';
+import { ContextManager } from '../context/ContextManager';
+import { CacheManager } from '../cache/CacheManager';
+import { PersonalityManager } from '../personality/PersonalityManager';
+import { RoastingEngine } from '../roasting/RoastingEngine';
 import { GracefulDegradation } from '../resilience';
 import { UserPreferenceManager } from '../preferences';
-import { HelpSystem } from '../helpSystem';
-import { BehaviorAnalyzer } from '../analytics/behavior';
-import { SystemContextBuilder } from '../systemContextBuilder';
-import { ConversationManager } from '../conversationManager';
-import { RetryHandler } from '../retryHandler';
-import { ResponseProcessingService } from '../responseProcessingService';
-import { UserAnalysisService } from '../analytics/user';
+import { HelpSystem } from '../help/HelpSystem';
+import { BehaviorAnalyzer } from '../analytics/BehaviorAnalyzer';
+import { SystemContextBuilder } from '../context/SystemContextBuilder';
+import { ConversationManager } from '../conversation/ConversationManager';
+import { RetryHandler } from '../resilience/RetryHandler';
+import { ResponseProcessingService } from '../response/ResponseProcessingService';
+import { UserAnalysisService } from '../analytics/user'; // Assuming this is correct or check file
 import { MultimodalContentHandler } from '../multimodal/MultimodalContentHandler';
-
-
-
 
 export class ServiceFactory implements IServiceFactory {
   /**

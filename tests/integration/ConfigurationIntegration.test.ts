@@ -1,6 +1,6 @@
 
 import { ConfigurationManager } from '../../src/config/ConfigurationManager';
-import { SecretManager } from '../../src/config/SecretManager';
+import { SecretManager } from '../../src/services/security/SecretManager';
 import { logger } from '../../src/utils/logger';
 
 jest.mock('../../src/utils/logger');

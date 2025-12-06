@@ -1,10 +1,10 @@
 import { Mutex } from 'async-mutex';
 import { promisify } from 'util';
 import { gzip, gunzip } from 'zlib';
-import { logger } from '../utils/logger';
-import { CacheKeyGenerator } from '../utils/CacheKeyGenerator';
-import { BaseService } from './base/BaseService';
-import type { ICacheManager, CacheStats, CachePerformance } from './interfaces/CacheManagementInterfaces';
+import { logger } from '../../utils/logger';
+import { CacheKeyGenerator } from '../../utils/CacheKeyGenerator';
+import { BaseService } from '../base/BaseService';
+import type { ICacheManager, CacheStats, CachePerformance } from '../interfaces/CacheManagementInterfaces';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);

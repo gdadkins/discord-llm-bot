@@ -33,7 +33,7 @@ describe('Simple Safety Net Tests', () => {
   describe('Module Import Safety Check', () => {
     it('should be able to import ContextManager', () => {
       expect(() => {
-        const { ContextManager } = require('../../src/services/contextManager');
+        const { ContextManager } = require('../../src/services/context/ContextManager');
         expect(ContextManager).toBeDefined();
       }).not.toThrow();
     });
@@ -64,7 +64,7 @@ describe('Simple Safety Net Tests', () => {
   describe('Feature Flags Safety Check', () => {
     it('should be able to import and use feature flags', () => {
       expect(() => {
-        const { FEATURE_FLAGS, FeatureFlagManager } = require('../../src/config/featureFlags');
+        const { FEATURE_FLAGS, FeatureFlagManager } = require('../../src/utils/featureFlags');
         
         expect(FEATURE_FLAGS).toBeDefined();
         expect(typeof FEATURE_FLAGS).toBe('object');
@@ -81,7 +81,7 @@ describe('Simple Safety Net Tests', () => {
   describe('Core Service Instantiation Safety Check', () => {
     it('should be able to instantiate ContextManager', () => {
       expect(() => {
-        const { ContextManager } = require('../../src/services/contextManager');
+        const { ContextManager } = require('../../src/services/context/ContextManager');
         const contextManager = new ContextManager();
         
         expect(contextManager).toBeDefined();

@@ -4,7 +4,7 @@
  */
 
 import { performanceDashboard } from './performanceDashboard';
-import { CacheManager } from '../services/cacheManager';
+import { CacheManager } from '../services/cache/CacheManager';
 import { Message, CommandInteraction } from 'discord.js';
 
 /**

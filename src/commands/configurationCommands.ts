@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
-import { ConfigurationManager } from '../services/configurationManager';
-import { ConfigurationAdapter } from '../services/configurationAdapter';
+import { ConfigurationManager } from '../services/config/ConfigurationManager';
+import { ConfigurationAdapter } from '../services/adapters/ConfigurationAdapter';
 import { logger } from '../utils/logger';
 
 class ConfigurationCommandHandlers {

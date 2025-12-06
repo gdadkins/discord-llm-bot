@@ -1,16 +1,21 @@
 import { ChatInputCommandInteraction, EmbedBuilder, ButtonInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { logger } from '../utils/logger';
 import { UserPreferenceManager, ScheduledCommand } from '../services/preferences';
-import { HelpSystem } from '../services/helpSystem';
+import { HelpSystem } from '../services/help/HelpSystem';
 import { splitMessage } from '../utils/messageSplitter';
-import { VideoConfiguration, VideoProcessingEstimator, VideoUXHelper } from '../config/videoConfig';
+import { VideoProcessingEstimator, VideoUXHelper } from '../utils/videoUtils';
+import { ConfigurationManager } from '../services/config/ConfigurationManager';
 
 export class UXCommandHandlers {
   constructor(
     private userPreferenceManager: UserPreferenceManager,
     private helpSystem: HelpSystem,
-    private videoConfig?: VideoConfiguration
+    private configManager: ConfigurationManager
   ) {}
+
+  private get videoConfig() {
+    return this.configManager.getConfiguration().features.video;
+  }
 
   // Preferences Commands
   async handlePreferencesCommand(interaction: ChatInputCommandInteraction): Promise<void> {

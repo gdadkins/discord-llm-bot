@@ -1,4 +1,4 @@
-import { ConversationManager } from '../../../src/services/conversationManager';
+import { ConversationManager } from '../../../src/services/conversation/ConversationManager';
 import { logger } from '../../../src/utils/logger';
 import { Collection } from 'discord.js';
 

@@ -12,7 +12,7 @@
 
 import { Mutex } from 'async-mutex';
 import { logger } from '../../utils/logger';
-import { DEGRADATION_CONSTANTS } from '../../config/constants';
+import { DEGRADATION_CONSTANTS } from '../../utils/constants';
 
 export interface CircuitBreakerConfig {
   /** Maximum failures before opening circuit */

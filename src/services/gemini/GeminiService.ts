@@ -36,9 +36,9 @@ import type {
   GeminiGenerationOptions,
   StructuredOutputOptions
 } from '../interfaces';
-import type { IConversationManager } from '../conversationManager';
-import type { IRetryHandler } from '../retryHandler';
-import type { ISystemContextBuilder } from '../systemContextBuilder';
+import type { IConversationManager } from '../conversation/ConversationManager';
+import type { IRetryHandler } from '../resilience/RetryHandler';
+import type { ISystemContextBuilder } from '../context/SystemContextBuilder';
 
 import { GeminiAPIClient } from './GeminiAPIClient';
 import { GeminiContextProcessor } from './GeminiContextProcessor';

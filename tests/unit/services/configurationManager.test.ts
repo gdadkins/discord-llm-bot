@@ -1,8 +1,8 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { ConfigurationManager } from '../../../src/services/configurationManager';
-import { BotConfiguration } from '../../../src/services/configurationManager';
+import { ConfigurationManager } from '../../../src/services/config/ConfigurationManager';
+import { BotConfiguration } from '../../../src/services/interfaces/ConfigurationInterfaces';
 
 const mockFs = fs as jest.Mocked<typeof fs>;
 

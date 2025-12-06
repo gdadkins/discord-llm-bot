@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, jest, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
-import { ContextManager } from '../../src/services/contextManager';
+import { ContextManager } from '../../src/services/context/ContextManager';
 import { IContextManager } from '../../src/services/interfaces/ContextManagementInterfaces';
 import { createTestEnvironment } from '../test-utils';
 import { BaseService, ServiceState } from '../../src/services/base/BaseService';

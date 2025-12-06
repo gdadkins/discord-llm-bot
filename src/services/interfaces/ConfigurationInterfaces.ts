@@ -86,6 +86,18 @@ export interface BotConfiguration {
   features: FeatureConfig;
 }
 
+// Video configuration interface
+export interface VideoConfiguration {
+  videoSupportEnabled: boolean;
+  maxVideoDurationSeconds: number;
+  videoTokenWarningThreshold: number;
+  youtubeUrlSupportEnabled: boolean;
+  videoFileSizeLimitMB: number;
+  requireVideoConfirmation: boolean;
+  videoProcessingTimeoutSeconds: number;
+  supportedVideoFormats: readonly string[];
+}
+
 export interface DiscordConfig {
   intents: string[];
   permissions: {
@@ -194,6 +206,7 @@ export interface MonitoringConfig {
 
 export interface FeatureConfig {
   roasting: RoastingConfig;
+  video: VideoConfiguration;
   codeExecution: boolean;
   structuredOutput: boolean;
   monitoring: MonitoringConfig;

@@ -18,7 +18,7 @@ import { globalResourceManager } from '../../utils/ResourceManager';
 import type { IContextManager } from '../interfaces/ContextManagementInterfaces';
 import type { IRateLimiter } from '../interfaces/RateLimitingInterfaces';
 import type { IAIService } from '../interfaces/AIServiceInterfaces';
-import { HEALTH_MONITOR_CONSTANTS, TIME_CONSTANTS } from '../../config/constants';
+import { HEALTH_MONITOR_CONSTANTS, TIME_CONSTANTS } from '../../utils/constants';
 import type { IHealthMonitor } from '../interfaces/HealthMonitoringInterfaces';
 
 import { HealthMetricsCollector } from './HealthMetricsCollector';

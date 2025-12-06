@@ -1,5 +1,5 @@
 import { BenchmarkSuite, MemoryProfiler } from './base';
-import { RateLimiter } from '../../src/services/rateLimiter';
+import { RateLimiter } from '../../src/services/rate-limiting/RateLimiter';
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 

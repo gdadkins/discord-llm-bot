@@ -4,7 +4,7 @@
  */
 
 import { ConfigurationManager } from '../../src/config/ConfigurationManager';
-import { SecretManager } from '../../src/config/SecretManager';
+import { SecretManager } from '../../src/services/security/SecretManager';
 import { ConfigurationValidator, ENV_VAR_SCHEMAS } from '../../src/utils/ConfigurationValidator';
 import { logger } from '../../src/utils/logger';
 

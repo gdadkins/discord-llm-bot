@@ -3,7 +3,7 @@
  * Optimized parameters for image recognition and visual understanding
  */
 
-import { getConfigValue, getConfigValueWithDefault } from '../utils/ConfigurationValidator';
+import { getConfigValue, getConfigValueWithDefault } from '../../utils/ConfigurationValidator';
 
 export interface GeminiModelConfig {
   model: string;

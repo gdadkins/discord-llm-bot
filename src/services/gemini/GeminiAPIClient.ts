@@ -10,8 +10,8 @@ import {
   HarmBlockThreshold
 } from '@google/generative-ai';
 import { logger } from '../../utils/logger';
-import { getGeminiConfig, GEMINI_MODELS } from '../../config/geminiConfig';
-import { ConfigurationFactory } from '../../config/ConfigurationFactory';
+import { getGeminiConfig, GEMINI_MODELS } from '../../services/gemini/GeminiConfig';
+
 import { AdaptiveTimeout, wrapExternalAPIOperation } from '../../utils/timeoutUtils';
 import { GeminiConfig } from '../../types';
 import { ErrorCategory, enrichError } from '../../utils/ErrorHandlingUtils';
@@ -53,23 +53,25 @@ export class GeminiAPIClient implements IGeminiAPIClient {
   ) {
     this.ai = new GoogleGenerativeAI(apiKey);
     
-    // Load configuration using ConfigurationFactory
-    const geminiConfig = ConfigurationFactory.createGeminiServiceConfig();
-    
-    this.config = {
-      systemInstruction: geminiConfig.systemInstruction,
-      groundingThreshold: geminiConfig.groundingThreshold,
-      thinkingBudget: geminiConfig.thinkingBudget,
-      includeThoughts: geminiConfig.includeThoughts,
-      enableCodeExecution: geminiConfig.enableCodeExecution,
-      enableStructuredOutput: geminiConfig.enableStructuredOutput,
-      forceThinkingPrompt: geminiConfig.forceThinkingPrompt,
-      thinkingTrigger: geminiConfig.thinkingTrigger,
-      enableGoogleSearch: geminiConfig.enableGoogleSearch || false,
-      unfilteredMode: geminiConfig.unfilteredMode || false
-    };
+    // Load configuration from environment
+    this.config = this.loadConfigFromEnv();
 
     this.logConfiguration();
+  }
+
+  private loadConfigFromEnv() {
+    return {
+      systemInstruction: process.env.GEMINI_SYSTEM_INSTRUCTION || 'You are a helpful AI assistant.',
+      groundingThreshold: parseFloat(process.env.GROUNDING_THRESHOLD || '0.3'),
+      thinkingBudget: parseInt(process.env.THINKING_BUDGET || '1024'),
+      includeThoughts: process.env.INCLUDE_THOUGHTS === 'true',
+      enableCodeExecution: process.env.ENABLE_CODE_EXECUTION === 'true',
+      enableStructuredOutput: process.env.ENABLE_STRUCTURED_OUTPUT === 'true',
+      forceThinkingPrompt: process.env.FORCE_THINKING_PROMPT === 'true',
+      thinkingTrigger: process.env.THINKING_TRIGGER || 'THINK',
+      enableGoogleSearch: process.env.ENABLE_GOOGLE_SEARCH === 'true',
+      unfilteredMode: process.env.UNFILTERED_MODE === 'true'
+    };
   }
 
   private logConfiguration(): void {
@@ -108,7 +110,7 @@ export class GeminiAPIClient implements IGeminiAPIClient {
   buildGenerationConfig(
     profile: string,
     optionsOrBudget?: GeminiGenerationOptions | number
-  ): GenerationConfig {
+  ): Record<string, unknown> {
     const geminiConfig = getGeminiConfig(profile);
     
     // Handle overloaded parameter
@@ -136,7 +138,7 @@ export class GeminiAPIClient implements IGeminiAPIClient {
       this.configureStructuredOutput(config, options.structuredOutput, options.includeReasoning);
     }
     
-    return config;
+    return config as unknown as Record<string, unknown>;
   }
 
   private configureStructuredOutput(

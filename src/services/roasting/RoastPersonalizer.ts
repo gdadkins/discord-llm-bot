@@ -7,7 +7,7 @@
  */
 
 import { logger } from '../../utils/logger';
-import { ROASTING_CONSTANTS, TIME_CONSTANTS, CACHE_CONSTANTS } from '../../config/constants';
+import { ROASTING_CONSTANTS, TIME_CONSTANTS, CACHE_CONSTANTS } from '../../utils/constants';
 import type {
   MoodCalculatorParams,
   TimeCalculatorParams,

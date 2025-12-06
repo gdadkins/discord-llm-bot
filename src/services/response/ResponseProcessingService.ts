@@ -5,18 +5,18 @@
  * across different AI providers.
  */
 
-import { FinishReason, BlockedReason } from '@google/generative-ai';
-import { logger } from '../utils/logger';
-import { formatThinkingResponse } from '../utils/thinkingFormatter';
+import { FinishReason, BlockReason } from '@google/generative-ai';
+import { logger } from '../../utils/logger';
+import { formatThinkingResponse } from '../../utils/thinkingFormatter';
 import type { 
   IResponseProcessingService, 
   ResponseProcessingConfig, 
   ProcessedResponse, 
   RawAPIResponse
-} from './interfaces/ResponseProcessingInterfaces';
-import type { ServiceHealthStatus } from './interfaces/CoreServiceInterfaces';
-import type { ProcessedAttachment } from './interfaces/MultimodalContentInterfaces'; // eslint-disable-line @typescript-eslint/no-unused-vars
-import { PerformanceMetadata } from '../types';
+} from '../interfaces/ResponseProcessingInterfaces';
+import type { ServiceHealthStatus } from '../interfaces/CoreServiceInterfaces';
+import type { ProcessedAttachment } from '../interfaces/MultimodalContentInterfaces'; // eslint-disable-line @typescript-eslint/no-unused-vars
+import { PerformanceMetadata } from '../../types';
 
 /**
  * Extended part interface with role information
@@ -234,15 +234,15 @@ export class ResponseProcessingService implements IResponseProcessingService {
   /**
    * Generates user-friendly error message for blocked content
    */
-  getBlockedContentMessage(reason: BlockedReason): string {
+  getBlockedContentMessage(reason: BlockReason): string {
     switch (reason) {
-    case BlockedReason.SAFETY:
+    case BlockReason.SAFETY:
       return 'Your request was blocked by safety filters. Try rephrasing with different language.';
-    case BlockedReason.BLOCKLIST:
+    case (BlockReason as any).BLOCKLIST:
       return 'Your request contains blocked terminology. Please use different wording.';
-    case BlockedReason.PROHIBITED_CONTENT:
+    case (BlockReason as any).PROHIBITED_CONTENT:
       return 'Your request relates to prohibited content. Please ask about something else.';
-    case BlockedReason.OTHER:
+    case BlockReason.OTHER:
       return 'Your request was blocked for policy reasons. Try rephrasing your question.';
     default:
       return 'Your request was blocked. Please try rephrasing your question.';
@@ -260,15 +260,15 @@ export class ResponseProcessingService implements IResponseProcessingService {
       return 'My response was too long and got cut off. Try asking for a shorter response or break your question into smaller parts. (Tip: Complex questions with thinking mode may need more tokens)';
     case FinishReason.RECITATION:
       return 'I detected potential copyright material in my response. Let me try a different approach to your question.';
-    case FinishReason.LANGUAGE:
+    case (FinishReason as any).LANGUAGE:
       return 'I encountered a language processing issue. Could you try rephrasing your message?';
-    case FinishReason.BLOCKLIST:
+    case (FinishReason as any).BLOCKLIST:
       return 'Your request contains terms that I can\'t process. Please rephrase without any restricted content.';
-    case FinishReason.PROHIBITED_CONTENT:
+    case (FinishReason as any).PROHIBITED_CONTENT:
       return 'I can\'t generate content related to that topic. Try asking about something else!';
-    case FinishReason.SPII:
+    case (FinishReason as any).SPII:
       return 'I detected potentially sensitive personal information. Please avoid sharing private details.';
-    case FinishReason.MALFORMED_FUNCTION_CALL:
+    case (FinishReason as any).MALFORMED_FUNCTION_CALL:
       return 'There was a technical issue with function calling. This shouldn\'t happen - please try again.';
     case FinishReason.OTHER:
       return 'I encountered an unexpected issue while generating the response. Please try again.';
@@ -472,9 +472,9 @@ export class ResponseProcessingService implements IResponseProcessingService {
   private shouldReturnMessageForFinishReason(finishReason: FinishReason): boolean {
     return [
       FinishReason.SAFETY,
-      FinishReason.BLOCKLIST,
-      FinishReason.PROHIBITED_CONTENT,
-      FinishReason.SPII,
+      (FinishReason as any).BLOCKLIST,
+      (FinishReason as any).PROHIBITED_CONTENT,
+      (FinishReason as any).SPII,
       FinishReason.MAX_TOKENS  // Don't retry MAX_TOKENS - return friendly message
     ].includes(finishReason);
   }

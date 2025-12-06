@@ -5,7 +5,7 @@
  * Extracted from GeminiService to improve separation of concerns.
  */
 
-import type { FinishReason, BlockedReason } from '@google/generative-ai';
+import type { FinishReason, BlockReason } from '@google/generative-ai';
 import type { IService } from './CoreServiceInterfaces';
 import type { ProcessedAttachment } from './MultimodalContentInterfaces';
 

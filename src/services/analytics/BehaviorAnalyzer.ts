@@ -5,5 +5,5 @@
  * The implementation has been split into specialized modules for better maintainability.
  */
 
-export { BehaviorAnalyzer } from './analytics/behavior/BehaviorAnalyzer';
-export type { UserBehaviorPattern } from './analytics/behavior/types';
+export { BehaviorAnalyzer } from '../analytics/behavior/BehaviorAnalyzer';
+export type { UserBehaviorPattern } from '../analytics/behavior/types';

@@ -431,6 +431,20 @@ class ConfigurationManager extends EventEmitter implements IConfigurationService
   }
 
   /**
+   * Get service name
+   */
+  getName(): string {
+    return 'ConfigurationManager';
+  }
+
+  /**
+   * Get service version
+   */
+  getVersion(): string {
+    return this.currentConfig?.version || '0.0.0';
+  }
+
+  /**
    * Get health status
    */
   getHealthStatus(): ServiceHealthStatus {

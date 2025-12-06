@@ -1,7 +1,7 @@
 
 import { describe, it, expect, jest, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
 import { Client, GatewayIntentBits } from 'discord.js';
-import { ContextManager } from '../../src/services/contextManager';
+import { ContextManager } from '../../src/services/context/ContextManager';
 import { BaseService, ServiceState } from '../../src/services/base/BaseService';
 import { ConfigurationManager } from '../../src/config/ConfigurationManager';
 import { createTestEnvironment } from '../test-utils';

@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { HealthMonitor } from '../../../src/services/healthMonitor';
+import { HealthMonitor } from '../../../src/services/health/HealthMonitor';
 import { createMockMetrics, MockTimers, createTestEnvironment } from '../../test-utils';
 import * as path from 'path';
 

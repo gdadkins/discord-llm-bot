@@ -1,7 +1,7 @@
 
 import { GeminiAPIClient } from '../../../../src/services/gemini/GeminiAPIClient';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { getGeminiConfig, GEMINI_MODELS } from '../../../../src/config/geminiConfig';
+import { getGeminiConfig, GEMINI_MODELS } from '../../../../src/services/gemini/GeminiConfig';
 import { ConfigurationFactory } from '../../../../src/config/ConfigurationFactory';
 import { wrapExternalAPIOperation } from '../../../../src/utils/timeoutUtils';
 import { logger } from '../../../../src/utils/logger';

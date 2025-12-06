@@ -1,7 +1,7 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { ConfigurationManager } from '../../../src/services/configurationManager';
+import { ConfigurationManager } from '../../../src/services/config/ConfigurationManager';
 import { DataStore } from '../../../src/utils/DataStore';
 
 // Mock the DataStore

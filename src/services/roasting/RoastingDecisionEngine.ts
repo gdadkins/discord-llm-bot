@@ -6,7 +6,7 @@
  */
 
 import { logger } from '../../utils/logger';
-import { ROASTING_CONSTANTS } from '../../config/constants';
+import { ROASTING_CONSTANTS } from '../../utils/constants';
 import { ChaosEventManager } from './ChaosEventManager';
 import { RoastGenerator } from './RoastGenerator';
 import type { RoastingContext, RoastConfig } from './types';

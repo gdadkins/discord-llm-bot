@@ -1,7 +1,7 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { HealthMonitor } from '../../src/services/healthMonitor';
+import { HealthMonitor } from '../../src/services/health/HealthMonitor';
 import { GracefulDegradation } from '../../src/services/gracefulDegradation';
-import { ConfigurationManager } from '../../src/services/configurationManager';
+import { ConfigurationManager } from '../../src/services/config/ConfigurationManager';
 import { createTestEnvironment, waitForAsync } from '../test-utils';
 import * as path from 'path';
 

@@ -8,6 +8,7 @@ import {
   EnvironmentOverrides,
   IConfigurationLoader
 } from '../interfaces/ConfigurationInterfaces';
+import { DEFAULT_VIDEO_CONFIG } from '../../utils/videoUtils';
 
 /**
  * ConfigurationLoader - Handles loading configuration from various sources
@@ -155,7 +156,8 @@ export class ConfigurationLoader implements IConfigurationLoader {
         maxSize: 100,
         ttlMinutes: 5,
         compressionEnabled: true
-      }
+      },
+      video: DEFAULT_VIDEO_CONFIG
     }
   };
 

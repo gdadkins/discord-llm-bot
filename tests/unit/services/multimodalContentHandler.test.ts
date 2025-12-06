@@ -11,7 +11,7 @@
  */
 
 import { Collection, Attachment } from 'discord.js';
-import { MultimodalContentHandler } from '../../../src/services/multimodalContentHandler';
+import { MultimodalContentHandler } from '../../../src/services/multimodal/MultimodalContentHandler';
 import { audioProcessor } from '../../../src/utils/audioProcessor';
 import { logger } from '../../../src/utils/logger';
 

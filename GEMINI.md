@@ -12,7 +12,8 @@ This file provides context about the `discord-llm-bot` project to help the Gemin
 - **Always use best practice programming standards
 - **Never use emoji in code or output
 - **Never change the api model being used for the API call unless allowed because of API free usage availablity
-- **When performing tests, use a reasoable timeout to keep it from running forever, and using transpileOnly(or something else) to date*-time*-log_fast.txt for compile errors
+- ** When performing tests, use a 30 second max --timeout to keep it from running forever, and using transpileOnly(or something else) to date*-time*-log_fast.txt for compile errors
+- **User is unable to press ctrl+f to the shell to provide input, so ask the user in a different method (outside shell) for input information.
 
 ## Key Files
 
@@ -38,16 +39,25 @@ The project is organized into the following main directories:
 
 - **`src/`**: Contains the main source code.
   - **`commands/`**: Holds the bot's command handlers.
-  - **`config/`**: Manages configuration settings.
+  - **`config/`**: (Deprecated) Legacy configuration files. Use `src/services/config` instead.
   - **`core/`**: Includes the core logic of the bot, such as initialization and event handling.
   - **`events/`**: Defines event listeners for Discord events.
   - **`handlers/`**: Contains handlers for different types of messages and interactions.
   - **`services/`**: Implements various services, such as the Gemini API integration.
+    - **`config/`**: New modular Configuration Management System.
   - **`types/`**: Provides TypeScript type definitions.
   - **`utils/`**: Offers utility functions used across the application.
 - **`tests/`**: Contains all tests, including unit, integration, end-to-end, load, and chaos tests.
 - **`docs/`**: Includes detailed documentation about the project's architecture, features, and setup.
 - **`scripts/`**: Holds various utility scripts for tasks like load testing and database migration.
+
+## Configuration System
+
+The project has migrated from a static `ConfigurationFactory` to a robust, service-based `ConfigurationManager` (`src/services/config/ConfigurationManager.ts`).
+
+- **Key Features:** JSON-backed persistence (`data/bot-config.json`), schema validation, versioning, audit logging, and hot-reloading.
+- **Usage:** Injected as a dependency via `ServiceFactory` or initialized in `botInitializer`.
+- **Legacy:** `src/config/ConfigurationManager.ts` is a deprecated wrapper ensuring backward compatibility.
 
 ## How to Get Started
 

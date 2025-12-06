@@ -1,7 +1,7 @@
 import { BenchmarkSuite, MemoryProfiler } from './base';
 import { GeminiService } from '../../src/services/gemini';
-import { ContextManager } from '../../src/services/contextManager';
-import { RateLimiter } from '../../src/services/rateLimiter';
+import { ContextManager } from '../../src/services/context/ContextManager';
+import { RateLimiter } from '../../src/services/rate-limiting/RateLimiter';
 
 export async function runRoastProbabilityBenchmarks() {
   const suite = new BenchmarkSuite();

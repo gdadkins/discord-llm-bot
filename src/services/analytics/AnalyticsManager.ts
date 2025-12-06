@@ -1,7 +1,7 @@
-import { BaseService } from './base/BaseService';
-import { logger } from '../utils/logger';
+import { BaseService } from '../base/BaseService';
+import { logger } from '../../utils/logger';
 import * as crypto from 'crypto-js';
-import type { ServiceHealthStatus } from './interfaces/CoreServiceInterfaces';
+import type { ServiceHealthStatus } from '../interfaces/CoreServiceInterfaces';
 import type { 
   IAnalyticsService,
   CommandUsageEvent,
@@ -11,7 +11,7 @@ import type {
   UsageStatistics,
   SystemStats,
   AnalyticsConfig
-} from './interfaces/AnalyticsInterfaces';
+} from '../interfaces/AnalyticsInterfaces';
 import {
   UserBehaviorAnalytics,
   EventTrackingService,
@@ -22,7 +22,7 @@ import {
   type IMetricsCollectionService,
   type IReportGenerationService,
   type DataStoreDashboard
-} from './analytics';
+} from '../analytics';
 
 /**
  * Analytics Manager - Facade Service
