@@ -1,5 +1,5 @@
 
-import { ConfigurationManager } from '../../src/config/ConfigurationManager';
+import { ConfigurationManager } from '../../src/services/config/ConfigurationManager';
 import { SecretManager } from '../../src/services/security/SecretManager';
 import { logger } from '../../src/utils/logger';
 

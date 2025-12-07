@@ -797,7 +797,7 @@ export class ResourceManager extends EventEmitter {
     }
 
     // Clear auto-cleanup timeouts
-    for (const [key, timeoutId] of this.autoCleanupTimeouts) {
+    for (const [, timeoutId] of this.autoCleanupTimeouts) {
       clearTimeout(timeoutId);
     }
     this.autoCleanupTimeouts.clear();

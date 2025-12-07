@@ -2,7 +2,7 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { HealthMonitor } from '../../src/services/health/HealthMonitor';
 import { GracefulDegradation } from '../../src/services/core/GracefulDegradation';
-import { ConfigurationManager } from '../../src/config/ConfigurationManager';
+import { ConfigurationManager } from '../../src/services/config/ConfigurationManager';
 import { createTestEnvironment, MockMetrics } from '../test-utils';
 import * as path from 'path';
 

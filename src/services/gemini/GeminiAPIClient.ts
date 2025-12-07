@@ -1,10 +1,11 @@
 
-import { 
-  GoogleGenerativeAI, 
+import {
+  GoogleGenerativeAI,
   Content,
   GenerationConfig,
   SafetySetting,
   Tool,
+  FunctionDeclarationsTool,
   GenerateContentRequest,
   HarmCategory,
   HarmBlockThreshold
@@ -263,9 +264,11 @@ export class GeminiAPIClient implements IGeminiAPIClient {
     }
     
     if (this.config.enableGoogleSearch) {
+      // Cast to unknown then to Tool to satisfy TypeScript while using Google Search grounding
+      // The googleSearch property is valid at runtime but not in the current @google/generative-ai types
       tools.push({
         googleSearch: {}
-      });
+      } as unknown as FunctionDeclarationsTool);
       logger.info(`Adding Google Search grounding`);
     }
     

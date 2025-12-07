@@ -285,7 +285,7 @@ export class GeminiService implements IAIService {
             });
             // Report to health monitor if available
             if (this.healthMonitor) {
-              this.healthMonitor.recordError('GeminiService.postGeneration', error instanceof Error ? error : new Error(String(error)));
+              this.healthMonitor.recordError();
             }
           });
         

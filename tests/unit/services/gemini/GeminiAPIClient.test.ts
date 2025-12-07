@@ -2,10 +2,9 @@
 import { GeminiAPIClient } from '../../../../src/services/gemini/GeminiAPIClient';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { getGeminiConfig, GEMINI_MODELS } from '../../../../src/services/gemini/GeminiConfig';
-import { ConfigurationFactory } from '../../../../src/config/ConfigurationFactory';
 import { wrapExternalAPIOperation } from '../../../../src/utils/timeoutUtils';
 import { logger } from '../../../../src/utils/logger';
-import type { 
+import type {
   IGracefulDegradationService,
   IMultimodalContentHandler,
   GeminiGenerationOptions,
@@ -15,8 +14,7 @@ import type { GeminiConfig, HarmCategory, HarmBlockThreshold } from '../../../..
 
 // Mock all external modules
 jest.mock('@google/generative-ai');
-jest.mock('../../../../src/config/geminiConfig');
-jest.mock('../../../../src/config/ConfigurationFactory');
+jest.mock('../../../../src/services/gemini/GeminiConfig');
 jest.mock('../../../../src/utils/timeoutUtils');
 jest.mock('../../../../src/utils/logger');
 
@@ -27,10 +25,24 @@ describe('GeminiAPIClient', () => {
   let mockGoogleGenAI: jest.Mocked<GoogleGenerativeAI>;
   let mockGenerativeModel: jest.Mocked<GenerativeModel>;
   let mockGenerateContent: jest.Mock;
+  let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
     // Clear all mocks
     jest.clearAllMocks();
+
+    // Save and setup environment
+    originalEnv = { ...process.env };
+    process.env.GEMINI_SYSTEM_INSTRUCTION = 'Test system instruction';
+    process.env.GROUNDING_THRESHOLD = '0.5';
+    process.env.THINKING_BUDGET = '50000';
+    process.env.INCLUDE_THOUGHTS = 'true';
+    process.env.ENABLE_CODE_EXECUTION = 'true';
+    process.env.ENABLE_STRUCTURED_OUTPUT = 'true';
+    process.env.FORCE_THINKING_PROMPT = 'false';
+    process.env.THINKING_TRIGGER = '';
+    process.env.ENABLE_GOOGLE_SEARCH = 'false';
+    process.env.UNFILTERED_MODE = 'false';
 
     // Setup mock graceful degradation
     mockGracefulDegradation = {
@@ -66,20 +78,6 @@ describe('GeminiAPIClient', () => {
 
     (GoogleGenerativeAI as jest.MockedClass<typeof GoogleGenerativeAI>).mockImplementation(() => mockGoogleGenAI);
 
-    // Setup configuration factory mock
-    (ConfigurationFactory.createGeminiServiceConfig as jest.Mock).mockReturnValue({
-      systemInstruction: 'Test system instruction',
-      groundingThreshold: 0.5,
-      thinkingBudget: 50000,
-      includeThoughts: true,
-      enableCodeExecution: true,
-      enableStructuredOutput: true,
-      forceThinkingPrompt: false,
-      thinkingTrigger: '',
-      enableGoogleSearch: false,
-      unfilteredMode: false
-    });
-
     // Setup gemini config mock
     (getGeminiConfig as jest.Mock).mockReturnValue({
       model: 'gemini-pro',
@@ -96,11 +94,14 @@ describe('GeminiAPIClient', () => {
     geminiAPIClient = new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
   });
 
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
   describe('Constructor and Configuration', () => {
     it('should initialize with valid configuration', () => {
       expect(geminiAPIClient).toBeDefined();
       expect(GoogleGenerativeAI).toHaveBeenCalledWith('test-api-key');
-      expect(ConfigurationFactory.createGeminiServiceConfig).toHaveBeenCalled();
       expect(logger.info).toHaveBeenCalledWith('GeminiAPIClient initialized with Gemini API integration');
     });
 
@@ -111,10 +112,8 @@ describe('GeminiAPIClient', () => {
     });
 
     it('should log Google search when enabled', () => {
-      (ConfigurationFactory.createGeminiServiceConfig as jest.Mock).mockReturnValue({
-        enableGoogleSearch: true,
-        groundingThreshold: 0.7
-      });
+      process.env.ENABLE_GOOGLE_SEARCH = 'true';
+      process.env.GROUNDING_THRESHOLD = '0.7';
 
       new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
 
@@ -124,14 +123,12 @@ describe('GeminiAPIClient', () => {
     });
 
     it('should warn when unfiltered mode is enabled', () => {
-      (ConfigurationFactory.createGeminiServiceConfig as jest.Mock).mockReturnValue({
-        unfilteredMode: true
-      });
+      process.env.UNFILTERED_MODE = 'true';
 
       new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
 
       expect(logger.warn).toHaveBeenCalledWith(
-        '⚠️  UNFILTERED MODE ENABLED - Bot will provide unrestricted responses to all requests'
+        expect.stringContaining('UNFILTERED MODE ENABLED')
       );
     });
   });
@@ -295,61 +292,55 @@ describe('GeminiAPIClient', () => {
 
   describe('Tools Configuration', () => {
     it('should add Google search tool when enabled', async () => {
-        (ConfigurationFactory.createGeminiServiceConfig as jest.Mock).mockReturnValue({
-            enableGoogleSearch: true,
-            groundingThreshold: 0.7,
-            enableCodeExecution: false
-          });
-    
-          const client = new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
-          await client.executeAPICall('Test prompt');
-    
-          expect(mockGoogleGenAI.getGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({
-              tools: expect.arrayContaining([
-                  {
-                      googleSearch: {}
-                  }
-              ])
-          }));
+        process.env.ENABLE_GOOGLE_SEARCH = 'true';
+        process.env.GROUNDING_THRESHOLD = '0.7';
+        process.env.ENABLE_CODE_EXECUTION = 'false';
+
+        const client = new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
+        await client.executeAPICall('Test prompt');
+
+        expect(mockGoogleGenAI.getGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({
+            tools: expect.arrayContaining([
+                {
+                    googleSearch: {}
+                }
+            ])
+        }));
     });
   });
 
   describe('Safety Settings', () => {
     it('should add safety settings for unfiltered mode', async () => {
-        (ConfigurationFactory.createGeminiServiceConfig as jest.Mock).mockReturnValue({
-            unfilteredMode: true
-          });
-    
-          const client = new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
-          await client.executeAPICall('Test prompt');
-    
-          expect(mockGoogleGenAI.getGenerativeModel).toHaveBeenCalledWith(
-            expect.objectContaining({
-              safetySettings: expect.arrayContaining([
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-              ])
-            })
-          );
+        process.env.UNFILTERED_MODE = 'true';
+
+        const client = new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
+        await client.executeAPICall('Test prompt');
+
+        expect(mockGoogleGenAI.getGenerativeModel).toHaveBeenCalledWith(
+          expect.objectContaining({
+            safetySettings: expect.arrayContaining([
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+            ])
+          })
+        );
     });
 
     it('should add safety settings for Google search', async () => {
-        (ConfigurationFactory.createGeminiServiceConfig as jest.Mock).mockReturnValue({
-            enableGoogleSearch: true
-          });
-    
-          const client = new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
-          await client.executeAPICall('Test prompt');
-    
-          expect(mockGoogleGenAI.getGenerativeModel).toHaveBeenCalledWith(
-            expect.objectContaining({
-              safetySettings: expect.arrayContaining([
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }
-              ])
-            })
-          );
+        process.env.ENABLE_GOOGLE_SEARCH = 'true';
+
+        const client = new GeminiAPIClient('test-api-key', mockGracefulDegradation, mockMultimodalContentHandler);
+        await client.executeAPICall('Test prompt');
+
+        expect(mockGoogleGenAI.getGenerativeModel).toHaveBeenCalledWith(
+          expect.objectContaining({
+            safetySettings: expect.arrayContaining([
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }
+            ])
+          })
+        );
     });
 
     it('should not add safety settings by default', async () => {

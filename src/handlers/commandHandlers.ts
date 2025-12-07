@@ -167,6 +167,7 @@ async function handleChatCommandInternal(
         else if (channel.type === ChannelType.DM) channelType = 'dm';
         
         // OPTIMIZATION: Parallel fetch for emojis and pinned messages
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const contextPromises: Promise<any>[] = [
           extractRecentEmojis(channel)
         ];

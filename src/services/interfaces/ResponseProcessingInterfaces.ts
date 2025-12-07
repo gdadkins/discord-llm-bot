@@ -70,7 +70,7 @@ export interface RawAPIResponse {
   }>;
   /** Prompt feedback for blocked requests */
   promptFeedback?: {
-    blockReason?: BlockedReason;
+    blockReason?: BlockReason;
   };
   /** Direct text response (some API formats) */
   text?: string | (() => string);
@@ -178,7 +178,7 @@ export interface IResponseProcessingService extends IService {
    * // Returns: "Your request was blocked by safety filters. Try rephrasing with different language."
    * ```
    */
-  getBlockedContentMessage(reason: BlockedReason): string;
+  getBlockedContentMessage(reason: BlockReason): string;
 
   /**
    * Generates user-friendly message for response finish reasons

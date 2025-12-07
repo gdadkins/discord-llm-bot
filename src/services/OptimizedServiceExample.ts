@@ -283,7 +283,7 @@ export class OptimizedServiceExample extends BaseService {
     const bufferPoolStats = this.dataBufferPool.getStatistics();
     const connectionPoolStats = getGlobalConnectionPool().getStatistics();
     const timerMetrics = this.getTimerManagerMetrics();
-    
+
     return {
       optimization: {
         requests: this.stats,
@@ -293,7 +293,8 @@ export class OptimizedServiceExample extends BaseService {
         memoryUsage: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         timerCoalescingActive: true,
         resourcePoolingActive: true,
-        estimatedOverheadReduction: this.calculateOverheadReduction()
+        estimatedOverheadReduction: this.calculateOverheadReduction(),
+        timerMetrics
       }
     };
   }

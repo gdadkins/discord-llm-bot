@@ -4,13 +4,13 @@ This is a Discord bot that integrates with Google's Gemini AI. The bot uses Disc
 
 ## Core Components
 
-- **Main Entry Point** (`src/index.ts`): 
+- **Main Entry Point** (`src/index.ts`):
   - Discord client with TypeScript types and graceful shutdown
   - Handles slash commands, @mentions, and reaction tracking
   - Smart message splitting for long responses
   - Memory leak fixes in typing indicators
 
-- **Gemini Service** (`src/services/gemini.ts`): 
+- **Gemini Service** (`src/services/gemini/GeminiService.ts`):
   - AI integration with `gemini-2.5-flash-preview-05-20` model
   - Dynamic dual personality system (roasting vs helpful)
   - Randomized behavior with configurable probability
@@ -20,13 +20,13 @@ This is a Discord bot that integrates with Google's Gemini AI. The bot uses Disc
   - Google Search grounding for real-time information (configurable threshold)
   - Thinking mode enabled by default in Gemini 2.5 (configurable budget)
 
-- **Rate Limiter** (`src/services/rateLimiter.ts`):
+- **Rate Limiter** (`src/services/rate-limiting/RateLimiter.ts`):
   - Thread-safe with mutex protection
   - Persistent state in `data/rate-limit.json`
   - 10% safety margin (9 RPM, 450 daily effective limits)
   - Proper time window alignment
 
-- **Context Manager** (`src/services/contextManager.ts`):
+- **Context Manager** (`src/services/context/ContextManager.ts`):
   - Leverages Gemini's 1M token context window
   - Tracks embarrassing moments, code snippets, running gags
   - Server-wide memory for deep roasting callbacks
@@ -36,7 +36,7 @@ This is a Discord bot that integrates with Google's Gemini AI. The bot uses Disc
   - Intelligent splitting at paragraph/sentence boundaries
   - Handles Discord's 2000 char limit gracefully
 
-- **Commands** (`src/commands/index.ts`): 
+- **Commands** (`src/commands/index.ts`):
   - `/chat` - Main conversation
   - `/ascii` - AI-generated ASCII art from prompts
   - `/status` - Bot stats and memory usage
@@ -46,6 +46,62 @@ This is a Discord bot that integrates with Google's Gemini AI. The bot uses Disc
   - `/execute` - Execute Python code (when enabled)
   - Personality commands: `/setpersonality`, `/mypersonality`, `/getpersonality`, `/removepersonality`, `/clearpersonality`
   - Enterprise commands: `/config`, `/analytics`, `/privacy`, `/health`, `/preferences`
+
+## Service Layer Structure
+
+Services are organized by domain in `src/services/`:
+
+```
+src/services/
+├── adapters/          # ConfigurationAdapter - bridges between systems
+├── analytics/         # AnalyticsManager, BehaviorAnalyzer
+├── base/              # BaseService - abstract service foundation
+├── cache/             # CacheManager
+├── command-processing/# CommandParser
+├── config/            # ConfigurationManager, ConfigurationLoader
+├── container/         # ServiceContainer, ServiceTokens - DI container
+├── context/           # ContextManager, SystemContextBuilder, builders/
+├── conversation/      # ConversationManager
+├── gemini/            # GeminiService, GeminiAPIClient, GeminiConfig
+├── health/            # HealthMonitor, HealthMetricsCollector
+├── help/              # HelpSystem, HelpContentManager, HelpCommandBuilder
+├── interfaces/        # All service interface definitions
+├── multimodal/        # MultimodalContentHandler
+├── personality/       # PersonalityManager
+├── preferences/       # User preference management
+├── rate-limiting/     # RateLimiter
+├── resilience/        # CircuitBreaker, RetryHandler, FallbackManager
+├── response/          # ResponseProcessingService
+├── roasting/          # RoastingEngine, RoastGenerator, ChaosEventManager
+├── security/          # SecretManager
+└── tracing/           # Distributed tracing support
+```
+
+### Import Pattern
+
+Always import from domain folders:
+```typescript
+// Correct
+import { ContextManager } from '../services/context/ContextManager';
+import { RateLimiter } from '../services/rate-limiting/RateLimiter';
+import { GeminiService } from '../services/gemini/GeminiService';
+
+// Avoid - legacy patterns
+import { ContextManager } from '../services/contextManager';
+```
+
+### Dependency Injection
+
+The codebase uses a lightweight DI container:
+```typescript
+import { getServiceContainer, ServiceTokens } from '../services/container';
+
+// Resolve services from container
+const container = getServiceContainer();
+const aiService = container.resolve(ServiceTokens.AIService);
+
+// For tests, use resetServiceContainer() and mock helpers
+```
 
 ## Key Systems
 
@@ -71,6 +127,12 @@ This is a Discord bot that integrates with Google's Gemini AI. The bot uses Disc
 - Server-wide tracking of embarrassments and gags
 - Smart trimming by size and message count
 
+### Distributed Tracing
+- Full request tracing across service boundaries
+- Automatic context propagation using AsyncLocalStorage
+- Performance monitoring with bottleneck detection
+- See [TRACING.md](./TRACING.md) for details
+
 ## Command Handling Patterns
 
 ### Slash Commands
@@ -89,11 +151,31 @@ The bot also responds to mentions in the `MessageCreate` event:
 - Handles message length limits automatically
 - Provides error messages on failure
 
+## Interface Hierarchy
+
+All services implement interfaces from `src/services/interfaces/`:
+
+```
+IService (base)
+├── IAIService
+├── IContextManager
+├── IConversationManager
+├── ICacheManager
+├── IRateLimiter
+├── IHealthMonitor
+├── IHelpSystem
+├── IRoastingEngine
+├── IPersonalityManager
+├── IRetryHandler
+├── IGracefulDegradationService
+└── IAnalyticsService
+```
+
 ## Environment Configuration
 
 **Required:**
 - `DISCORD_TOKEN` - Discord bot token
-- `DISCORD_CLIENT_ID` - Discord application client ID  
+- `DISCORD_CLIENT_ID` - Discord application client ID
 - `GOOGLE_API_KEY` - Google AI API key
 
 **Personality & Behavior:**
@@ -136,7 +218,7 @@ When `ENABLE_STRUCTURED_OUTPUT=true`, the bot can return structured JSON respons
      "response": "The answer to your question is 42",
      "mood": "helpful",
      "confidence": 0.95,
-     "suggestions": ["Try asking about the meaning of life", "Calculate 6 × 7"]
+     "suggestions": ["Try asking about the meaning of life", "Calculate 6 x 7"]
    }
    ```
 
@@ -145,6 +227,11 @@ The bot would parse these and display them appropriately - users wouldn't see ra
 **Rate Limiting:**
 - `GEMINI_RATE_LIMIT_RPM` - Per minute limit (10)
 - `GEMINI_RATE_LIMIT_DAILY` - Daily limit (500)
+
+**Tracing:**
+- `TRACING_ENABLED` - Enable distributed tracing (true)
+- `TRACING_SAMPLE_RATE` - Trace sample rate (1.0)
+- `TRACING_MAX_TRACES` - Maximum stored traces (2000)
 
 **Other:**
 - `LOG_LEVEL` - Winston log level (info)

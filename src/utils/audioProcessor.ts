@@ -275,7 +275,7 @@ class AudioProcessor {
   async optimizeAudio(
     buffer: ArrayBuffer,
     mimeType: string,
-    targetSize?: number
+    _targetSize?: number
   ): Promise<ArrayBuffer> {
     // Placeholder for audio optimization
     // In production, this could:

@@ -1,17 +1,72 @@
-export * from './analytics/AnalyticsManager';
-export * from './analytics/BehaviorAnalyzer';
-export * from './cache/CacheManager';
-export * from './command-processing/CommandParser';
-export * from './context/ContextManager';
-export * from './context/SystemContextBuilder';
-export * from './conversation/ConversationManager';
-export * from './health/HealthMonitor';
-export * from './help/HelpSystem';
-export * from './personality/PersonalityManager';
-export * from './rate-limiting/RateLimiter';
-export * from './response/ResponseProcessingService';
-export * from './resilience/RetryHandler';
-export * from './roasting/RoastingEngine';
-export * from './multimodal/MultimodalContentHandler';
-export * from './adapters/ConfigurationAdapter';
-export * from './config/ConfigurationManager';
+/**
+ * Services Module Index
+ *
+ * Consolidated exports for all service layer components.
+ * Import services from this module for cleaner imports.
+ */
+
+// Core AI Services
+export { GeminiService } from './gemini/GeminiService';
+export { GeminiAPIClient } from './gemini/GeminiAPIClient';
+export { GeminiContextProcessor } from './gemini/GeminiContextProcessor';
+export { GeminiResponseHandler } from './gemini/GeminiResponseHandler';
+
+// Context & Conversation
+export { ContextManager } from './context/ContextManager';
+export { SystemContextBuilder } from './context/SystemContextBuilder';
+export { ConversationManager } from './conversation/ConversationManager';
+
+// Analytics
+export { AnalyticsManager } from './analytics/AnalyticsManager';
+export { BehaviorAnalyzer } from './analytics/BehaviorAnalyzer';
+
+// Configuration
+export { ConfigurationManager } from './config/ConfigurationManager';
+export { ConfigurationLoader } from './config/ConfigurationLoader';
+export { ConfigurationAdapter } from './adapters/ConfigurationAdapter';
+
+// Health & Monitoring
+export { HealthMonitor } from './health/HealthMonitor';
+
+// Help System
+export { HelpSystem } from './help/HelpSystem';
+export { HelpContentManager } from './help/HelpContentManager';
+export { HelpCommandBuilder } from './help/HelpCommandBuilder';
+
+// Personality & Roasting
+export { PersonalityManager } from './personality/PersonalityManager';
+export { RoastingEngine } from './roasting/RoastingEngine';
+
+// Rate Limiting
+export { RateLimiter } from './rate-limiting/RateLimiter';
+
+// Resilience & Fault Tolerance
+export { GracefulDegradation } from './resilience/GracefulDegradation';
+export { CircuitBreaker } from './resilience/CircuitBreaker';
+export { RetryHandler } from './resilience/RetryHandler';
+export { FallbackManager } from './resilience/FallbackManager';
+
+// Security
+export { SecretManager } from './security/SecretManager';
+
+// Response Processing
+export { ResponseProcessingService } from './response/ResponseProcessingService';
+
+// Multimodal
+export { MultimodalContentHandler } from './multimodal/MultimodalContentHandler';
+
+// Cache
+export { CacheManager } from './cache/CacheManager';
+
+// Command Processing
+export { CommandParserService } from './command-processing/CommandParser';
+
+// Dependency Injection Container
+export {
+  ServiceContainer,
+  getServiceContainer,
+  resetServiceContainer,
+  ServiceTokens,
+  ServiceNames,
+  type ServiceToken
+} from './container';

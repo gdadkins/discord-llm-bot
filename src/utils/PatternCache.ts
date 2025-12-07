@@ -188,11 +188,11 @@ const COMMON_PATTERNS = {
   DISCORD_EMOJI: /<a?:(\w+):(\d+)>/g,
   
   // URL patterns
-  URL: /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi,
+  URL: /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/gi,
   YOUTUBE_URL: /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
   
   // Command patterns
-  COMMAND_PREFIX: /^[!\/]\w+/,
+  COMMAND_PREFIX: /^[!/]\w+/,
   COMMAND_ARGS: /\s+/,
   
   // Text patterns

@@ -1,7 +1,8 @@
 /**
  * Service Factory Implementation
- * 
+ *
  * Creates and configures all service instances with proper dependencies.
+ * Supports both legacy Map-based API and modern DI container.
  */
 
 import { logger } from '../../utils/logger';
@@ -37,6 +38,7 @@ import type {
   DiscordConfig,
   ConfigurationPaths
 } from './index';
+import { ServiceContainer, ServiceTokens, getServiceContainer } from '../container';
 
 // Import concrete implementations
 import { AnalyticsManager } from '../analytics/AnalyticsManager';
@@ -373,5 +375,141 @@ export class ServiceFactory implements IServiceFactory {
    */
   createUserAnalysisService(): IUserAnalysisService {
     return new UserAnalysisService();
+  }
+
+  /**
+   * Configures the DI container with all service factories
+   */
+  configureContainer(config: BotConfiguration): ServiceContainer {
+    const container = getServiceContainer();
+
+    // Register independent services first
+    container.registerFactory(ServiceTokens.Configuration, () =>
+      this.createConfigurationService()
+    );
+
+    container.registerFactory(ServiceTokens.Analytics, () =>
+      this.createAnalyticsService({
+        enabled: process.env.ANALYTICS_ENABLED === 'true',
+        retentionDays: parseInt(process.env.ANALYTICS_RETENTION_DAYS || '90'),
+        aggregationIntervalMinutes: parseInt(process.env.ANALYTICS_AGGREGATION_INTERVAL || '60'),
+        privacyMode: (process.env.ANALYTICS_PRIVACY_MODE as 'strict' | 'balanced' | 'full') || 'balanced',
+        reportingEnabled: process.env.ANALYTICS_REPORTING_ENABLED === 'true',
+        reportSchedule: (process.env.ANALYTICS_REPORT_SCHEDULE as 'daily' | 'weekly' | 'monthly') || 'weekly',
+        allowCrossServerAnalysis: process.env.ANALYTICS_ALLOW_CROSS_SERVER === 'true'
+      })
+    );
+
+    container.registerFactory(ServiceTokens.RateLimiter, () =>
+      this.createRateLimiter(config.rateLimiting)
+    );
+
+    container.registerFactory(ServiceTokens.HealthMonitor, () =>
+      this.createHealthMonitor(config.features.monitoring)
+    );
+
+    container.registerFactory(ServiceTokens.ContextManager, () =>
+      this.createContextManager(config.features)
+    );
+
+    container.registerFactory(ServiceTokens.CacheManager, () =>
+      this.createCacheManager(config.features)
+    );
+
+    container.registerFactory(ServiceTokens.PersonalityManager, () =>
+      this.createPersonalityManager()
+    );
+
+    container.registerFactory(ServiceTokens.RoastingEngine, () =>
+      this.createRoastingEngine(config.features.roasting)
+    );
+
+    container.registerFactory(ServiceTokens.GracefulDegradation, () =>
+      this.createGracefulDegradationService(config.features.monitoring)
+    );
+
+    container.registerFactory(ServiceTokens.ConversationManager, () =>
+      this.createConversationManager(config.features)
+    );
+
+    container.registerFactory(ServiceTokens.RetryHandler, () =>
+      this.createRetryHandler()
+    );
+
+    container.registerFactory(ServiceTokens.SystemContextBuilder, () =>
+      this.createSystemContextBuilder()
+    );
+
+    container.registerFactory(ServiceTokens.ResponseProcessingService, () =>
+      this.createResponseProcessingService()
+    );
+
+    container.registerFactory(
+      ServiceTokens.MultimodalContentHandler,
+      () => {
+        const handler = this.createMultimodalContentHandler();
+        const responseProcessor = container.resolve<IResponseProcessingService>(
+          ServiceTokens.ResponseProcessingService
+        );
+        handler.setResponseProcessor(responseProcessor);
+        return handler;
+      },
+      [ServiceTokens.ResponseProcessingService]
+    );
+
+    container.registerFactory(
+      ServiceTokens.AIService,
+      () => {
+        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+          throw new Error('GOOGLE_API_KEY or GEMINI_API_KEY required');
+        }
+        return new GeminiService(apiKey, {
+          rateLimiter: container.resolve(ServiceTokens.RateLimiter),
+          contextManager: container.resolve(ServiceTokens.ContextManager),
+          personalityManager: container.resolve(ServiceTokens.PersonalityManager),
+          cacheManager: container.resolve(ServiceTokens.CacheManager),
+          gracefulDegradation: container.resolve(ServiceTokens.GracefulDegradation),
+          roastingEngine: container.resolve(ServiceTokens.RoastingEngine),
+          conversationManager: container.resolve(ServiceTokens.ConversationManager),
+          retryHandler: container.resolve(ServiceTokens.RetryHandler),
+          systemContextBuilder: container.resolve(ServiceTokens.SystemContextBuilder),
+          responseProcessingService: container.resolve(ServiceTokens.ResponseProcessingService),
+          multimodalContentHandler: container.resolve(ServiceTokens.MultimodalContentHandler)
+        });
+      },
+      [
+        ServiceTokens.RateLimiter,
+        ServiceTokens.ContextManager,
+        ServiceTokens.PersonalityManager,
+        ServiceTokens.CacheManager,
+        ServiceTokens.GracefulDegradation,
+        ServiceTokens.RoastingEngine,
+        ServiceTokens.ConversationManager,
+        ServiceTokens.RetryHandler,
+        ServiceTokens.SystemContextBuilder,
+        ServiceTokens.ResponseProcessingService,
+        ServiceTokens.MultimodalContentHandler
+      ]
+    );
+
+    container.registerFactory(ServiceTokens.UserPreferenceService, () =>
+      this.createUserPreferenceService()
+    );
+
+    container.registerFactory(ServiceTokens.HelpSystem, () =>
+      this.createHelpSystemService(config.discord)
+    );
+
+    container.registerFactory(ServiceTokens.BehaviorAnalyzer, () =>
+      this.createBehaviorAnalyzer()
+    );
+
+    container.registerFactory(ServiceTokens.UserAnalysisService, () =>
+      this.createUserAnalysisService()
+    );
+
+    logger.info('Service container configured with all factories');
+    return container;
   }
 }

@@ -65,7 +65,7 @@ export function timeoutProtected<T extends AsyncFunction>(
     let timeout = defaultTimeout;
     const lastArg = args[args.length - 1];
     if (typeof lastArg === 'object' && lastArg !== null && 'timeout' in lastArg) {
-      timeout = (lastArg as any).timeout as number;
+      timeout = (lastArg as { timeout: number }).timeout;
       args = args.slice(0, -1) as Parameters<T>;
     }
     
@@ -262,7 +262,7 @@ export function wrapExternalAPIOperation<T>(
  */
 export class BatchTimeoutManager {
   private operations: Map<string, {
-    promise: Promise<any>;
+    promise: Promise<unknown>;
     timeout: NodeJS.Timeout;
     startTime: number;
   }> = new Map();

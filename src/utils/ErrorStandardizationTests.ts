@@ -6,18 +6,16 @@
  * proper integration.
  */
 
-import { 
-  ServiceResponse, 
-  ServiceErrorCode, 
-  ServiceResult, 
-  isSuccessResult, 
+import {
+  ServiceResponse,
+  ServiceErrorCode,
+  isSuccessResult,
   isErrorResult,
-  unwrapResult 
+  unwrapResult
 } from '../services/interfaces/ServiceResponses';
 import { standardizedServiceMethod } from './ServiceMethodWrapper';
 import { errorAggregator, recordServiceResult, formatErrorSummary } from '../services/ErrorAggregator';
 import { convertToServiceResult, ErrorCategory, ErrorSeverity } from './ErrorHandlingUtils';
-import { logger } from './logger';
 import { AsyncFunction } from '../types';
 
 // ============================================================================

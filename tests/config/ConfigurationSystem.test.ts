@@ -3,7 +3,7 @@
  * Tests for ConfigurationManager, SecretManager, and ConfigurationValidator
  */
 
-import { ConfigurationManager } from '../../src/config/ConfigurationManager';
+import { ConfigurationManager } from '../../src/services/config/ConfigurationManager';
 import { SecretManager } from '../../src/services/security/SecretManager';
 import { ConfigurationValidator, ENV_VAR_SCHEMAS } from '../../src/utils/ConfigurationValidator';
 import { logger } from '../../src/utils/logger';

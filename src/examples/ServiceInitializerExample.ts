@@ -173,7 +173,7 @@ export async function demonstrateServiceInitialization(): Promise<ServiceRegistr
     // Demonstrate service status checking
     for (const [name, service] of registry.getAllServices()) {
       if ('getServiceStatus' in service && typeof service.getServiceStatus === 'function') {
-        const status = (service as any).getServiceStatus();
+        const status = (service as { getServiceStatus: () => unknown }).getServiceStatus();
         logger.info(`Service status: ${name}`, status);
       }
     }

@@ -95,17 +95,31 @@ export class TraceCollector {
   private readonly VERY_SLOW_OPERATION_THRESHOLD = 5000; // 5 seconds
   private readonly MAX_DEPTH_WARNING = 15;
   private readonly MAX_DEPTH_CRITICAL = 25;
-  
+
   private performanceHistory: Array<{
     timestamp: number;
     metrics: PerformanceMetrics;
   }> = [];
-  
+
+  private cleanupInterval?: NodeJS.Timeout;
+
   constructor() {
     // Cleanup old traces periodically
-    setInterval(() => {
+    this.cleanupInterval = setInterval(() => {
       this.cleanupOldTraces();
     }, 300000); // Every 5 minutes
+  }
+
+  /**
+   * Shutdown and cleanup resources
+   */
+  shutdown(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+    this.traces.clear();
+    this.performanceHistory = [];
   }
   
   /**

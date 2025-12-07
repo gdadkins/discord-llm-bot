@@ -392,8 +392,8 @@ export function createContextObjectPool(maxSize: number = 50): ObjectPool<Contex
     },
     destroy: (obj) => {
       // Clear references for GC
-      obj.messages = null as any;
-      obj.metadata = null as any;
+      obj.messages = null as unknown as typeof obj.messages;
+      obj.metadata = null as unknown as typeof obj.metadata;
     },
     debug: process.env.NODE_ENV === 'development'
   });

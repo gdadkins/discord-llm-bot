@@ -22,6 +22,8 @@ export class TracingIntegration {
   private static instance: TracingIntegration;
   private traceCollector: TraceCollector;
   private isInitialized = false;
+  private performanceReportInterval?: NodeJS.Timeout;
+  private traceMonitoringInterval?: NodeJS.Timeout;
   
   constructor() {
     this.traceCollector = new TraceCollector();
@@ -198,7 +200,7 @@ export class TracingIntegration {
    * Setup periodic performance reporting
    */
   private setupPerformanceReporting(): void {
-    setInterval(async () => {
+    this.performanceReportInterval = setInterval(async () => {
       // Wrap performance reporting in traced context to ensure proper span closure
       await withNewContextAsync(async (context) => {
         try {
@@ -253,7 +255,7 @@ export class TracingIntegration {
    * Setup trace monitoring and cleanup
    */
   private setupTraceMonitoring(): void {
-    setInterval(() => {
+    this.traceMonitoringInterval = setInterval(() => {
       const stats = this.traceCollector.getStats();
       
       // Log memory usage warnings
@@ -374,5 +376,24 @@ export class TracingIntegration {
       },
       performanceOverview: overview
     };
+  }
+
+  /**
+   * Shutdown tracing system and cleanup resources
+   */
+  shutdown(): void {
+    if (this.performanceReportInterval) {
+      clearInterval(this.performanceReportInterval);
+      this.performanceReportInterval = undefined;
+    }
+
+    if (this.traceMonitoringInterval) {
+      clearInterval(this.traceMonitoringInterval);
+      this.traceMonitoringInterval = undefined;
+    }
+
+    this.traceCollector.shutdown();
+    this.isInitialized = false;
+    logger.info('Tracing system shut down');
   }
 }

@@ -53,6 +53,7 @@ export class PromisePool {
   private readonly concurrency: number;
   private readonly name: string;
   private readonly continueOnError: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly queue: QueuedTask<any>[] = [];
   private activeCount = 0;
   private isShuttingDown = false;
@@ -207,7 +208,7 @@ export class PromisePool {
   /**
    * Create a rate-limited version of an async function
    */
-  static rateLimited<TArgs extends any[], TResult>(
+  static rateLimited<TArgs extends unknown[], TResult>(
     fn: (...args: TArgs) => Promise<TResult>,
     options: PromisePoolOptions = {}
   ): (...args: TArgs) => Promise<TResult> {
