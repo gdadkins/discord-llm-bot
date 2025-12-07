@@ -668,7 +668,7 @@ export function getUserFriendlyMessage(error: EnrichedError | { message: string;
     } else {
       return 'Rate limit exceeded. Please wait a few moments before trying again.';
     }
-  case ErrorCategory.TIMEOUT: {
+  case ErrorCategory.TIMEOUT:
     // Check if it's an enriched error with context
     const context = 'context' in error ? error.context : undefined;
     if (context?.timeout && typeof context.timeout === 'number') {
@@ -677,7 +677,6 @@ export function getUserFriendlyMessage(error: EnrichedError | { message: string;
     } else {
       return 'Request timed out. This might be due to a complex operation - please try again.';
     }
-  }
   case ErrorCategory.CIRCUIT_BREAKER:
     return 'The service is temporarily overloaded. Please try again in a few minutes.';
   case ErrorCategory.AUTHORIZATION:

@@ -60,7 +60,6 @@ export class RequestCoalescer<TKey = string> {
   private readonly ttl: number;
   private readonly name: string;
   private readonly maxEntries: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly pending = new Map<TKey, PendingRequest<any>>();
   private cleanupTimer?: NodeJS.Timeout;
   
@@ -160,7 +159,7 @@ export class RequestCoalescer<TKey = string> {
   /**
    * Execute with custom key generation
    */
-  async executeWithKeyGen<T, TArgs extends unknown[]>(
+  async executeWithKeyGen<T, TArgs extends any[]>(
     keyGenerator: (...args: TArgs) => TKey,
     factory: (...args: TArgs) => Promise<T>,
     ...args: TArgs
@@ -248,7 +247,7 @@ export class RequestCoalescer<TKey = string> {
     }
     
     // Reject all pending requests
-    for (const [, request] of this.pending.entries()) {
+    for (const [key, request] of this.pending.entries()) {
       for (const reject of request.rejectors) {
         reject(new Error('Coalescer is shutting down'));
       }
@@ -261,7 +260,7 @@ export class RequestCoalescer<TKey = string> {
   /**
    * Create a coalesced version of an async function
    */
-  static coalesced<TArgs extends unknown[], TResult>(
+  static coalesced<TArgs extends any[], TResult>(
     fn: (...args: TArgs) => Promise<TResult>,
     keyGenerator: (...args: TArgs) => string,
     options: CoalescerOptions = {}

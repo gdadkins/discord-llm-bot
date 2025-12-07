@@ -7,7 +7,7 @@
  */
 
 import { logger } from '../../utils/logger';
-import { ROASTING_CONSTANTS, GENERAL_CONSTANTS } from '../../utils/constants';
+import { ROASTING_CONSTANTS, GENERAL_CONSTANTS } from '../../config/constants';
 import type { 
   RoastingContext, 
   OverrideResult, 

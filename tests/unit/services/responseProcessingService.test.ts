@@ -4,7 +4,7 @@
  * Tests for the extracted response processing functionality.
  */
 
-import { ResponseProcessingService } from '../../../src/services/response/ResponseProcessingService';
+import { ResponseProcessingService } from '../../../src/services/responseProcessingService';
 import type { ResponseProcessingConfig, RawAPIResponse } from '../../../src/services/interfaces/ResponseProcessingInterfaces';
 import { FinishReason, BlockedReason } from '@google/genai';
 

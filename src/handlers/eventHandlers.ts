@@ -720,23 +720,11 @@ async function handleMessageCreate(
                     
                       // For videos under 20MB, we can send them inline
                       if (attachment.size && attachment.size <= 20 * 1024 * 1024) {
-                        try {
-                          const controller = new AbortController();
-                          const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-                          const response = await fetch(attachment.url, {
-                            signal: controller.signal,
-                            headers: { 'User-Agent': 'Discord-Bot/1.0' }
-                          });
-                          clearTimeout(timeoutId);
-
-                          if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                          }
-
+                        const response = await fetch(attachment.url);
+                        if (response.ok) {
                           const buffer = await response.arrayBuffer();
                           const base64Data = Buffer.from(buffer).toString('base64');
-
+                        
                           imageAttachments.push({
                             url: attachment.url,
                             mimeType: attachment.contentType,
@@ -744,15 +732,8 @@ async function handleMessageCreate(
                             filename: attachment.name || undefined,
                             size: attachment.size || undefined
                           });
-
+                        
                           logger.info(`Fetched video attachment from ${source}: ${attachment.name} (${attachment.size} bytes)`);
-                        } catch (fetchError) {
-                          logger.error('Failed to fetch video attachment', {
-                            url: attachment.url,
-                            error: fetchError,
-                            isTimeout: (fetchError as Error).name === 'AbortError'
-                          });
-                          // Don't push failed attachment - continue processing others
                         }
                       } else {
                       // For larger videos, we would need to use File API
@@ -760,30 +741,20 @@ async function handleMessageCreate(
                       }
                     } else {
                     // Fetch image data from Discord CDN
-                      const controller = new AbortController();
-                      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-                      const response = await fetch(attachment.url, {
-                        signal: controller.signal,
-                        headers: { 'User-Agent': 'Discord-Bot/1.0' }
-                      });
-                      clearTimeout(timeoutId);
-
-                      if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                      const response = await fetch(attachment.url);
+                      if (response.ok) {
+                        const buffer = await response.arrayBuffer();
+                        const base64Data = Buffer.from(buffer).toString('base64');
+                      
+                        imageAttachments.push({
+                          url: attachment.url,
+                          mimeType: attachment.contentType,
+                          base64Data: base64Data,
+                          filename: attachment.name || undefined,
+                          size: attachment.size || undefined
+                        });
                       }
-
-                      const buffer = await response.arrayBuffer();
-                      const base64Data = Buffer.from(buffer).toString('base64');
-
-                      imageAttachments.push({
-                        url: attachment.url,
-                        mimeType: attachment.contentType,
-                        base64Data: base64Data,
-                        filename: attachment.name || undefined,
-                        size: attachment.size || undefined
-                      });
-
+                    
                       logger.info(`Fetched image attachment from ${source}: ${attachment.name} (${attachment.size} bytes)`);
                     }
                   } catch (error) {

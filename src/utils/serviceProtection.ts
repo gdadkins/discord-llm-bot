@@ -135,7 +135,7 @@ export function ServiceMethodProtection(options: ServiceMethodOptions = {}) {
     const originalMethod = descriptor.value;
     if (!originalMethod) return;
 
-    const serviceName = (target as object).constructor.name;
+    const serviceName = (target as any).constructor.name;
     descriptor.value = wrapServiceMethod(
       originalMethod.bind(target),
       serviceName,

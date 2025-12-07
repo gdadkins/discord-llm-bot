@@ -12,10 +12,7 @@ import {
   RateLimitingConfig,
   FeatureConfig,
   RoastingConfig,
-  MonitoringConfig,
-  IConfigurationService,
-  ConfigurationVersion,
-  ConfigurationChange
+  MonitoringConfig
 } from '../interfaces/ConfigurationInterfaces';
 import { ConfigurationLoader } from './ConfigurationLoader';
 import { ConfigurationValidator } from './ConfigurationValidator';
@@ -32,7 +29,7 @@ import { DataValidator } from '../../utils/DataStore';
  * - Providing unified API for configuration access
  * - Event emission and error handling
  */
-class ConfigurationManager extends EventEmitter implements IConfigurationService {
+class ConfigurationManager extends EventEmitter {
   private mutex = new Mutex();
   private fileWatcher?: chokidar.FSWatcher;
   private currentConfig: BotConfiguration;
@@ -428,20 +425,6 @@ class ConfigurationManager extends EventEmitter implements IConfigurationService
 
     this.removeAllListeners();
     logger.info('ConfigurationManager shutdown completed');
-  }
-
-  /**
-   * Get service name
-   */
-  getName(): string {
-    return 'ConfigurationManager';
-  }
-
-  /**
-   * Get service version
-   */
-  getVersion(): string {
-    return this.currentConfig?.version || '0.0.0';
   }
 
   /**

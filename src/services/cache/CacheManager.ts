@@ -1,10 +1,10 @@
 import { Mutex } from 'async-mutex';
 import { promisify } from 'util';
 import { gzip, gunzip } from 'zlib';
-import { logger } from '../../utils/logger';
-import { CacheKeyGenerator } from '../../utils/CacheKeyGenerator';
-import { BaseService } from '../base/BaseService';
-import type { ICacheManager, CacheStats, CachePerformance } from '../interfaces/CacheManagementInterfaces';
+import { logger } from '../utils/logger';
+import { CacheKeyGenerator } from '../utils/CacheKeyGenerator';
+import { BaseService } from './base/BaseService';
+import type { ICacheManager, CacheStats, CachePerformance } from './interfaces/CacheManagementInterfaces';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -29,15 +29,9 @@ class ReadWriteLock {
   private readMutex = new Mutex();
   private writeMutex = new Mutex();
   
-  async acquireRead(timeout = 5000): Promise<() => void> {
-    const startTime = Date.now();
+  async acquireRead(): Promise<() => void> {
     const release = await this.readMutex.acquire();
-
     while (this.writers > 0 || this.waitingWriters > 0) {
-      if (Date.now() - startTime > timeout) {
-        release();
-        throw new Error(`Read lock acquisition timeout after ${timeout}ms`);
-      }
       release();
       await new Promise(resolve => setTimeout(resolve, 1));
       await this.readMutex.acquire();
@@ -49,17 +43,11 @@ class ReadWriteLock {
     };
   }
   
-  async acquireWrite(timeout = 5000): Promise<() => void> {
-    const startTime = Date.now();
+  async acquireWrite(): Promise<() => void> {
     this.waitingWriters++;
     const release = await this.writeMutex.acquire();
     this.waitingWriters--;
-
     while (this.readers > 0 || this.writers > 0) {
-      if (Date.now() - startTime > timeout) {
-        release();
-        throw new Error(`Write lock acquisition timeout after ${timeout}ms`);
-      }
       release();
       await new Promise(resolve => setTimeout(resolve, 1));
       await this.writeMutex.acquire();

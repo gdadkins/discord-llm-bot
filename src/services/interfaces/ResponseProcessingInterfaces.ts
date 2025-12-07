@@ -5,7 +5,7 @@
  * Extracted from GeminiService to improve separation of concerns.
  */
 
-import type { FinishReason, BlockReason } from '@google/generative-ai';
+import type { FinishReason, BlockedReason } from '@google/genai';
 import type { IService } from './CoreServiceInterfaces';
 import type { ProcessedAttachment } from './MultimodalContentInterfaces';
 
@@ -70,7 +70,7 @@ export interface RawAPIResponse {
   }>;
   /** Prompt feedback for blocked requests */
   promptFeedback?: {
-    blockReason?: BlockReason;
+    blockReason?: BlockedReason;
   };
   /** Direct text response (some API formats) */
   text?: string | (() => string);
@@ -178,7 +178,7 @@ export interface IResponseProcessingService extends IService {
    * // Returns: "Your request was blocked by safety filters. Try rephrasing with different language."
    * ```
    */
-  getBlockedContentMessage(reason: BlockReason): string;
+  getBlockedContentMessage(reason: BlockedReason): string;
 
   /**
    * Generates user-friendly message for response finish reasons

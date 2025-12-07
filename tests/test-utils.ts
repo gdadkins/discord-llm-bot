@@ -1,12 +1,6 @@
 import { jest } from '@jest/globals';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import {
-  ServiceContainer,
-  ServiceTokens,
-  resetServiceContainer
-} from '../src/services/container';
-import type { IService, ServiceHealthStatus } from '../src/services/interfaces/CoreServiceInterfaces';
 
 /**
  * Test utilities for mocking and test data management
@@ -424,55 +418,3 @@ export function createTestEnvironment() {
     },
   };
 }
-
-/**
- * Creates a mock service implementing IService interface
- */
-export function createMockService(name: string, healthy = true): IService {
-  return {
-    initialize: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    shutdown: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    getHealthStatus: jest.fn<() => ServiceHealthStatus>().mockReturnValue({
-      healthy,
-      name,
-      errors: healthy ? [] : ['Mock error']
-    })
-  };
-}
-
-/**
- * Creates a test container with mock services
- */
-export function createTestContainer(): ServiceContainer {
-  resetServiceContainer();
-  return new ServiceContainer();
-}
-
-/**
- * Registers a mock service in the container
- */
-export function registerMockService<T extends IService>(
-  container: ServiceContainer,
-  token: (typeof ServiceTokens)[keyof typeof ServiceTokens],
-  mockService?: T
-): T {
-  const service = mockService || (createMockService(token.toString()) as T);
-  container.registerFactory(token, () => service);
-  return service;
-}
-
-/**
- * Creates container with all services mocked
- */
-export function createFullyMockedContainer(): ServiceContainer {
-  const container = createTestContainer();
-
-  Object.values(ServiceTokens).forEach(token => {
-    container.registerFactory(token, () => createMockService(token.toString()));
-  });
-
-  return container;
-}
-
-// Re-export for convenience
-export { ServiceContainer, ServiceTokens, resetServiceContainer };

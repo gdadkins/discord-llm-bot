@@ -1,5 +1,5 @@
-import { logger } from '../../utils/logger';
-import type { IService, ServiceHealthStatus } from '../interfaces';
+import { logger } from '../utils/logger';
+import type { IService, ServiceHealthStatus } from './interfaces';
 
 interface RetryOptions {
   maxRetries: number;

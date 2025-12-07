@@ -9,7 +9,7 @@
  */
 
 import { Collection, Attachment } from 'discord.js';
-import { Part, Content } from '@google/generative-ai';
+import { createPartFromBase64, createPartFromText, createPartFromUri, Part, Content } from '@google/genai';
 import { logger } from '../../utils/logger';
 import { youTubeUrlDetector } from '../../utils/youtubeUrlDetector';
 import { MediaProcessor } from './MediaProcessor';
@@ -482,12 +482,7 @@ export class MultimodalContentHandler implements IMultimodalContentHandler {
             }
           };
         }
-        return {
-          fileData: {
-            fileUri: attachment.base64Data,
-            mimeType: attachment.mimeType
-          }
-        };
+        return createPartFromUri(attachment.base64Data, attachment.mimeType);
       }
       
       // Handle inline video attachments (base64 encoded)
@@ -513,12 +508,7 @@ export class MultimodalContentHandler implements IMultimodalContentHandler {
       }
       
       // Handle image attachments with base64
-      return {
-        inlineData: {
-          data: attachment.base64Data,
-          mimeType: attachment.mimeType
-        }
-      };
+      return createPartFromBase64(attachment.base64Data, attachment.mimeType);
     });
   }
 
@@ -536,7 +526,7 @@ export class MultimodalContentHandler implements IMultimodalContentHandler {
     const parts: Part[] = [];
     
     if (text) {
-      parts.push({ text });
+      parts.push(createPartFromText(text));
     }
     
     if (attachments && attachments.length > 0) {

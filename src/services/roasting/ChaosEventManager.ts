@@ -6,7 +6,7 @@
  */
 
 import { logger } from '../../utils/logger';
-import { ROASTING_CONSTANTS, TIME_CONSTANTS } from '../../utils/constants';
+import { ROASTING_CONSTANTS, TIME_CONSTANTS } from '../../config/constants';
 import type { OverrideResult, ChaosInfo } from './types';
 
 // ============================================================================

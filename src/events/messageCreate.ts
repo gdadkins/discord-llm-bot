@@ -1,6 +1,6 @@
 import { Message } from 'discord.js';
 import { logger } from '../utils/logger';
-import { ContextManager } from '../services/context/ContextManager';
+import { ContextManager } from '../services/contextManager';
 
 /**
  * Handles message create events for social dynamics tracking

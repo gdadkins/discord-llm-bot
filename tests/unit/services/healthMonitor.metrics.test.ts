@@ -2,14 +2,14 @@
  * Unit tests for HealthMonitor metrics persistence with compression
  */
 
-import { HealthMonitor, HealthSnapshot } from '../../../src/services/health/HealthMonitor';
+import { HealthMonitor, HealthSnapshot } from '../../../src/services/healthMonitor';
 import { DataStore } from '../../../src/utils/DataStore';
 import { logger } from '../../../src/utils/logger';
 
 // Mock dependencies
 jest.mock('../../../src/utils/logger');
-jest.mock('../../../src/services/rate-limiting/RateLimiter');
-jest.mock('../../../src/services/context/ContextManager');
+jest.mock('../../../src/services/rateLimiter');
+jest.mock('../../../src/services/contextManager');
 jest.mock('../../../src/services/gemini');
 
 describe('HealthMonitor Metrics Persistence', () => {

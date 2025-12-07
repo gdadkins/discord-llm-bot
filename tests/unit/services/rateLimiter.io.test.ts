@@ -1,4 +1,4 @@
-import { RateLimiter } from '../../../src/services/rate-limiting/RateLimiter';
+import { RateLimiter } from '../../../src/services/rateLimiter';
 import fs from 'fs/promises';
 import path from 'path';
 

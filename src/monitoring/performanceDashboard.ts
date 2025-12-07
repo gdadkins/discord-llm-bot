@@ -89,7 +89,6 @@ class PerformanceDashboard extends EventEmitter {
   private isRunning: boolean = false;
   private sampleInterval: NodeJS.Timeout | null = null;
   private reportInterval: NodeJS.Timeout | null = null;
-  private cleanupInterval: NodeJS.Timeout | null = null;
   private startTime: number = Date.now();
   private memoryBaseline: number = 0;
 
@@ -134,7 +133,7 @@ class PerformanceDashboard extends EventEmitter {
     }, this.config.reportIntervalMs);
 
     // Cleanup old metrics periodically
-    this.cleanupInterval = setInterval(() => {
+    setInterval(() => {
       this.cleanupOldMetrics();
     }, 60000); // Every minute
 
@@ -160,11 +159,6 @@ class PerformanceDashboard extends EventEmitter {
     if (this.reportInterval) {
       clearInterval(this.reportInterval);
       this.reportInterval = null;
-    }
-
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
     }
 
     // Generate final report

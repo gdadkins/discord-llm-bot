@@ -10,7 +10,7 @@ import { validateEnvironment as validateEnvWithValidator } from '../utils/Config
 import { registerCommands } from '../commands';
 import { ServiceFactory } from '../services/interfaces/serviceFactory';
 import { ServiceRegistry } from '../services/interfaces/serviceRegistry';
-import { ConfigurationManager } from '../services/config/ConfigurationManager';
+import { ConfigurationFactory } from '../config/ConfigurationFactory';
 import type { IAIService, IUserAnalysisService, IService } from '../services/interfaces';
 import { enrichError, createTimeoutPromise, handleAsyncOperation } from '../utils/ErrorHandlingUtils';
 import { TracingIntegration } from '../services/tracing/TracingIntegration';
@@ -67,24 +67,20 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
         context.endSpan(tracingSpan.spanId);
         context.addLog('Tracing system initialized', 'info');
       
-        // Initialize ConfigurationManager with timeout
-        const configSpan = context.startSpan('configuration_initialization');
-        const configManager = new ConfigurationManager();
-        
-        await Promise.race([
-          configManager.initialize(),
+        // Create bot configuration using factory with timeout
+        const configSpan = context.startSpan('configuration_creation');
+        const config = await Promise.race([
+          Promise.resolve(ConfigurationFactory.createBotConfiguration()),
           createTimeoutPromise(10000).then(() => {
-            throw enrichError(new Error('Configuration initialization timeout'), {
-              operation: 'ConfigurationManager.initialize',
+            throw enrichError(new Error('Configuration creation timeout'), {
+              operation: 'ConfigurationFactory.createBotConfiguration',
               timeout: 10000,
               requestId
             });
           })
         ]);
-        
-        const config = configManager.getConfiguration();
         context.endSpan(configSpan.spanId);
-        context.addLog('Configuration initialized', 'info');
+        context.addLog('Configuration created', 'info');
         
         // Create service factory and registry
         const factorySpan = context.startSpan('service_factory_creation');
@@ -104,9 +100,6 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
             });
           })
         ]);
-
-        // Inject the initialized configuration manager
-        services.set('configuration', configManager);
         context.endSpan(servicesSpan.spanId);
         context.addLog(`Created ${services.size} services`, 'info');
       
@@ -276,33 +269,15 @@ export async function initializeBotServices(client: Client): Promise<{geminiServ
  * Validates environment configuration using ConfigurationValidator
  */
 export function validateEnvironment(): void {
-  try {
-    // Use the centralized ConfigurationValidator which includes all validation logic
-    validateEnvWithValidator();
-  } catch (error) {
-    const enrichedError = enrichError(
-      error instanceof Error ? error : new Error(String(error)),
-      {
-        operation: 'validateEnvironment',
-        environment: process.env.NODE_ENV || 'development'
-      }
-    );
-    logger.error('Environment validation failed', { error: enrichedError });
-    throw enrichedError;
-  }
-
+  // Use the centralized ConfigurationValidator which includes all validation logic
+  validateEnvWithValidator();
+  
   // Additional validation for Discord-specific requirements
   const discordToken = process.env.DISCORD_TOKEN;
   if (!discordToken) {
-    const error = enrichError(
-      new Error('DISCORD_TOKEN environment variable is required'),
-      {
-        operation: 'validateDiscordToken',
-        environment: process.env.NODE_ENV || 'development'
-      }
-    );
-    logger.error('Discord token validation failed', { error });
-    throw error;
+    const error = 'DISCORD_TOKEN environment variable is required';
+    logger.error(error);
+    throw new Error(error);
   }
 }
 

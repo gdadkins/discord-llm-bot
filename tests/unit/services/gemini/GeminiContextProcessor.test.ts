@@ -6,7 +6,7 @@
 
 import { GeminiContextProcessor } from '../../../../src/services/gemini/GeminiContextProcessor';
 import { largeContextHandler } from '../../../../src/utils/largeContextHandler';
-import { getBotCapabilitiesPrompt } from '../../../../src/utils/botCapabilities';
+import { getBotCapabilitiesPrompt } from '../../../../src/config/botCapabilities';
 import { logger } from '../../../../src/utils/logger';
 import type { 
   IContextManager,

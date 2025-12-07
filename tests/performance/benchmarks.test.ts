@@ -4,10 +4,10 @@
  * Generates comprehensive benchmark reports
  */
 
-import { CacheManager } from '../../src/services/cache/CacheManager';
-import { ContextManager } from '../../src/services/context/ContextManager';
-import { ConversationManager } from '../../src/services/conversation/ConversationManager';
-import { SystemContextBuilder } from '../../src/services/context/SystemContextBuilder';
+import { CacheManager } from '../../src/services/cacheManager';
+import { ContextManager } from '../../src/services/contextManager';
+import { ConversationManager } from '../../src/services/conversationManager';
+import { SystemContextBuilder } from '../../src/services/systemContextBuilder';
 import { performance } from 'perf_hooks';
 import * as fs from 'fs-extra';
 import * as path from 'path';

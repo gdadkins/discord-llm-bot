@@ -1,8 +1,7 @@
-import { ConfigurationManager } from '../config/ConfigurationManager';
-import { BotConfiguration } from '../interfaces/ConfigurationInterfaces';
-import { GeminiService } from '../gemini/GeminiService';
-import { RateLimiter } from '../rate-limiting/RateLimiter';
-import { logger } from '../../utils/logger';
+import { ConfigurationManager, BotConfiguration } from './configurationManager';
+import { GeminiService } from './gemini/GeminiService';
+import { RateLimiter } from './rateLimiter';
+import { logger } from '../utils/logger';
 import { EventEmitter } from 'events';
 
 export interface ConfigurationAdapterEvents {

@@ -1,5 +1,5 @@
 import { BenchmarkSuite, MemoryProfiler } from './base';
-import { ContextManager } from '../../src/services/context/ContextManager';
+import { ContextManager } from '../../src/services/contextManager';
 
 export async function runEnhancedContextBenchmarks() {
   const suite = new BenchmarkSuite();

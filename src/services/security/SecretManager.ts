@@ -12,9 +12,9 @@
 
 import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
-import { logger } from '../../utils/logger';
-import { ConfigurationValidator } from '../../utils/ConfigurationValidator';
-import type { IService, ServiceHealthStatus } from '../../services/interfaces/CoreServiceInterfaces';
+import { logger } from '../utils/logger';
+import { ConfigurationValidator } from '../utils/ConfigurationValidator';
+import type { IService, ServiceHealthStatus } from '../services/interfaces/CoreServiceInterfaces';
 
 // ============================================================================
 // Types and Interfaces

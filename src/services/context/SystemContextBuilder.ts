@@ -1,7 +1,7 @@
 import type { Client, Guild } from 'discord.js';
-import type { MessageContext } from '../../commands';
-import type { IService, ServiceHealthStatus } from '../interfaces';
-import { logger } from '../../utils/logger';
+import type { MessageContext } from '../commands';
+import type { IService, ServiceHealthStatus } from './interfaces';
+import { logger } from '../utils/logger';
 
 export interface SystemContextData {
   queuePosition: number;

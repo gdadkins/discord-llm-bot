@@ -3,8 +3,8 @@
  * @module tests/unit/services/contextManager
  */
 
-import { ContextManager } from '../../../src/services/context/ContextManager';
-import { BehaviorAnalyzer } from '../../../src/services/analytics/BehaviorAnalyzer';
+import { ContextManager } from '../../../src/services/contextManager';
+import { BehaviorAnalyzer } from '../../../src/services/behaviorAnalyzer';
 import { ConversationMemoryService } from '../../../src/services/context/ConversationMemoryService';
 import { ChannelContextService } from '../../../src/services/context/ChannelContextService';
 import { SocialDynamicsService } from '../../../src/services/context/SocialDynamicsService';
@@ -13,7 +13,7 @@ import { RichContext, ContextItem } from '../../../src/services/context/types';
 import { GuildMember, Guild } from 'discord.js';
 
 // Mock all dependencies
-jest.mock('../../../src/services/analytics/BehaviorAnalyzer');
+jest.mock('../../../src/services/behaviorAnalyzer');
 jest.mock('../../../src/services/context/ConversationMemoryService');
 jest.mock('../../../src/services/context/ChannelContextService');
 jest.mock('../../../src/services/context/SocialDynamicsService');

@@ -29,9 +29,9 @@ import type {
   StructuredOutputOptions,
   BotConfiguration
 } from '../../../../src/services/interfaces';
-import type { IConversationManager } from '../../../../src/services/conversation/ConversationManager';
-import type { IRetryHandler } from '../../../../src/services/resilience/RetryHandler';
-import type { ISystemContextBuilder } from '../../../../src/services/context/SystemContextBuilder';
+import type { IConversationManager } from '../../../../src/services/conversationManager';
+import type { IRetryHandler } from '../../../../src/services/retryHandler';
+import type { ISystemContextBuilder } from '../../../../src/services/systemContextBuilder';
 import type { Client, Guild, GuildMember } from 'discord.js';
 import type { MessageContext } from '../../../../src/commands';
 

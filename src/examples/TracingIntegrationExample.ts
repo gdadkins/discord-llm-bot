@@ -99,8 +99,8 @@ export class TracedBotInitializer {
         });
         
         // Add tracing metadata to client
-        (client as unknown as { __tracingEnabled: boolean }).__tracingEnabled = true;
-        (client as unknown as { __tracingId: string }).__tracingId = `discord_client_${Date.now()}`;
+        (client as any).__tracingEnabled = true;
+        (client as any).__tracingId = `discord_client_${Date.now()}`;
         
         logger.info('Discord client initialized with tracing');
         return client;

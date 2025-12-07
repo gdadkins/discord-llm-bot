@@ -5,13 +5,13 @@
 
 import { CompositeContextBuilder } from '../../../../../src/services/context/builders/CompositeContextBuilder';
 import { ConversationMemoryService } from '../../../../../src/services/context/ConversationMemoryService';
-import { BehaviorAnalyzer } from '../../../../../src/services/analytics/BehaviorAnalyzer';
+import { BehaviorAnalyzer } from '../../../../../src/services/behaviorAnalyzer';
 import { SocialDynamicsService } from '../../../../../src/services/context/SocialDynamicsService';
 import { RichContext, ContextItem } from '../../../../../src/services/context/types';
 
 // Mock dependencies
 jest.mock('../../../../../src/services/context/ConversationMemoryService');
-jest.mock('../../../../../src/services/analytics/BehaviorAnalyzer');
+jest.mock('../../../../../src/services/behaviorAnalyzer');
 jest.mock('../../../../../src/services/context/SocialDynamicsService');
 
 describe('CompositeContextBuilder', () => {

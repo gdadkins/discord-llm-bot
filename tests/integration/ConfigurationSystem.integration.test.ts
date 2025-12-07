@@ -3,8 +3,9 @@
  * End-to-end tests for configuration system components working together
  */
 
-import { ConfigurationManager } from '../../src/services/config/ConfigurationManager';
-import { SecretManager } from '../../src/services/security/SecretManager';
+import { ConfigurationManager } from '../../src/config/ConfigurationManager';
+import { SecretManager } from '../../src/config/SecretManager';
+import { ConfigurationFactory } from '../../src/config/ConfigurationFactory';
 import { ConfigurationMigrator } from '../../scripts/migrate-config';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -116,6 +117,23 @@ VIDEO_SUPPORT_ENABLED=true
   });
 
   describe('Backward Compatibility', () => {
+    it('should maintain compatibility with ConfigurationFactory', async () => {
+      // Get configuration using old factory method
+      const factoryConfig = ConfigurationFactory.createBotConfiguration();
+      
+      // Get configuration using new manager
+      const configManager = ConfigurationManager.getInstance();
+      await configManager.initialize();
+      const managerConfig = configManager.getConfiguration();
+
+      // Compare core structures
+      expect(factoryConfig.gemini.model).toBe(managerConfig.gemini.model);
+      expect(factoryConfig.rateLimiting.rpm).toBe(managerConfig.rateLimiting.rpm);
+      expect(factoryConfig.features.monitoring.healthMetrics.enabled).toBe(
+        managerConfig.features.monitoring.healthMetrics.enabled
+      );
+    });
+
     it('should handle both GOOGLE_API_KEY and GEMINI_API_KEY', async () => {
       // Test with GEMINI_API_KEY
       delete process.env.GOOGLE_API_KEY;

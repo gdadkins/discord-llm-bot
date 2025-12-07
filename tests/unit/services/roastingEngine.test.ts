@@ -1,4 +1,4 @@
-import { RoastingEngine } from '../../../src/services/roasting/RoastingEngine';
+import { RoastingEngine } from '../../../src/services/roastingEngine';
 import { logger } from '../../../src/utils/logger';
 
 // Mock the logger

@@ -16,11 +16,7 @@
       "Bash(jq:*)",
       "Bash(python3:*)",
       "Bash(/dev/null)",
-      "Bash(npm audit:*)",
-      "Bash(git checkout:*)",
-      "Bash(npm test)",
-      "Bash(npm run test:coverage:*)",
-      "Bash(npm test:*)"
+      "Bash(npm audit:*)"
     ],
     "deny": []
   }

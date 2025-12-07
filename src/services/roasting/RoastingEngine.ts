@@ -12,7 +12,7 @@ import { RoastGenerator } from './RoastGenerator';
 import { RoastPersonalizer } from './RoastPersonalizer';
 import { ChaosEventManager } from './ChaosEventManager';
 import { RoastingDecisionEngine } from './RoastingDecisionEngine';
-import { ROASTING_CONSTANTS, TIME_CONSTANTS, GENERAL_CONSTANTS } from '../../utils/constants';
+import { ROASTING_CONSTANTS, TIME_CONSTANTS, GENERAL_CONSTANTS } from '../../config/constants';
 import type { IRoastingEngine, MoodInfo, UserRoastStats, RoastingStats } from '../interfaces';
 import type { UserQuestionStats, RoastingState, RoastingContext } from './types';
 

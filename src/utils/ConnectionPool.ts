@@ -19,21 +19,6 @@ import * as https from 'https';
 import { URL } from 'url';
 import { Mutex } from 'async-mutex';
 import { logger } from './logger';
-import { enrichError } from './ErrorHandlingUtils';
-
-/**
- * Agent with additional debugging properties
- */
-interface AgentWithDebugInfo {
-  getCurrentStatus?(): {
-    sockets?: number;
-    requests?: number;
-    freeSockets?: number;
-  };
-  sockets?: Record<string, unknown>;
-  freeSockets?: Record<string, unknown>;
-  requests?: Record<string, unknown>;
-}
 
 /**
  * Connection pool statistics
@@ -224,22 +209,9 @@ export class ConnectionPool {
       return response;
       
     } catch (error) {
-      // Update error stats - wrap in try/catch to avoid masking original error
-      try {
-        await this.updateStats(startTime, false, error);
-      } catch (statsError) {
-        logger.error('Failed to update stats after request error', {
-          statsError,
-          originalError: error
-        });
-      }
-
-      // Enrich and re-throw the original error with context
-      throw enrichError(error as Error, {
-        operation: 'ConnectionPool.request',
-        url: options.hostname + (options.path || ''),
-        method: options.method
-      });
+      // Update error stats
+      await this.updateStats(startTime, false, error);
+      throw error;
     }
   }
   
@@ -344,10 +316,8 @@ export class ConnectionPool {
    * Get pool statistics
    */
   getStatistics(): PoolStatistics {
-    const httpAgentDebug = this.httpAgent as unknown as AgentWithDebugInfo;
-    const httpsAgentDebug = this.httpsAgent as unknown as AgentWithDebugInfo;
-    const httpStatus = httpAgentDebug.getCurrentStatus?.() || {};
-    const httpsStatus = httpsAgentDebug.getCurrentStatus?.() || {};
+    const httpStatus = (this.httpAgent as any).getCurrentStatus?.() || {};
+    const httpsStatus = (this.httpsAgent as any).getCurrentStatus?.() || {};
     
     // Calculate average request time
     const avgRequestTime = this.stats.requestTimes.length > 0
@@ -385,19 +355,16 @@ export class ConnectionPool {
    * Get agent status for debugging
    */
   getDebugInfo(): Record<string, unknown> {
-    const httpAgentDebug = this.httpAgent as unknown as AgentWithDebugInfo;
-    const httpsAgentDebug = this.httpsAgent as unknown as AgentWithDebugInfo;
-    
     return {
       http: {
-        sockets: Object.keys(httpAgentDebug.sockets || {}).length,
-        freeSockets: Object.keys(httpAgentDebug.freeSockets || {}).length,
-        requests: Object.keys(httpAgentDebug.requests || {}).length
+        sockets: Object.keys((this.httpAgent as any).sockets || {}).length,
+        freeSockets: Object.keys((this.httpAgent as any).freeSockets || {}).length,
+        requests: Object.keys((this.httpAgent as any).requests || {}).length
       },
       https: {
-        sockets: Object.keys(httpsAgentDebug.sockets || {}).length,
-        freeSockets: Object.keys(httpsAgentDebug.freeSockets || {}).length,
-        requests: Object.keys(httpsAgentDebug.requests || {}).length
+        sockets: Object.keys((this.httpsAgent as any).sockets || {}).length,
+        freeSockets: Object.keys((this.httpsAgent as any).freeSockets || {}).length,
+        requests: Object.keys((this.httpsAgent as any).requests || {}).length
       },
       stats: this.getStatistics()
     };

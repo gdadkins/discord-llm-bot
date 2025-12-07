@@ -5,7 +5,7 @@
 
 import { RichContext } from '../types';
 import { ConversationMemoryService } from '../ConversationMemoryService';
-import { BehaviorAnalyzer } from '../../analytics/BehaviorAnalyzer';
+import { BehaviorAnalyzer } from '../../behaviorAnalyzer';
 import { SocialDynamicsService } from '../SocialDynamicsService';
 import { FactsContextBuilder } from './FactsContextBuilder';
 import { BehaviorContextBuilder } from './BehaviorContextBuilder';

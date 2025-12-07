@@ -1,12 +1,12 @@
 import { Mutex } from 'async-mutex';
-import { logger } from '../../utils/logger';
-import { BaseService } from '../base/BaseService';
-import { DataStore, DataValidator } from '../../utils/DataStore';
-import { dataStoreFactory } from '../../utils/DataStoreFactory';
-import { validate, batchValidate } from '../../utils/validation';
-import { RATE_LIMITER_CONSTANTS } from '../../utils/constants';
-import { wrapDatabaseOperation } from '../../utils/timeoutUtils';
-import type { IRateLimiter, RateLimitStatus, VideoRateLimitResult, VideoRateLimitStatus } from '../interfaces/RateLimitingInterfaces';
+import { logger } from '../utils/logger';
+import { BaseService } from './base/BaseService';
+import { DataStore, DataValidator } from '../utils/DataStore';
+import { dataStoreFactory } from '../utils/DataStoreFactory';
+import { validate, batchValidate } from '../utils/validation';
+import { RATE_LIMITER_CONSTANTS } from '../config/constants';
+import { wrapDatabaseOperation } from '../utils/timeoutUtils';
+import type { IRateLimiter, RateLimitStatus } from './interfaces/RateLimitingInterfaces';
 
 interface RateLimitingConfig {
   rpm: number;
@@ -636,7 +636,7 @@ export class RateLimiter extends BaseService implements IRateLimiter {
    * Checks if a video processing request can be made considering token cost
    * TODO: Implement proper video-specific rate limiting in Phase 2
    */
-  async checkVideoProcessing(estimatedTokens: number, _userId?: string): Promise<VideoRateLimitResult> {
+  async checkVideoProcessing(estimatedTokens: number, _userId?: string): Promise<import('./interfaces/RateLimitingInterfaces').VideoRateLimitResult> {
     // For Phase 1, use standard rate limiting
     const standardCheck = await this.checkAndIncrement();
     
@@ -661,7 +661,7 @@ export class RateLimiter extends BaseService implements IRateLimiter {
    * Gets video-specific rate limiting status
    * TODO: Implement proper video-specific status tracking in Phase 2
    */
-  getVideoStatus(userId?: string): VideoRateLimitStatus {
+  getVideoStatus(userId?: string): import('./interfaces/RateLimitingInterfaces').VideoRateLimitStatus {
     const standardStatus = this.getStatus(userId || '');
     
     return {

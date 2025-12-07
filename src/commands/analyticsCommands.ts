@@ -1,5 +1,5 @@
 import { ChatInputCommandInteraction, PermissionsBitField } from 'discord.js';
-import { AnalyticsManager } from '../services/analytics/AnalyticsManager';
+import { AnalyticsManager } from '../services/analyticsManager';
 import { logger } from '../utils/logger';
 import { ExtendedClient, DiscordStorageStats } from '../types';
 

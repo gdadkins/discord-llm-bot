@@ -415,7 +415,7 @@ export function wrapServiceMethods<T extends Record<string, AsyncFunction>>(
   };
   
   for (const [methodName, method] of Object.entries(methods)) {
-    (wrapped as Record<string, unknown>)[methodName] = standardizedServiceMethod(
+    (wrapped as any)[methodName] = standardizedServiceMethod(
       method,
       service,
       methodName,

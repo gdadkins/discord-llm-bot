@@ -3,8 +3,8 @@
  * Tests for the actual ConfigurationManager implementation
  */
 
-import { ConfigurationManager } from '../../src/services/config/ConfigurationManager';
-import { SecretManager } from '../../src/services/security/SecretManager';
+import { ConfigurationManager } from '../../src/config/ConfigurationManager';
+import { SecretManager } from '../../src/config/SecretManager';
 import { logger } from '../../src/utils/logger';
 
 // Mock dependencies

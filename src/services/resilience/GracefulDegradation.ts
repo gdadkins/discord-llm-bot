@@ -12,14 +12,14 @@ import { FallbackManager, FallbackContext } from './FallbackManager';
 import { DiscordCircuitBreaker, createDiscordCircuitBreaker } from './DiscordCircuitBreaker';
 import { ServiceCircuitBreakers, createServiceCircuitBreakers } from './ServiceCircuitBreakers';
 import { assessHealthBasedDegradation, loadDegradationConfig, convertCircuitState } from './utils';
-import type { HealthMonitor } from '../health/HealthMonitor';
+import type { HealthMonitor } from '../healthMonitor';
 import type { 
   IGracefulDegradationService, 
   DegradationStatus, 
   CircuitBreakerState as IDegradationCircuitBreakerState,
   DegradationDecision
 } from '../interfaces/GracefulDegradationInterfaces';
-import { DEGRADATION_CONSTANTS } from '../../utils/constants';
+import { DEGRADATION_CONSTANTS } from '../../config/constants';
 import { logger } from '../../utils/logger';
 
 export class GracefulDegradation extends BaseService implements IGracefulDegradationService {

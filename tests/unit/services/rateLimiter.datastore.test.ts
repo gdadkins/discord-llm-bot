@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { RateLimiter } from '../../../src/services/rate-limiting/RateLimiter';
+import { RateLimiter } from '../../../src/services/rateLimiter';
 import { DataStore } from '../../../src/utils/DataStore';
 
 // Mock the DataStore

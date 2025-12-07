@@ -3,34 +3,34 @@
  * @module services/contextManager
  */
 
-import { logger } from '../../utils/logger';
-import { BaseService } from '../base/BaseService';
+import { logger } from '../utils/logger';
+import { BaseService } from './base/BaseService';
 import { GuildMember, Guild } from 'discord.js';
-import { BehaviorAnalyzer, UserBehaviorPattern } from '../analytics/behavior';
-import { globalPools } from '../../utils/PromisePool';
+import { BehaviorAnalyzer, UserBehaviorPattern } from './analytics/behavior';
+import { globalPools } from '../utils/PromisePool';
 import { 
   ContextItem, 
   RichContext, 
   MemoryStats, 
   SocialGraph, 
   ServerCulture 
-} from '../context/types';
+} from './context/types';
 import { 
   ServerContext, 
   CrossServerInsights, 
   SummarizedFact, 
   CodeSnippet 
-} from '../interfaces/ContextManagementInterfaces';
-import { IContextManager } from '../interfaces/ContextManagementInterfaces';
-import { ConversationMemoryService } from '../context/ConversationMemoryService';
-import { ChannelContextService } from '../context/ChannelContextService';
-import { SocialDynamicsService } from '../context/SocialDynamicsService';
-import { MemoryOptimizationService } from '../context/MemoryOptimizationService';
-import { CompositeContextBuilder } from '../context/builders/CompositeContextBuilder';
-import { ConversationContextBuilder, ConversationContextOptions } from '../context/ConversationContextBuilder';
-import { ServerContextBuilder, ServerContextOptions } from '../context/ServerContextBuilder';
-import { UserContextBuilder, UserContextOptions } from '../context/UserContextBuilder';
-import { ContextCacheManager } from '../context/ContextCacheManager';
+} from './interfaces/ContextManagementInterfaces';
+import { IContextManager } from './interfaces/ContextManagementInterfaces';
+import { ConversationMemoryService } from './context/ConversationMemoryService';
+import { ChannelContextService } from './context/ChannelContextService';
+import { SocialDynamicsService } from './context/SocialDynamicsService';
+import { MemoryOptimizationService } from './context/MemoryOptimizationService';
+import { CompositeContextBuilder } from './context/builders/CompositeContextBuilder';
+import { ConversationContextBuilder, ConversationContextOptions } from './context/ConversationContextBuilder';
+import { ServerContextBuilder, ServerContextOptions } from './context/ServerContextBuilder';
+import { UserContextBuilder, UserContextOptions } from './context/UserContextBuilder';
+import { ContextCacheManager } from './context/ContextCacheManager';
 
 // Re-export types for backward compatibility
 export { 

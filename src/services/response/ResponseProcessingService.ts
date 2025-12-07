@@ -5,38 +5,18 @@
  * across different AI providers.
  */
 
-import { FinishReason, BlockReason } from '@google/generative-ai';
-import { logger } from '../../utils/logger';
-import { formatThinkingResponse } from '../../utils/thinkingFormatter';
+import { FinishReason, BlockedReason } from '@google/genai';
+import { logger } from '../utils/logger';
+import { formatThinkingResponse } from '../utils/thinkingFormatter';
 import type { 
   IResponseProcessingService, 
   ResponseProcessingConfig, 
   ProcessedResponse, 
   RawAPIResponse
-} from '../interfaces/ResponseProcessingInterfaces';
-import type { ServiceHealthStatus } from '../interfaces/CoreServiceInterfaces';
-import type { ProcessedAttachment } from '../interfaces/MultimodalContentInterfaces'; // eslint-disable-line @typescript-eslint/no-unused-vars
-import { PerformanceMetadata } from '../../types';
-
-/**
- * Extended part interface with role information
- */
-interface ExtendedResponsePart {
-  text?: string;
-  thought?: boolean;
-  thinking?: string;
-  thoughtText?: string;
-  role?: string;
-}
-
-/**
- * Thinking metadata for response formatting
- */
-interface ThinkingMetadata {
-  confidence?: number;
-  complexity?: 'low' | 'medium' | 'high';
-  tokenCount?: number;
-}
+} from './interfaces/ResponseProcessingInterfaces';
+import type { ServiceHealthStatus } from './interfaces/CoreServiceInterfaces';
+import type { ProcessedAttachment } from './interfaces/MultimodalContentInterfaces'; // eslint-disable-line @typescript-eslint/no-unused-vars
+import { PerformanceMetadata } from '../types';
 
 /**
  * Response Processing Service Implementation
@@ -95,18 +75,12 @@ export class ResponseProcessingService implements IResponseProcessingService {
     config: ResponseProcessingConfig
   ): Promise<ProcessedResponse> {
     try {
-      // Validate response exists and is an object
-      if (!response || typeof response !== 'object') {
-        throw new Error('Invalid response: not an object');
+      // Validate response exists
+      if (!response) {
+        throw new Error('No response received from API');
       }
 
       const res = response as RawAPIResponse;
-
-      // Validate critical properties exist before using
-      if (!('candidates' in res) && !('promptFeedback' in res)) {
-        throw new Error('Invalid response structure: missing candidates and promptFeedback');
-      }
-
       const warnings: string[] = [];
 
       // Check for prompt feedback (blocked before processing)
@@ -234,15 +208,15 @@ export class ResponseProcessingService implements IResponseProcessingService {
   /**
    * Generates user-friendly error message for blocked content
    */
-  getBlockedContentMessage(reason: BlockReason): string {
+  getBlockedContentMessage(reason: BlockedReason): string {
     switch (reason) {
-    case BlockReason.SAFETY:
+    case BlockedReason.SAFETY:
       return 'Your request was blocked by safety filters. Try rephrasing with different language.';
-    case (BlockReason as any).BLOCKLIST:
+    case BlockedReason.BLOCKLIST:
       return 'Your request contains blocked terminology. Please use different wording.';
-    case (BlockReason as any).PROHIBITED_CONTENT:
+    case BlockedReason.PROHIBITED_CONTENT:
       return 'Your request relates to prohibited content. Please ask about something else.';
-    case BlockReason.OTHER:
+    case BlockedReason.OTHER:
       return 'Your request was blocked for policy reasons. Try rephrasing your question.';
     default:
       return 'Your request was blocked. Please try rephrasing your question.';
@@ -260,15 +234,15 @@ export class ResponseProcessingService implements IResponseProcessingService {
       return 'My response was too long and got cut off. Try asking for a shorter response or break your question into smaller parts. (Tip: Complex questions with thinking mode may need more tokens)';
     case FinishReason.RECITATION:
       return 'I detected potential copyright material in my response. Let me try a different approach to your question.';
-    case (FinishReason as any).LANGUAGE:
+    case FinishReason.LANGUAGE:
       return 'I encountered a language processing issue. Could you try rephrasing your message?';
-    case (FinishReason as any).BLOCKLIST:
+    case FinishReason.BLOCKLIST:
       return 'Your request contains terms that I can\'t process. Please rephrase without any restricted content.';
-    case (FinishReason as any).PROHIBITED_CONTENT:
+    case FinishReason.PROHIBITED_CONTENT:
       return 'I can\'t generate content related to that topic. Try asking about something else!';
-    case (FinishReason as any).SPII:
+    case FinishReason.SPII:
       return 'I detected potentially sensitive personal information. Please avoid sharing private details.';
-    case (FinishReason as any).MALFORMED_FUNCTION_CALL:
+    case FinishReason.MALFORMED_FUNCTION_CALL:
       return 'There was a technical issue with function calling. This shouldn\'t happen - please try again.';
     case FinishReason.OTHER:
       return 'I encountered an unexpected issue while generating the response. Please try again.';
@@ -282,27 +256,13 @@ export class ResponseProcessingService implements IResponseProcessingService {
    */
   formatThinkingResponse(thinkingText: string, responseText: string, maxLength: number, metadata?: PerformanceMetadata): string {
     // Convert PerformanceMetadata to the expected thinking metadata format
-    const thinkingMetadata: ThinkingMetadata | undefined = metadata ? {
-      confidence: this.isValidNumber(metadata.confidence) ? metadata.confidence : undefined,
-      complexity: this.isValidComplexity(metadata.complexity) ? metadata.complexity : undefined,
-      tokenCount: this.isValidNumber(metadata.tokenCount) ? metadata.tokenCount : undefined
+    const thinkingMetadata = metadata ? {
+      confidence: (metadata as any).confidence,
+      complexity: (metadata as any).complexity as 'low' | 'medium' | 'high' | undefined,
+      tokenCount: (metadata as any).tokenCount
     } : undefined;
     
     return formatThinkingResponse(thinkingText, responseText, maxLength, thinkingMetadata);
-  }
-  
-  /**
-   * Type guard for complexity levels
-   */
-  private isValidComplexity(value: unknown): value is 'low' | 'medium' | 'high' {
-    return typeof value === 'string' && ['low', 'medium', 'high'].includes(value);
-  }
-  
-  /**
-   * Type guard for valid numbers
-   */
-  private isValidNumber(value: unknown): value is number {
-    return typeof value === 'number' && !isNaN(value);
   }
   
   /**
@@ -362,14 +322,11 @@ export class ResponseProcessingService implements IResponseProcessingService {
         parts.forEach((part, index) => {
           logger.debug(`Part ${index} keys:`, Object.keys(part));
           
-          // Cast to extended part interface for role access
-          const extendedPart = part as ExtendedResponsePart;
-          
           // Log part content preview with role information
           const partPreview = {
             text: part.text ? part.text.substring(0, 100) + '...' : 'none',
             thought: part.thought,
-            role: extendedPart.role,
+            role: (part as any).role,
             thinking: part.thinking ? 'present' : 'none',
             thoughtText: part.thoughtText ? 'present' : 'none'
           };
@@ -377,11 +334,11 @@ export class ResponseProcessingService implements IResponseProcessingService {
 
           // Enhanced thinking detection - check both part.thought and part.role
           const isThinkingPart = part.thought === true || 
-                                extendedPart.role === 'model-thinking' ||
-                                extendedPart.role === 'thinking';
+                                (part as any).role === 'model-thinking' ||
+                                (part as any).role === 'thinking';
 
           if (isThinkingPart && part.text) {
-            logger.debug(`Part ${index} identified as thinking content (thought=${part.thought}, role=${extendedPart.role})`);
+            logger.debug(`Part ${index} identified as thinking content (thought=${part.thought}, role=${(part as any).role})`);
             thinkingParts.push(String(part.text));
           } else if (part.text) {
             // Regular response text
@@ -472,9 +429,9 @@ export class ResponseProcessingService implements IResponseProcessingService {
   private shouldReturnMessageForFinishReason(finishReason: FinishReason): boolean {
     return [
       FinishReason.SAFETY,
-      (FinishReason as any).BLOCKLIST,
-      (FinishReason as any).PROHIBITED_CONTENT,
-      (FinishReason as any).SPII,
+      FinishReason.BLOCKLIST,
+      FinishReason.PROHIBITED_CONTENT,
+      FinishReason.SPII,
       FinishReason.MAX_TOKENS  // Don't retry MAX_TOKENS - return friendly message
     ].includes(finishReason);
   }

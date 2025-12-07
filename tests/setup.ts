@@ -98,7 +98,7 @@ jest.mock('discord.js', () => ({
 }));
 
 // Mock Google AI
-jest.mock('@google/generative-ai', () => ({
+jest.mock('@google/genai', () => ({
   GoogleGenAI: jest.fn().mockImplementation(() => ({
     getGenerativeModel: jest.fn().mockReturnValue({
       generateContent: jest.fn().mockImplementation(() => Promise.resolve({

@@ -1,21 +1,20 @@
+/**
+ * GeminiAPIClient - Handles direct Gemini API interactions
+ * 
+ * This module is responsible for:
+ * - API client initialization and configuration
+ * - Building generation configurations
+ * - Executing API calls with retry and circuit breaker protection
+ * - Managing API-specific settings (grounding, thinking, code execution)
+ */
 
-import {
-  GoogleGenerativeAI,
-  Content,
-  GenerationConfig,
-  SafetySetting,
-  Tool,
-  FunctionDeclarationsTool,
-  GenerateContentRequest,
-  HarmCategory,
-  HarmBlockThreshold
-} from '@google/generative-ai';
+import { GoogleGenAI, Content } from '@google/genai';
 import { logger } from '../../utils/logger';
-import { getGeminiConfig, GEMINI_MODELS } from '../../services/gemini/GeminiConfig';
-
+import { getGeminiConfig, GEMINI_MODELS } from '../../config/geminiConfig';
+import { ConfigurationFactory } from '../../config/ConfigurationFactory';
 import { AdaptiveTimeout, wrapExternalAPIOperation } from '../../utils/timeoutUtils';
-import { GeminiConfig } from '../../types';
-import { ErrorCategory, enrichError } from '../../utils/ErrorHandlingUtils';
+import { GeminiConfig, GeminiTool, SafetySetting, HarmCategory, HarmBlockThreshold } from '../../types';
+import { ErrorCategory } from '../../utils/ErrorHandlingUtils';
 import type { 
   IGeminiAPIClient,
   ImageAttachment
@@ -28,7 +27,7 @@ import type {
 } from '../interfaces';
 
 export class GeminiAPIClient implements IGeminiAPIClient {
-  private ai: GoogleGenerativeAI;
+  private ai: GoogleGenAI;
   private readonly apiTimeout = new AdaptiveTimeout(30000, {
     minTimeout: 10000,
     maxTimeout: 60000,
@@ -52,27 +51,25 @@ export class GeminiAPIClient implements IGeminiAPIClient {
     private gracefulDegradation: IGracefulDegradationService,
     private multimodalContentHandler: IMultimodalContentHandler
   ) {
-    this.ai = new GoogleGenerativeAI(apiKey);
+    this.ai = new GoogleGenAI({ apiKey });
     
-    // Load configuration from environment
-    this.config = this.loadConfigFromEnv();
+    // Load configuration using ConfigurationFactory
+    const geminiConfig = ConfigurationFactory.createGeminiServiceConfig();
+    
+    this.config = {
+      systemInstruction: geminiConfig.systemInstruction,
+      groundingThreshold: geminiConfig.groundingThreshold,
+      thinkingBudget: geminiConfig.thinkingBudget,
+      includeThoughts: geminiConfig.includeThoughts,
+      enableCodeExecution: geminiConfig.enableCodeExecution,
+      enableStructuredOutput: geminiConfig.enableStructuredOutput,
+      forceThinkingPrompt: geminiConfig.forceThinkingPrompt,
+      thinkingTrigger: geminiConfig.thinkingTrigger,
+      enableGoogleSearch: geminiConfig.enableGoogleSearch || false,
+      unfilteredMode: geminiConfig.unfilteredMode || false
+    };
 
     this.logConfiguration();
-  }
-
-  private loadConfigFromEnv() {
-    return {
-      systemInstruction: process.env.GEMINI_SYSTEM_INSTRUCTION || 'You are a helpful AI assistant.',
-      groundingThreshold: parseFloat(process.env.GROUNDING_THRESHOLD || '0.3'),
-      thinkingBudget: parseInt(process.env.THINKING_BUDGET || '1024'),
-      includeThoughts: process.env.INCLUDE_THOUGHTS === 'true',
-      enableCodeExecution: process.env.ENABLE_CODE_EXECUTION === 'true',
-      enableStructuredOutput: process.env.ENABLE_STRUCTURED_OUTPUT === 'true',
-      forceThinkingPrompt: process.env.FORCE_THINKING_PROMPT === 'true',
-      thinkingTrigger: process.env.THINKING_TRIGGER || 'THINK',
-      enableGoogleSearch: process.env.ENABLE_GOOGLE_SEARCH === 'true',
-      unfilteredMode: process.env.UNFILTERED_MODE === 'true'
-    };
   }
 
   private logConfiguration(): void {
@@ -100,7 +97,7 @@ export class GeminiAPIClient implements IGeminiAPIClient {
     }
   }
 
-  getAI(): GoogleGenerativeAI {
+  getAI(): GoogleGenAI {
     return this.ai;
   }
 
@@ -111,27 +108,51 @@ export class GeminiAPIClient implements IGeminiAPIClient {
   buildGenerationConfig(
     profile: string,
     optionsOrBudget?: GeminiGenerationOptions | number
-  ): Record<string, unknown> {
+  ): GeminiConfig {
     const geminiConfig = getGeminiConfig(profile);
     
     // Handle overloaded parameter
     let options: GeminiGenerationOptions | undefined;
+    let dynamicThinkingBudget: number | undefined;
     
     if (typeof optionsOrBudget === 'number') {
-      // dynamicThinkingBudget is not used in the new API
+      dynamicThinkingBudget = optionsOrBudget;
     } else {
       options = optionsOrBudget;
     }
     
-    const config: GenerationConfig = {
+    const thinkingBudget = dynamicThinkingBudget !== undefined ? dynamicThinkingBudget : this.config.thinkingBudget;
+    
+    const config: Record<string, unknown> = {
       temperature: options?.temperature ?? geminiConfig.temperature,
       topK: options?.topK ?? geminiConfig.topK,
       topP: options?.topP ?? geminiConfig.topP,
       maxOutputTokens: options?.maxOutputTokens ?? geminiConfig.maxOutputTokens
     };
-        
+    
+    // Add optional parameters
+    if (geminiConfig.presencePenalty !== undefined || options?.presencePenalty !== undefined) {
+      config.presencePenalty = options?.presencePenalty ?? geminiConfig.presencePenalty;
+    }
+    
+    if (geminiConfig.frequencyPenalty !== undefined || options?.frequencyPenalty !== undefined) {
+      config.frequencyPenalty = options?.frequencyPenalty ?? geminiConfig.frequencyPenalty;
+    }
+    
     if (options?.stopSequences) {
       config.stopSequences = options.stopSequences;
+    }
+    
+    // Enable thinking mode for Gemini 2.5 models
+    if (this.config.includeThoughts && thinkingBudget > 0) {
+      // Only add thinking config for 2.5 series models that support it
+      const modelSupportsThinking = geminiConfig.model?.includes('2.5') || false;
+      if (modelSupportsThinking) {
+        config.thinkingConfig = {
+          includeThoughts: true,
+          thinkingBudget: thinkingBudget
+        };
+      }
     }
     
     // Enable structured output
@@ -139,11 +160,11 @@ export class GeminiAPIClient implements IGeminiAPIClient {
       this.configureStructuredOutput(config, options.structuredOutput, options.includeReasoning);
     }
     
-    return config as unknown as Record<string, unknown>;
+    return config;
   }
 
   private configureStructuredOutput(
-    config: GenerationConfig,
+    config: Record<string, unknown>,
     structuredOutput: StructuredOutputOptions,
     includeReasoning?: boolean
   ): void {
@@ -153,9 +174,10 @@ export class GeminiAPIClient implements IGeminiAPIClient {
     });
     
     config.responseMimeType = 'application/json';
+    config.responseSchema = structuredOutput.schema;
     
-    if (includeReasoning && structuredOutput.schema) {
-      const schemaWithReasoning = JSON.parse(JSON.stringify(structuredOutput.schema));
+    if (includeReasoning && config.responseSchema) {
+      const schemaWithReasoning = JSON.parse(JSON.stringify(config.responseSchema));
       
       if (schemaWithReasoning.type === 'object' && schemaWithReasoning.properties) {
         schemaWithReasoning.properties.reasoning = {
@@ -168,6 +190,7 @@ export class GeminiAPIClient implements IGeminiAPIClient {
         }
       }
       
+      config.responseSchema = schemaWithReasoning;
     }
   }
 
@@ -180,96 +203,176 @@ export class GeminiAPIClient implements IGeminiAPIClient {
       process.env.GEMINI_VISION_PROFILE || 'HIGH_ACCURACY_VISION' : 
       'LEGACY';
     
-    const geminiConfig = getGeminiConfig(profile) as GeminiConfig;
+    const geminiConfig = getGeminiConfig(profile) as unknown as GeminiConfig;
     
     return await this.gracefulDegradation.executeWithCircuitBreaker(
       async () => {
-        const modelParams = {
-          model: geminiConfig.model || GEMINI_MODELS.FLASH_PREVIEW,
-          generationConfig: this.buildGenerationConfig(profile, dynamicThinkingBudget),
-          safetySettings: this.buildSafetySettings(),
-          tools: this.buildTools(),
-          systemInstruction: this.config.systemInstruction,
-        };
-
-        const model = this.ai.getGenerativeModel(modelParams);
-
         if (imageAttachments && imageAttachments.length > 0) {
-          const multimodalContent = this.multimodalContentHandler.buildProviderContent(
-            fullPrompt,
-            imageAttachments,
-            'gemini'
-          ) as Content[];
-          const request: GenerateContentRequest = {
-            contents: multimodalContent,
-          };
-          return await this.executeRequest(request, model, 'multimodal');
-
+          return await this.executeMultimodalCall(fullPrompt, imageAttachments, geminiConfig, dynamicThinkingBudget);
         } else {
-          const request: GenerateContentRequest = {
-            contents: [{role: 'user', parts: [{text: fullPrompt}]}],
-          };
-          return await this.executeRequest(request, model, 'text-only');
+          return await this.executeTextOnlyCall(fullPrompt, geminiConfig, dynamicThinkingBudget);
         }
       },
       'gemini'
     );
   }
 
-  private async executeRequest(request: GenerateContentRequest, model: any, type: 'text-only' | 'multimodal'): Promise<unknown> {
+  private async executeMultimodalCall(
+    fullPrompt: string,
+    imageAttachments: ImageAttachment[],
+    geminiConfig: GeminiConfig,
+    dynamicThinkingBudget?: number
+  ): Promise<unknown> {
+    const multimodalContent = this.multimodalContentHandler.buildProviderContent(
+      fullPrompt,
+      imageAttachments,
+      'gemini'
+    ) as Content;
+    
+    if (geminiConfig.systemInstruction && multimodalContent.parts) {
+      multimodalContent.parts.unshift({
+        text: geminiConfig.systemInstruction
+      });
+    }
+    
+    const effectiveBudget = dynamicThinkingBudget !== undefined ? dynamicThinkingBudget : this.config.thinkingBudget;
     const timeout = this.apiTimeout.getTimeout();
     const startTime = Date.now();
     
-    logger.info(`Executing ${type} Gemini API call with model: ${model.model}, timeout: ${timeout}ms`);
+    logger.info(`Executing multimodal Gemini API call with ${imageAttachments.length} image(s) using model: ${geminiConfig.model}, thinking enabled: ${this.config.includeThoughts}, thinking budget: ${effectiveBudget} tokens, timeout: ${timeout}ms`);
+    
+    const tools = this.buildTools();
+    const safetySettings = this.buildSafetySettings();
     
     try {
-      const result = await wrapExternalAPIOperation(
-        () => model.generateContent(request),
-        `${type}-generateContent`,
+      const response = await wrapExternalAPIOperation(
+        () => this.ai.models.generateContent({
+          model: geminiConfig.model || GEMINI_MODELS.FLASH_PREVIEW,
+          contents: [multimodalContent],
+          config: geminiConfig as any,
+          ...(tools.length > 0 && { tools }),
+          ...(safetySettings && { safetySettings })
+        }),
+        'multimodal-generateContent',
         'gemini',
         timeout
       );
       
+      // Record successful duration for adaptive timeout
       const duration = Date.now() - startTime;
       this.apiTimeout.recordDuration(duration);
       
-      this.logResponseDebug(result, type);
-      return result;
+      this.logResponseDebug(response, 'multimodal');
+      return response;
     } catch (error) {
+      // Log timeout and API call stats
       const duration = Date.now() - startTime;
       const stats = this.apiTimeout.getStats();
-
-      const enrichedError = enrichError(error as Error, {
-        operation: `GeminiAPIClient.executeRequest.${type}`,
-        model: model.model,
-        timeout,
+      
+      logger.error('Multimodal Gemini API call failed', {
         duration,
+        timeout,
+        imageCount: imageAttachments.length,
+        model: geminiConfig.model,
         adaptiveTimeoutStats: stats,
-        category: ErrorCategory.NETWORK
+        error: error instanceof Error ? error.message : String(error)
       });
-
-      logger.error(`${type} Gemini API call failed`, {
-        error: enrichedError
-      });
-
-      throw enrichedError;
+      
+      throw error;
     }
   }
 
-  private buildTools(): Tool[] {
-    const tools: Tool[] = [];
+  private async executeTextOnlyCall(
+    fullPrompt: string,
+    geminiConfig: GeminiConfig,
+    dynamicThinkingBudget?: number
+  ): Promise<unknown> {
+    const effectiveBudget = dynamicThinkingBudget !== undefined ? dynamicThinkingBudget : this.config.thinkingBudget;
+    const timeout = this.apiTimeout.getTimeout();
+    const startTime = Date.now();
+    
+    logger.info(`Executing text-only Gemini API call using model: ${geminiConfig.model}, thinking enabled: ${this.config.includeThoughts}, thinking budget: ${effectiveBudget} tokens, timeout: ${timeout}ms`);
+    
+    if (this.config.includeThoughts && effectiveBudget > 0) {
+      const modelSupportsThinking = geminiConfig.model?.includes('2.5') || false;
+      if (modelSupportsThinking) {
+        logger.info('Including thinkingConfig in API request for 2.5 model');
+      }
+    }
+    
+    const tools = this.buildTools();
+    const safetySettings = this.buildSafetySettings();
+    
+    try {
+      const response = await wrapExternalAPIOperation(
+        () => this.ai.models.generateContent({
+          model: geminiConfig.model || GEMINI_MODELS.FLASH_PREVIEW,
+          contents: fullPrompt,
+          config: {
+            temperature: geminiConfig.temperature,
+            topK: geminiConfig.topK,
+            topP: geminiConfig.topP,
+            maxOutputTokens: geminiConfig.maxOutputTokens,
+            ...(typeof geminiConfig.presencePenalty === 'number' && { presencePenalty: geminiConfig.presencePenalty }),
+            ...(typeof geminiConfig.frequencyPenalty === 'number' && { frequencyPenalty: geminiConfig.frequencyPenalty }),
+            // Add thinking config for 2.5 models
+            ...(this.config.includeThoughts && effectiveBudget > 0 && geminiConfig.model?.includes('2.5') && {
+              thinkingConfig: {
+                includeThoughts: true,
+                thinkingBudget: effectiveBudget
+              }
+            })
+          },
+          ...(tools.length > 0 && { tools }),
+          ...(safetySettings && { safetySettings })
+        }),
+        'text-generateContent',
+        'gemini',
+        timeout
+      );
+      
+      // Record successful duration for adaptive timeout
+      const duration = Date.now() - startTime;
+      this.apiTimeout.recordDuration(duration);
+      
+      this.logResponseDebug(response, 'text-only');
+      return response;
+    } catch (error) {
+      // Log timeout and API call stats
+      const duration = Date.now() - startTime;
+      const stats = this.apiTimeout.getStats();
+      
+      logger.error('Text-only Gemini API call failed', {
+        duration,
+        timeout,
+        model: geminiConfig.model,
+        promptLength: fullPrompt.length,
+        adaptiveTimeoutStats: stats,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      throw error;
+    }
+  }
+
+  private buildTools(): GeminiTool[] {
+    const tools: GeminiTool[] = [];
     
     if (this.config.enableCodeExecution) {
-      // Code execution is not a tool in the new API
+      tools.push({ codeExecution: { enabled: true } });
+      logger.info('Adding code execution tool to API request');
     }
     
     if (this.config.enableGoogleSearch) {
-      // Cast to unknown then to Tool to satisfy TypeScript while using Google Search grounding
-      // The googleSearch property is valid at runtime but not in the current @google/generative-ai types
       tools.push({
-        googleSearch: {}
-      } as unknown as FunctionDeclarationsTool);
-      logger.info(`Adding Google Search grounding`);
+        googleSearchRetrieval: {
+          dynamicRetrievalConfig: {
+            mode: 'MODE_DYNAMIC',
+            dynamicThreshold: this.config.groundingThreshold
+          }
+        }
+      });
+      logger.info(`Adding Google Search grounding with threshold: ${this.config.groundingThreshold}`);
     }
     
     return tools;
@@ -290,14 +393,15 @@ export class GeminiAPIClient implements IGeminiAPIClient {
   private logResponseDebug(response: unknown, type: string): void {
     logger.info(`=== GEMINI API RESPONSE DEBUG (${type}) ===`);
     logger.info('Response type:', typeof response);
+    logger.info('Response keys:', Object.keys(response as any));
     
-    if (response && typeof response === 'object' && 'response' in response) {
-      const res = response as { response: { candidates: Array<{ content?: { parts?: Array<{ text?: string }> } }> } };
-      if (res.response.candidates && res.response.candidates[0]) {
-        logger.info('First candidate keys:', Object.keys(res.response.candidates[0]));
-        if (res.response.candidates[0].content && res.response.candidates[0].content.parts) {
-          logger.info('Content parts count:', res.response.candidates[0].content.parts.length);
-          res.response.candidates[0].content.parts.forEach((part, idx) => {
+    if (response && typeof response === 'object' && 'candidates' in response) {
+      const res = response as unknown as { candidates: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      if (res.candidates && res.candidates[0]) {
+        logger.info('First candidate keys:', Object.keys(res.candidates[0]));
+        if (res.candidates[0].content && res.candidates[0].content.parts) {
+          logger.info('Content parts count:', res.candidates[0].content.parts.length);
+          res.candidates[0].content.parts.forEach((part, idx) => {
             logger.info(`Part ${idx} keys:`, Object.keys(part));
             if (part.text) {
               logger.info(`Part ${idx} text preview:`, part.text.substring(0, 100) + '...');

@@ -5,15 +5,15 @@
  * HealthMonitor and AnalyticsManager services
  */
 
-import { HealthMonitor } from '../../../src/services/health/HealthMonitor';
-import { AnalyticsManager } from '../../../src/services/analytics/AnalyticsManager';
+import { HealthMonitor } from '../../../src/services/healthMonitor';
+import { AnalyticsManager } from '../../../src/services/analyticsManager';
 import { dataStoreFactory } from '../../../src/utils/DataStoreFactory';
 import { DataStore } from '../../../src/utils/DataStore';
 import * as fs from 'fs/promises';
 
 // Mock dependencies
-jest.mock('../../../src/services/rate-limiting/RateLimiter');
-jest.mock('../../../src/services/context/ContextManager');
+jest.mock('../../../src/services/rateLimiter');
+jest.mock('../../../src/services/contextManager');
 jest.mock('../../../src/services/gemini');
 
 describe('DataStore Monitoring Integration', () => {

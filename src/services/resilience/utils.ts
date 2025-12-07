@@ -4,8 +4,8 @@
  * Common helper functions for resilience components
  */
 
-import { DEGRADATION_CONSTANTS, GENERAL_CONSTANTS } from '../../utils/constants';
-import type { HealthMetrics } from '../interfaces/HealthMonitoringInterfaces';
+import { DEGRADATION_CONSTANTS, GENERAL_CONSTANTS } from '../../config/constants';
+import type { HealthMetrics } from '../healthMonitor';
 import type { DegradationDecision } from '../interfaces/GracefulDegradationInterfaces';
 
 /**

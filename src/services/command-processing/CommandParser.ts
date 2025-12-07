@@ -5,13 +5,13 @@
  * and interpret user commands from natural language input.
  */
 
-import { logger } from '../../utils/logger';
-import type { GeminiService } from '../gemini/GeminiService';
+import { logger } from '../utils/logger';
+import type { GeminiService } from './gemini/GeminiService';
 import type { 
   ParsedCommand,
   StructuredOutputOptions 
-} from '../interfaces/GeminiInterfaces';
-import { CommandSchema } from '../interfaces/GeminiInterfaces';
+} from './interfaces/GeminiInterfaces';
+import { CommandSchema } from './interfaces/GeminiInterfaces';
 
 /**
  * Service for parsing commands using structured AI output

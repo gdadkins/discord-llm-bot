@@ -13,7 +13,7 @@
 
 import { CircuitBreaker, CircuitBreakerConfig } from './CircuitBreaker';
 import { logger } from '../../utils/logger';
-import type { HealthMonitor } from '../health/HealthMonitor';
+import type { HealthMonitor } from '../healthMonitor';
 
 export interface ServiceCircuitBreakersConfig {
   healthMonitor?: HealthMonitor;
