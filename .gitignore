@@ -8,7 +8,7 @@ yarn-error.log*
 dist/
 build/
 
-# Environment variables
+# Environment variables (NEVER commit these - contains secrets)
 .env
 .env.local
 .env.development.local
@@ -25,7 +25,7 @@ pids/
 *.seed
 *.pid.lock
 
-# Coverage directory used by tools like istanbul
+# Coverage directory
 coverage/
 
 # IDE files
@@ -44,18 +44,16 @@ coverage/
 ehthumbs.db
 Thumbs.db
 
-# Data files (except .gitkeep)
+# Data files (runtime data, not source)
 data/
 !data/.gitkeep
-claude-orchestrator/
-script/
+
+# Build artifacts
+discord-llm-bot.tar.gz
+
+# Private development files (not for public repo)
 CLAUDE.md
 GEMINI.md
-discord-llm-bot.tar.gz
-docker-compose.unraid.yml
-docker-compose.yml
-Dockerfile
-Dockerfile.unraid
-Dockerfile.unraid.fixed
-UNRAID_GUIDE.md
 .claude/
+claude-orchestrator/
+script/
