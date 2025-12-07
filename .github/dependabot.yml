@@ -1,0 +1,63 @@
+# Dependabot configuration for automated dependency management
+version: 2
+updates:
+  # Enable npm package updates
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    # Group minor and patch updates to reduce PR noise
+    groups:
+      production-dependencies:
+        patterns:
+          - "@google/genai"
+          - "discord.js"
+          - "better-sqlite3"
+          - "winston"
+          - "uuid"
+          - "dotenv"
+          - "crypto-js"
+          - "ajv"
+          - "async-mutex"
+          - "chokidar"
+          - "fs-extra"
+        update-types:
+          - "minor"
+          - "patch"
+      development-dependencies:
+        patterns:
+          - "@types/*"
+          - "@typescript-eslint/*"
+          - "typescript"
+          - "jest"
+          - "ts-jest"
+          - "ts-node"
+          - "eslint"
+          - "prettier"
+          - "commander"
+        update-types:
+          - "minor"
+          - "patch"
+    # Security updates get individual PRs
+    open-pull-requests-limit: 10
+    # Skip major version updates for critical packages
+    ignore:
+      - dependency-name: "better-sqlite3"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "discord.js"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "jest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+    # Add labels for easier PR management
+    labels:
+      - "dependencies"
+      - "automated"
+    # Custom PR messages
+    commit-message:
+      prefix: "deps"
+      include: "scope"
