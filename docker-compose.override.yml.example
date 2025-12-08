@@ -1,0 +1,27 @@
+# docker-compose.override.yml.example
+# Copy this to docker-compose.override.yml for local development overrides
+
+services:
+  discord-llm-bot:
+    # For development, mount source code
+    volumes:
+      - ./src:/app/src:ro
+      - ./dist:/app/dist
+    
+    # Development environment
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+    
+    # Enable source code watching (requires modifications to Dockerfile)
+    # command: npm run dev
+    
+    # Disable restart for development
+    restart: "no"
+    
+    # Remove resource limits for development
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
