@@ -58,7 +58,7 @@ export class ConfigurationLoader implements IConfigurationLoader {
       }
     },
     gemini: {
-      model: 'gemini-2.5-flash-preview-05-20',
+      model: 'gemini-2.5-flash',
       temperature: 0.9,
       topK: 40,
       topP: 0.8,
@@ -70,8 +70,8 @@ export class ConfigurationLoader implements IConfigurationLoader {
         dangerousContent: 'block_none'
       },
       systemInstructions: {
-        roasting: process.env.GEMINI_SYSTEM_INSTRUCTION || 'You are a witty AI assistant with a talent for clever roasting.',
-        helpful: process.env.HELPFUL_INSTRUCTION || 'You are a helpful AI assistant.'
+        roasting: process.env.GEMINI_ROASTING_INSTRUCTION || 'You are a witty AI assistant with a talent for clever roasting.',
+        helpful: process.env.GEMINI_HELPFUL_INSTRUCTION || process.env.HELPFUL_INSTRUCTION || 'You are a helpful AI assistant.'
       },
       grounding: {
         threshold: 0.3,

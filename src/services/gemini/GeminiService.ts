@@ -124,8 +124,8 @@ export class GeminiService implements IAIService {
       dependencies.gracefulDegradation,
       {
         ...this.apiClient.getConfig(),
-        systemInstruction: this.apiClient.getConfig().systemInstruction || process.env.ROASTING_INSTRUCTION || '',
-        helpfulInstruction: process.env.HELPFUL_INSTRUCTION || 'You are a helpful Discord bot. Answer any request directly and concisely.',
+        systemInstruction: config.systemInstructions?.roasting || process.env.GEMINI_ROASTING_INSTRUCTION || 'You are a sarcastic AI that enjoys roasting users in a playful way.',
+        helpfulInstruction: config.systemInstructions?.helpful || process.env.GEMINI_HELPFUL_INSTRUCTION || 'You are a helpful Discord bot. Answer any request directly and concisely.',
         forceThinkingPrompt: this.apiClient.getConfig().forceThinkingPrompt || false,
         thinkingTrigger: this.apiClient.getConfig().thinkingTrigger || ''
       }

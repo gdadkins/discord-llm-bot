@@ -27,7 +27,7 @@ export interface GeminiConfigProfile {
  */
 export const GEMINI_MODELS = {
   // Current free model (10 RPM, 500 req/day)
-  FLASH_PREVIEW: 'gemini-2.5-flash-preview-05-20',
+  FLASH_PREVIEW: 'gemini-2.5-flash',
   
   // Future model options (when available/affordable)
   // PRO_VISION: 'gemini-pro-vision',

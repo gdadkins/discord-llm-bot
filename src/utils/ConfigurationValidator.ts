@@ -114,7 +114,7 @@ export const ENV_VAR_SCHEMAS: Record<string, EnvVarSchema> = {
   // Gemini Model Configuration
   GEMINI_MODEL: {
     type: 'string',
-    defaultValue: 'gemini-2.5-flash-preview-05-20',
+    defaultValue: 'gemini-2.5-flash',
     pattern: /^gemini-/,
     description: 'Gemini AI model to use'
   },
