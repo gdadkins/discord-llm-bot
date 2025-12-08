@@ -6,21 +6,21 @@ The Discord LLM Bot includes a comprehensive analytics and reporting system desi
 
 ## Key Features
 
-### 🔒 Privacy-First Design
+### Privacy-First Design
 - **Zero Message Content Storage**: Only metadata is stored, never actual message content
 - **Anonymized User IDs**: All user identifiers are hashed using SHA-256 with salt
 - **User-Controlled Data Retention**: Users can set their own data retention period (7-365 days)
 - **Opt-Out Mechanism**: Users can completely opt out of data collection
 - **Data Export/Deletion**: Full GDPR compliance with user data export and deletion
 
-### 📊 Analytics Capabilities
+### Analytics Capabilities
 - **Command Usage Statistics**: Track frequency, success rates, response times
 - **User Engagement Metrics**: Session tracking, interaction depth, activity patterns
 - **Error Pattern Analysis**: Categorized error tracking for system improvement
 - **Performance Monitoring**: Response times, resource usage, trend analysis
 - **Automated Reporting**: Daily, weekly, and monthly reports with insights
 
-### 🛡️ Data Protection
+### Data Protection
 - **SQLite Database**: Local storage with WAL mode for performance
 - **Time-Series Data**: Efficient storage and querying of historical data
 - **Automatic Cleanup**: Respects retention policies and removes old data

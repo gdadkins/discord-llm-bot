@@ -34,39 +34,11 @@ Before implementing performance fixes:
 - [ ] **Audit Existing Code** for hidden optimizations before implementing
 - [ ] **Quantify Current Performance** with specific measurements
 - [ ] **Consider Parameter Tuning** as a first approach
-- [ ] **Identify Non-Overlapping Scopes** for parallel agent deployment
+- [ ] **Identify Non-Overlapping Scopes** to avoid conflicts when working on multiple files
 - [ ] **Plan Resource Cleanup** for any new timers, intervals, or caches
 - [ ] **Design Compatibility Preservation** strategy for existing APIs
 - [ ] **Design Cache Bypass Rules** for dynamic commands
 - [ ] **Plan Metrics Collection** for measuring improvement
-
-## Multi-Agent Development Pattern
-
-### Proven Pattern for Complex Features (Phase 3+)
-When implementing features that touch multiple files:
-
-1. **Master Agent Planning**
-   - Use TodoWrite to break down features into clear tasks
-   - Identify non-overlapping code sections for each agent
-   - Assign specific file:line scopes to prevent conflicts
-
-2. **Parallel Agent Deployment**
-   - Deploy 3-6 agents simultaneously for independent tasks
-   - Each agent gets precise scope: file paths + line numbers
-   - Agents work on different services/components
-
-3. **Integration & Validation**
-   - Master agent coordinates final integration
-   - Run build/lint after all agents complete
-   - Verify feature coherence across components
-
-### Example Multi-Agent Deployment
-```
-Master Agent: Plans enhanced context implementation
-├── Agent 1: Discord User Context (contextManager.ts:32-65, gemini.ts:212)
-├── Agent 2: Message Context (index.ts:78-101, gemini.ts modifications)
-└── Agent 3: Social Dynamics (contextManager.ts:115-143, messageCreate.ts)
-```
 
 ## Post-Implementation Validation
 

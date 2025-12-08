@@ -1,7 +1,5 @@
 # Distributed Tracing System
 
-**Agent 6: Distributed Tracing Implementation Specialist**
-
 This comprehensive distributed tracing system provides full request correlation, performance monitoring, and error tracking across all service boundaries in the Discord LLM Bot.
 
 ## 🎯 Core Features
