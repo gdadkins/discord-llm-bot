@@ -8,15 +8,17 @@ import { GeminiService } from '../../../../src/services/gemini/GeminiService';
 import { GeminiAPIClient } from '../../../../src/services/gemini/GeminiAPIClient';
 import { GeminiContextProcessor } from '../../../../src/services/gemini/GeminiContextProcessor';
 import { GeminiResponseHandler } from '../../../../src/services/gemini/GeminiResponseHandler';
+import { GeminiConfigurationHandler } from '../../../../src/services/gemini/GeminiConfiguration';
+import { GeminiStructuredOutputHandler } from '../../../../src/services/gemini/GeminiStructuredOutput';
 import { largeContextHandler } from '../../../../src/utils/largeContextHandler';
 import { globalPools } from '../../../../src/utils/PromisePool';
 import { globalCoalescers } from '../../../../src/utils/RequestCoalescer';
 import { logger } from '../../../../src/utils/logger';
-import type { 
-  IRateLimiter, 
-  IContextManager, 
-  IPersonalityManager, 
-  ICacheManager, 
+import type {
+  IRateLimiter,
+  IContextManager,
+  IPersonalityManager,
+  ICacheManager,
   IGracefulDegradationService,
   IRoastingEngine,
   IResponseProcessingService,
@@ -29,9 +31,7 @@ import type {
   StructuredOutputOptions,
   BotConfiguration
 } from '../../../../src/services/interfaces';
-import type { IConversationManager } from '../../../../src/services/conversationManager';
-import type { IRetryHandler } from '../../../../src/services/retryHandler';
-import type { ISystemContextBuilder } from '../../../../src/services/systemContextBuilder';
+import type { IConversationManager, IRetryHandler, ISystemContextBuilder } from '../../../../src/services/interfaces';
 import type { Client, Guild, GuildMember } from 'discord.js';
 import type { MessageContext } from '../../../../src/commands';
 
@@ -39,9 +39,17 @@ import type { MessageContext } from '../../../../src/commands';
 jest.mock('../../../../src/services/gemini/GeminiAPIClient');
 jest.mock('../../../../src/services/gemini/GeminiContextProcessor');
 jest.mock('../../../../src/services/gemini/GeminiResponseHandler');
+jest.mock('../../../../src/services/gemini/GeminiConfiguration');
+jest.mock('../../../../src/services/gemini/GeminiStructuredOutput');
 jest.mock('../../../../src/utils/largeContextHandler');
 jest.mock('../../../../src/utils/PromisePool');
-jest.mock('../../../../src/utils/RequestCoalescer');
+jest.mock('../../../../src/utils/RequestCoalescer', () => ({
+  globalCoalescers: {
+    geminiGeneration: {
+      execute: jest.fn().mockImplementation(async (key, fn) => fn())
+    }
+  }
+}));
 jest.mock('../../../../src/utils/logger');
 
 describe('GeminiService', () => {
@@ -52,6 +60,7 @@ describe('GeminiService', () => {
   let mockResponseHandler: jest.Mocked<GeminiResponseHandler>;
 
   beforeEach(() => {
+    jest.useFakeTimers();
     // Clear all mocks
     jest.clearAllMocks();
 
@@ -103,7 +112,7 @@ describe('GeminiService', () => {
     };
 
     // Setup mocked class instances
-    mockApiClient = new GeminiAPIClient('test-key', mockDependencies.gracefulDegradation, mockDependencies.multimodalContentHandler) as jest.Mocked<GeminiAPIClient>;
+    mockApiClient = new GeminiAPIClient('test-key', {} as any, mockDependencies.gracefulDegradation, mockDependencies.multimodalContentHandler) as jest.Mocked<GeminiAPIClient>;
     mockContextProcessor = new GeminiContextProcessor(
       mockDependencies.contextManager,
       mockDependencies.personalityManager,
@@ -153,7 +162,35 @@ describe('GeminiService', () => {
     (largeContextHandler.cleanupAll as jest.Mock).mockResolvedValue(undefined);
 
     // Create service instance
-    geminiService = new GeminiService('test-api-key', mockDependencies);
+    // Create service instance
+    const mockConfig = {
+      model: 'gemini-1.5-flash',
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 2048
+    } as any;
+
+    const mockComponents = {
+      apiClient: mockApiClient,
+      contextProcessor: mockContextProcessor,
+      responseHandler: mockResponseHandler,
+      configHandler: new GeminiConfigurationHandler(mockDependencies.cacheManager),
+      structuredOutputHandler: new GeminiStructuredOutputHandler(
+        mockApiClient,
+        mockContextProcessor,
+        mockResponseHandler,
+        mockDependencies.cacheManager,
+        mockDependencies.retryHandler,
+        mockDependencies.rateLimiter
+      )
+    };
+
+    geminiService = new GeminiService('test-api-key', mockConfig, mockDependencies, mockComponents);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   describe('Constructor and Initialization', () => {
@@ -165,12 +202,12 @@ describe('GeminiService', () => {
     });
 
     it('should throw error when dependencies are missing', () => {
-      expect(() => new GeminiService('test-key', null as any)).toThrow('GeminiService requires all dependencies to be provided');
+      expect(() => new GeminiService('test-key', {} as any, null as any, {} as any)).toThrow('GeminiService requires all dependencies to be provided');
     });
 
     it('should initialize successfully', async () => {
       await geminiService.initialize();
-      
+
       expect(largeContextHandler.initialize).toHaveBeenCalled();
       expect(logger.info).toHaveBeenCalledWith('Large context handler initialized for conversation summarization');
       expect(logger.info).toHaveBeenCalledWith('GeminiService initialized with Gemini API integration');
@@ -178,15 +215,15 @@ describe('GeminiService', () => {
 
     it('should log unfiltered mode warning when enabled', async () => {
       (mockApiClient.getConfig as jest.Mock).mockReturnValue({ unfilteredMode: true });
-      
+
       await geminiService.initialize();
-      
+
       expect(logger.warn).toHaveBeenCalledWith('⚠️  UNFILTERED MODE ENABLED - Bot will provide unrestricted responses to all requests');
     });
 
     it('should shutdown properly', async () => {
       await geminiService.shutdown();
-      
+
       expect(largeContextHandler.cleanupAll).toHaveBeenCalled();
       expect(logger.info).toHaveBeenCalledWith('Large context handler cleanup complete');
       expect(logger.info).toHaveBeenCalledWith('GeminiService shutdown complete');
@@ -197,20 +234,20 @@ describe('GeminiService', () => {
     it('should set health monitor', () => {
       const mockHealthMonitor = {} as IHealthMonitor;
       geminiService.setHealthMonitor(mockHealthMonitor);
-      
+
       expect(mockDependencies.gracefulDegradation.setHealthMonitor).toHaveBeenCalledWith(mockHealthMonitor);
     });
 
     it('should set discord client', () => {
       const mockClient = {} as Client;
       geminiService.setDiscordClient(mockClient);
-      
+
       expect(mockDependencies.systemContextBuilder.setDiscordClient).toHaveBeenCalledWith(mockClient);
     });
 
     it('should return health status', () => {
       const status = geminiService.getHealthStatus();
-      
+
       expect(status).toEqual({
         healthy: true,
         name: 'GeminiService',
@@ -325,7 +362,7 @@ describe('GeminiService', () => {
 
     it('should handle very long prompt', async () => {
       const longPrompt = 'a'.repeat(100001);
-      
+
       await expect(geminiService.generateResponse(
         longPrompt,
         defaultParams.userId,
@@ -449,7 +486,10 @@ describe('GeminiService', () => {
         topP: 0.9,
         maxTokens: 2048,
         safetySettings: {},
-        systemInstructions: 'New instructions',
+        systemInstructions: {
+          roasting: 'Roast them on slow fire',
+          helpful: 'Be helpful'
+        },
         grounding: { threshold: 0.7, enabled: true },
         thinking: { budget: 100000, includeInResponse: false },
         enableCodeExecution: false,
@@ -464,29 +504,92 @@ describe('GeminiService', () => {
 
     it('should validate valid configuration', async () => {
       const config: BotConfiguration = {
+        version: '1.0.0',
+        lastModified: new Date().toISOString(),
+        modifiedBy: 'system',
+        discord: {
+          intents: [],
+          permissions: {},
+          commands: {}
+        },
         gemini: {
           temperature: 0.7,
           topK: 40,
           topP: 0.95,
-          maxTokens: 2048
+          maxTokens: 2048,
+          model: 'gemini-1.5-flash',
+          safetySettings: {
+            harassment: 'block_none',
+            hateSpeech: 'block_none',
+            sexuallyExplicit: 'block_none',
+            dangerousContent: 'block_none'
+          },
+          systemInstructions: {
+            roasting: 'Roast them',
+            helpful: 'Help them'
+          },
+          grounding: {
+            threshold: 0.5,
+            enabled: true
+          },
+          thinking: {
+            budget: 1000,
+            includeInResponse: false
+          }
         },
         rateLimiting: {
           rpm: 60,
           daily: 10000,
-          testUserId: 'test',
-          testMode: false
+          burstSize: 10,
+          safetyMargin: 0.1,
+          retryOptions: {
+            maxRetries: 3,
+            retryDelay: 1000,
+            retryMultiplier: 2
+          }
         },
         features: {
+          codeExecution: true,
+          structuredOutput: true,
+          monitoring: {
+            healthMetrics: { enabled: true, collectionInterval: 60, retentionDays: 7 },
+            alerts: { enabled: false, memoryThreshold: 0.9, errorRateThreshold: 0.1, responseTimeThreshold: 5000 },
+            gracefulDegradation: { enabled: true, circuitBreaker: { failureThreshold: 5, timeout: 60, resetTimeout: 300 }, queueing: { maxSize: 100, maxAge: 600 } }
+          },
+          caching: {
+            enabled: true,
+            maxSize: 100,
+            ttlMinutes: 60,
+            compressionEnabled: false
+          },
           contextMemory: {
             enabled: true,
             maxMessages: 100,
             timeoutMinutes: 60,
-            maxContextChars: 50000
+            maxContextChars: 50000,
+            compressionEnabled: false,
+            crossServerEnabled: false
           },
           roasting: {
-            enabled: true,
             baseChance: 0.1,
-            maxChance: 0.5
+            maxChance: 0.5,
+            consecutiveBonus: 0.1,
+            cooldownEnabled: true,
+            moodSystem: {
+              enabled: true,
+              moodDuration: 60,
+              chaosEvents: {
+                enabled: false,
+                triggerChance: 0.05,
+                durationRange: [5, 15],
+                multiplierRange: [1.5, 3.0]
+              }
+            },
+            psychologicalWarfare: {
+              roastDebt: false,
+              mercyKills: false,
+              cooldownBreaking: false
+            }
           }
         }
       };
@@ -498,14 +601,14 @@ describe('GeminiService', () => {
     });
 
     it('should validate invalid configuration', async () => {
-      const config: BotConfiguration = {
+      const config = {
         gemini: {
           temperature: 3, // Invalid: > 2
           topK: 150, // Invalid: > 100
           topP: 1.5, // Invalid: > 1
           maxTokens: 50000 // Invalid: > 32768
         }
-      };
+      } as any;
 
       const result = await geminiService.validateConfiguration(config);
 
@@ -534,8 +637,8 @@ describe('GeminiService', () => {
           result: { type: 'string' }
         }
       },
-      name: 'TestResponse',
-      description: 'Test structured response'
+      schemaName: 'TestResponse',
+      fallbackBehavior: 'error'
     };
 
     it('should generate structured response', async () => {
@@ -615,7 +718,7 @@ describe('GeminiService', () => {
   describe('Delegated Methods', () => {
     it('should get remaining quota', () => {
       const quota = geminiService.getRemainingQuota();
-      
+
       expect(quota).toEqual({
         minuteRemaining: 60,
         dailyRemaining: 1000
@@ -625,14 +728,14 @@ describe('GeminiService', () => {
 
     it('should clear user conversation', () => {
       const result = geminiService.clearUserConversation('user123');
-      
+
       expect(result).toBe(true);
       expect(mockDependencies.conversationManager.clearUserConversation).toHaveBeenCalledWith('user123');
     });
 
     it('should get conversation stats', () => {
       const stats = geminiService.getConversationStats();
-      
+
       expect(stats).toEqual({
         activeUsers: 10,
         totalMessages: 100,
@@ -642,7 +745,7 @@ describe('GeminiService', () => {
 
     it('should build conversation context', () => {
       const context = geminiService.buildConversationContext('user123', 50);
-      
+
       expect(context).toBe('Previous conversation context');
       expect(mockDependencies.conversationManager.buildConversationContext).toHaveBeenCalledWith('user123', 50);
     });
@@ -657,7 +760,7 @@ describe('GeminiService', () => {
 
     it('should add embarrassing moment', () => {
       geminiService.addEmbarrassingMoment('server123', 'user456', 'Embarrassing moment');
-      
+
       expect(mockDependencies.contextManager.addEmbarrassingMoment).toHaveBeenCalledWith(
         'server123',
         'user456',
@@ -667,7 +770,7 @@ describe('GeminiService', () => {
 
     it('should add running gag', () => {
       geminiService.addRunningGag('server123', 'Running gag');
-      
+
       expect(mockDependencies.contextManager.addRunningGag).toHaveBeenCalledWith(
         'server123',
         'Running gag'
@@ -676,7 +779,7 @@ describe('GeminiService', () => {
 
     it('should get cache stats', () => {
       const stats = geminiService.getCacheStats();
-      
+
       expect(stats).toEqual({
         hits: 100,
         misses: 50,
@@ -686,7 +789,7 @@ describe('GeminiService', () => {
 
     it('should get cache performance', () => {
       const performance = geminiService.getCachePerformance();
-      
+
       expect(performance).toEqual({
         hitRate: 0.667,
         avgRetrievalTime: 5
@@ -695,13 +798,13 @@ describe('GeminiService', () => {
 
     it('should clear cache', () => {
       geminiService.clearCache();
-      
+
       expect(mockDependencies.cacheManager.clearCache).toHaveBeenCalled();
     });
 
     it('should get degradation status', () => {
       const status = geminiService.getDegradationStatus();
-      
+
       expect(status).toEqual({
         isSystemDegraded: false,
         degradedServices: []
@@ -710,7 +813,7 @@ describe('GeminiService', () => {
 
     it('should trigger recovery', async () => {
       await geminiService.triggerRecovery('gemini');
-      
+
       expect(mockDependencies.gracefulDegradation.triggerRecovery).toHaveBeenCalledWith('gemini');
     });
   });
@@ -766,13 +869,17 @@ describe('GeminiService', () => {
       );
 
       expect(response).toBe('Processed response');
+
+      // Wait for async error handling
+      await new Promise(resolve => process.nextTick(resolve));
+
       expect(logger.error).toHaveBeenCalledWith('Post-generation task failed', expect.any(Object));
     });
   });
 
   describe('Message Context and Guild Support', () => {
     it('should handle full message context', async () => {
-      const messageContext = { channelId: 'channel123' } as MessageContext;
+      const messageContext = { channelId: 'channel123' } as unknown as MessageContext;
       const member = { id: 'member123' } as GuildMember;
       const guild = { id: 'guild123' } as Guild;
 
@@ -793,7 +900,7 @@ describe('GeminiService', () => {
         member,
         guild,
         'Test prompt',
-        false
+        undefined
       );
     });
   });

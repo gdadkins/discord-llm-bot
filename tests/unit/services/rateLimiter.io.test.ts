@@ -1,4 +1,4 @@
-import { RateLimiter } from '../../../src/services/rateLimiter';
+import { RateLimiter } from '../../../src/services/rate-limiting/RateLimiter';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -25,7 +25,7 @@ describe('RateLimiter I/O Optimization Tests', () => {
     // Mock fs.writeFile to count I/O operations
     originalWriteFile = fs.writeFile;
     writeCount = 0;
-    
+
     // Create a spy that counts writes
     jest.spyOn(fs, 'writeFile').mockImplementation(async (file, data, options) => {
       writeCount++;
@@ -96,7 +96,7 @@ describe('RateLimiter I/O Optimization Tests', () => {
 
     test('should flush batch when reaching max batch size', async () => {
       await rateLimiter.initialize();
-      
+
       // The MAX_BATCH_SIZE is 50, but since we're using global rate limiting,
       // multiple increments on the same key won't increase batch size
       // This test verifies the batching logic works
@@ -109,13 +109,13 @@ describe('RateLimiter I/O Optimization Tests', () => {
 
       // Measure time for multiple checks
       const start = Date.now();
-      
+
       for (let i = 0; i < 100; i++) {
         await rateLimiter.checkAndIncrement();
       }
-      
+
       const duration = Date.now() - start;
-      
+
       // 100 checks should complete in less than 500ms (5ms per check average)
       expect(duration).toBeLessThan(500);
     });
@@ -144,10 +144,10 @@ describe('RateLimiter I/O Optimization Tests', () => {
       }
 
       const writeCountBeforeShutdown = writeCount;
-      
+
       // Shutdown should trigger a sync
       await rateLimiter.shutdown();
-      
+
       // Should have written at least once during shutdown
       expect(writeCount).toBeGreaterThan(writeCountBeforeShutdown);
     });
@@ -156,22 +156,22 @@ describe('RateLimiter I/O Optimization Tests', () => {
       // First instance
       const limiter1 = new RateLimiter(60, 1000, testStateFile);
       await limiter1.initialize();
-      
+
       // Make some requests
       for (let i = 0; i < 15; i++) {
         await limiter1.checkAndIncrement();
       }
-      
+
       // Force sync and shutdown
       await limiter1.shutdown();
-      
+
       // Second instance should load the state
       const limiter2 = new RateLimiter(60, 1000, testStateFile);
       await limiter2.initialize();
-      
+
       const status = limiter2.getStatus('test');
       expect(status.rpm.current).toBe(15);
-      
+
       await limiter2.shutdown();
     });
 
@@ -183,10 +183,10 @@ describe('RateLimiter I/O Optimization Tests', () => {
       const now = new Date();
       const nextMinute = new Date(now);
       nextMinute.setMinutes(now.getMinutes() + 1, 0, 0);
-      
+
       // Make a request that will trigger window reset check
       await rateLimiter.checkAndIncrement();
-      
+
       // Window check should use cache, not trigger immediate I/O
       expect(writeCount).toBe(initialWriteCount);
     });
@@ -215,7 +215,7 @@ describe('RateLimiter I/O Optimization Tests', () => {
       await rateLimiter.initialize();
 
       const times: number[] = [];
-      
+
       // Warm up
       for (let i = 0; i < 10; i++) {
         await rateLimiter.checkAndIncrement();

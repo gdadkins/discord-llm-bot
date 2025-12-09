@@ -42,9 +42,6 @@ import type { IConversationManager } from '../interfaces';
 import type { IRetryHandler } from '../interfaces';
 import type { ISystemContextBuilder } from '../interfaces';
 
-import { GeminiAPIClient } from './GeminiAPIClient';
-import { GeminiContextProcessor } from './GeminiContextProcessor';
-import { GeminiResponseHandler } from './GeminiResponseHandler';
 import { GeminiConfigurationHandler } from './GeminiConfiguration';
 import { GeminiStructuredOutputHandler } from './GeminiStructuredOutput';
 import type { IGeminiAPIClient, IGeminiContextProcessor, IGeminiResponseHandler } from './interfaces';
@@ -55,9 +52,10 @@ import type { IGeminiAPIClient, IGeminiContextProcessor, IGeminiResponseHandler 
  */
 export class GeminiService implements IAIService {
   // Module instances
-  private apiClient: GeminiAPIClient;
-  private contextProcessor: GeminiContextProcessor;
-  private responseHandler: GeminiResponseHandler;
+  // Module instances
+  private apiClient: IGeminiAPIClient;
+  private contextProcessor: IGeminiContextProcessor;
+  private responseHandler: IGeminiResponseHandler;
   private configHandler: GeminiConfigurationHandler;
   private structuredOutputHandler: GeminiStructuredOutputHandler;
 
@@ -91,11 +89,23 @@ export class GeminiService implements IAIService {
       systemContextBuilder: ISystemContextBuilder;
       responseProcessingService: IResponseProcessingService;
       multimodalContentHandler: IMultimodalContentHandler;
+    },
+    components: {
+      apiClient: IGeminiAPIClient;
+      contextProcessor: IGeminiContextProcessor;
+      responseHandler: IGeminiResponseHandler;
+      configHandler: GeminiConfigurationHandler;
+      structuredOutputHandler: GeminiStructuredOutputHandler;
     }
   ) {
     // Validate dependencies
     if (!dependencies) {
       throw new Error('GeminiService requires all dependencies to be provided');
+    }
+
+    // Validate components
+    if (!components) {
+      throw new Error('GeminiService requires all components to be provided');
     }
 
     // Store injected dependencies
@@ -111,45 +121,12 @@ export class GeminiService implements IAIService {
     this.responseProcessingService = dependencies.responseProcessingService;
     this.multimodalContentHandler = dependencies.multimodalContentHandler;
 
-    // Initialize specialized modules
-    this.apiClient = new GeminiAPIClient(
-      apiKey,
-      config as any,
-      dependencies.gracefulDegradation,
-      dependencies.multimodalContentHandler
-    );
-
-    this.contextProcessor = new GeminiContextProcessor(
-      dependencies.contextManager,
-      dependencies.personalityManager,
-      dependencies.conversationManager,
-      dependencies.systemContextBuilder,
-      dependencies.rateLimiter,
-      dependencies.gracefulDegradation,
-      {
-        ...this.apiClient.getConfig(),
-        systemInstruction: config.systemInstructions?.roasting || process.env.GEMINI_ROASTING_INSTRUCTION || 'You are a sarcastic AI that enjoys roasting users in a playful way.',
-        helpfulInstruction: config.systemInstructions?.helpful || process.env.GEMINI_HELPFUL_INSTRUCTION || 'You are a helpful Discord bot. Answer any request directly and concisely.',
-        forceThinkingPrompt: this.apiClient.getConfig().forceThinkingPrompt || false,
-        thinkingTrigger: this.apiClient.getConfig().thinkingTrigger || ''
-      }
-    );
-
-    this.responseHandler = new GeminiResponseHandler(
-      dependencies.responseProcessingService,
-      this.apiClient.getConfig()
-    );
-
-    this.configHandler = new GeminiConfigurationHandler(dependencies.cacheManager);
-
-    this.structuredOutputHandler = new GeminiStructuredOutputHandler(
-      this.apiClient,
-      this.contextProcessor,
-      this.responseHandler,
-      dependencies.cacheManager,
-      dependencies.retryHandler,
-      dependencies.rateLimiter
-    );
+    // Store injected components
+    this.apiClient = components.apiClient;
+    this.contextProcessor = components.contextProcessor;
+    this.responseHandler = components.responseHandler;
+    this.configHandler = components.configHandler;
+    this.structuredOutputHandler = components.structuredOutputHandler;
   }
 
   async initialize(): Promise<void> {

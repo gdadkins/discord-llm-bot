@@ -14,7 +14,7 @@ import Database from 'better-sqlite3';
 import { BaseService } from '../base/BaseService';
 import { logger } from '../../utils/logger';
 import type { ServiceHealthStatus } from '../interfaces/CoreServiceInterfaces';
-import type { 
+import type {
   UsageStatistics,
   SystemStats,
   AnalyticsConfig
@@ -77,27 +77,27 @@ export interface IMetricsCollectionService {
    * Initialize database and tables
    */
   initialize(): Promise<void>;
-  
+
   /**
    * Shutdown service and close database
    */
   shutdown(): Promise<void>;
-  
+
   /**
    * Get database instance
    */
   getDatabase(): Database.Database | null;
-  
+
   /**
    * Perform daily aggregation
    */
   performDailyAggregation(): Promise<void>;
-  
+
   /**
    * Perform data cleanup based on retention policy
    */
   performDataCleanup(): Promise<void>;
-  
+
   /**
    * Get usage statistics
    */
@@ -106,12 +106,12 @@ export interface IMetricsCollectionService {
     endDate: Date,
     serverId?: string
   ): Promise<UsageStatistics | null>;
-  
+
   /**
    * Get system statistics
    */
   getSystemStats(): Promise<SystemStats | null>;
-  
+
   /**
    * Get error statistics
    */
@@ -122,7 +122,7 @@ export interface IMetricsCollectionService {
     errorRate: number;
     topErrors: Array<{ errorType: string; count: number; trend: string }>;
   }>;
-  
+
   /**
    * Get performance statistics
    */
@@ -132,7 +132,7 @@ export interface IMetricsCollectionService {
   ): Promise<{
     trends: Array<{ metric: string; current: number; change: number }>;
   }>;
-  
+
   /**
    * Get health status
    */
@@ -148,11 +148,9 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
   private database: Database.Database | null = null;
   private readonly dbPath: string;
   private readonly mutex = new Mutex();
-  
-  // Timers
-  private aggregationTimer: NodeJS.Timeout | null = null;
-  private cleanupTimer: NodeJS.Timeout | null = null;
-  
+
+  // Timers are managed by BaseService
+
   // Configuration
   private config: AnalyticsConfig;
   private hashIdentifier: (id: string) => string;
@@ -168,7 +166,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
     this.config = config;
     this.hashIdentifier = hashIdentifier;
   }
-  
+
   /**
    * Get service name
    */
@@ -188,7 +186,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
     await this.ensureDataDirectory();
     await this.initializeDatabase();
     this.startTimers();
-    
+
     logger.info('MetricsCollectionService initialized', {
       dbPath: this.dbPath,
       retentionDays: this.config.retentionDays,
@@ -200,19 +198,11 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
    * Perform service-specific shutdown
    */
   protected async performShutdown(): Promise<void> {
-    // Clear all timers
-    if (this.aggregationTimer) {
-      clearInterval(this.aggregationTimer);
-      this.aggregationTimer = null;
-    }
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
-    
+    // BaseService clears all timers automatically
+
     // Save final aggregations
     await this.performDailyAggregation();
-    
+
     // Close database
     if (this.database) {
       this.database.close();
@@ -251,11 +241,11 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
    */
   private async initializeDatabase(): Promise<void> {
     this.database = new Database(this.dbPath);
-    
+
     // Enable foreign keys and WAL mode
     this.database.exec('PRAGMA foreign_keys = ON');
     this.database.exec('PRAGMA journal_mode = WAL');
-    
+
     // Create tables
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS command_usage (
@@ -352,9 +342,12 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
   /**
    * Start background timers
    */
+  /**
+   * Start background timers
+   */
   private startTimers(): void {
     // Daily aggregation
-    this.aggregationTimer = setInterval(async () => {
+    this.createInterval('daily-aggregation', async () => {
       try {
         await this.performDailyAggregation();
       } catch (error) {
@@ -363,7 +356,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
     }, this.config.aggregationIntervalMinutes * 60 * 1000);
 
     // Data cleanup (daily)
-    this.cleanupTimer = setInterval(async () => {
+    this.createInterval('daily-cleanup', async () => {
       try {
         await this.performDataCleanup();
       } catch (error) {
@@ -475,7 +468,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
       const oneYearAgo = new Date();
       oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
       const yearCutoff = oneYearAgo.toISOString().split('T')[0];
-      
+
       const aggregateResult = this.database.prepare('DELETE FROM daily_aggregates WHERE date < ?').run(yearCutoff);
       totalCleaned += aggregateResult.changes;
 
@@ -502,7 +495,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
 
     const serverHash = serverId ? this.hashIdentifier(serverId) : null;
     const release = await this.mutex.acquire();
-    
+
     try {
       let baseQuery = `
         SELECT 
@@ -515,18 +508,18 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
         FROM command_usage 
         WHERE timestamp BETWEEN ? AND ?
       `;
-      
+
       const params: (number | string)[] = [startDate.getTime(), endDate.getTime()];
-      
+
       if (serverHash) {
         baseQuery += ' AND server_hash = ?';
         params.push(serverHash);
       }
-      
+
       baseQuery += ' GROUP BY command_name ORDER BY command_count DESC';
-      
+
       const results = this.database.prepare(baseQuery).all(...params) as CommandUsageRow[];
-      
+
       return {
         period: { start: startDate.toISOString(), end: endDate.toISOString() },
         summary: {
@@ -568,7 +561,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
         SELECT COUNT(*) as count FROM command_usage 
         WHERE timestamp BETWEEN ? AND ?
       `).get(startDate.getTime(), endDate.getTime()) as SystemStatsRow | undefined;
-      
+
       const totalCommands = totalCommandsResult?.count || 1;
 
       return {
@@ -696,8 +689,8 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
       aggregationIntervalMinutes: this.config.aggregationIntervalMinutes,
       privacySettingsCount: this.privacySettingsCount,
       timersActive: {
-        aggregation: !!this.aggregationTimer,
-        cleanup: !!this.cleanupTimer
+        aggregation: this.hasTimer('daily-aggregation'),
+        cleanup: this.hasTimer('daily-cleanup')
       }
     };
 
@@ -722,7 +715,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
       metrics
     };
   }
-  
+
   /**
    * Check if service is healthy
    */
@@ -730,11 +723,11 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
     if (!this.config.enabled) {
       return false;
     }
-    
+
     if (!this.database) {
       return false;
     }
-    
+
     // Check if database is accessible
     try {
       this.database.prepare('SELECT 1').get();
@@ -743,17 +736,17 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
       return false;
     }
   }
-  
+
   /**
    * Get health errors
    */
   protected getHealthErrors(): string[] {
     const errors: string[] = [];
-    
+
     if (!this.config.enabled) {
       errors.push('Analytics is disabled in configuration');
     }
-    
+
     if (!this.database) {
       errors.push('Database connection not established');
     } else {
@@ -764,10 +757,10 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
         errors.push(`Database query failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
-    
+
     return errors;
   }
-  
+
   /**
    * Collect service metrics
    */
@@ -779,8 +772,8 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
       aggregationIntervalMinutes: this.config.aggregationIntervalMinutes,
       privacySettingsCount: this.privacySettingsCount,
       timersActive: {
-        aggregation: !!this.aggregationTimer,
-        cleanup: !!this.cleanupTimer
+        aggregation: this.hasTimer('daily-aggregation'),
+        cleanup: this.hasTimer('daily-cleanup')
       }
     };
 
@@ -797,7 +790,7 @@ export class MetricsCollectionService extends BaseService implements IMetricsCol
         metrics.databaseSizeError = error instanceof Error ? error.message : 'Unknown error';
       }
     }
-    
+
     return metrics;
   }
 }

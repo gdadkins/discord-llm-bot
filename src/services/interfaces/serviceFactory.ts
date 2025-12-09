@@ -41,6 +41,11 @@ import type {
 // Import concrete implementations
 import { AnalyticsManager } from '../analytics/AnalyticsManager';
 import { GeminiService } from '../gemini/GeminiService';
+import { GeminiAPIClient } from '../gemini/GeminiAPIClient';
+import { GeminiContextProcessor } from '../gemini/GeminiContextProcessor';
+import { GeminiResponseHandler } from '../gemini/GeminiResponseHandler';
+import { GeminiConfigurationHandler } from '../gemini/GeminiConfiguration';
+import { GeminiStructuredOutputHandler } from '../gemini/GeminiStructuredOutput';
 import { ConfigurationManager } from '../config/ConfigurationManager';
 import { HealthMonitor } from '../health/HealthMonitor';
 import { RateLimiter } from '../rate-limiting/RateLimiter';
@@ -214,7 +219,47 @@ export class ServiceFactory implements IServiceFactory {
       multimodalContentHandler: IMultimodalContentHandler;
     }
   ): IAIService {
-    return new GeminiService(apiKey, config, dependencies);
+    const components = {
+      apiClient: new GeminiAPIClient(
+        apiKey,
+        config as any,
+        dependencies.gracefulDegradation,
+        dependencies.multimodalContentHandler
+      ),
+      configHandler: new GeminiConfigurationHandler(dependencies.cacheManager)
+    } as any; // Partial construction to access apiClient for processor
+
+    components.contextProcessor = new GeminiContextProcessor(
+      dependencies.contextManager,
+      dependencies.personalityManager,
+      dependencies.conversationManager,
+      dependencies.systemContextBuilder,
+      dependencies.rateLimiter,
+      dependencies.gracefulDegradation,
+      {
+        ...components.apiClient.getConfig(),
+        systemInstruction: config.systemInstructions?.roasting || process.env.GEMINI_ROASTING_INSTRUCTION || 'You are a sarcastic AI that enjoys roasting users in a playful way.',
+        helpfulInstruction: config.systemInstructions?.helpful || process.env.GEMINI_HELPFUL_INSTRUCTION || 'You are a helpful Discord bot. Answer any request directly and concisely.',
+        forceThinkingPrompt: components.apiClient.getConfig().forceThinkingPrompt || false,
+        thinkingTrigger: components.apiClient.getConfig().thinkingTrigger || ''
+      }
+    );
+
+    components.responseHandler = new GeminiResponseHandler(
+      dependencies.responseProcessingService,
+      components.apiClient.getConfig()
+    );
+
+    components.structuredOutputHandler = new GeminiStructuredOutputHandler(
+      components.apiClient,
+      components.contextProcessor,
+      components.responseHandler,
+      dependencies.cacheManager,
+      dependencies.retryHandler,
+      dependencies.rateLimiter
+    );
+
+    return new GeminiService(apiKey, config, dependencies, components);
   }
 
   /**
@@ -249,7 +294,27 @@ export class ServiceFactory implements IServiceFactory {
    * Creates context manager
    */
   createContextManager(_config: FeatureConfig): IContextManager {
-    return new ContextManager();
+    // Instantiate components within the factory method
+    // Note: These should ideally be managed by the container or passed as specific dependencies
+    // but for now we construct them here to satisfy the ContextManager constructor
+    const storage = new (require('../context/components/ContextStorageService').ContextStorageService)();
+    const behavior = new (require('../context/components/BehaviorAnalysisService').BehaviorAnalysisService)();
+    const summarizer = new (require('../context/components/ContextSummarizer').ContextSummarizer)();
+
+    const conversationMemory = new (require('../context/ConversationMemoryService').ConversationMemoryService)();
+    const memoryOptimization = new (require('../context/MemoryOptimizationService').MemoryOptimizationService)(conversationMemory);
+    const channelContext = new (require('../context/ChannelContextService').ChannelContextService)();
+    const socialDynamics = new (require('../context/SocialDynamicsService').SocialDynamicsService)();
+
+    return new ContextManager(
+      behavior,
+      storage,
+      summarizer,
+      conversationMemory,
+      channelContext,
+      socialDynamics,
+      memoryOptimization
+    );
   }
 
   /**
@@ -342,7 +407,7 @@ export class ServiceFactory implements IServiceFactory {
     const sessionTimeout = config.contextMemory?.timeoutMinutes || 30;
     const maxMessages = config.contextMemory?.maxMessages || 100;
     const maxContext = config.contextMemory?.maxContextChars || 50000;
-    
+
     return new ConversationManager(sessionTimeout, maxMessages, maxContext);
   }
 
@@ -353,7 +418,7 @@ export class ServiceFactory implements IServiceFactory {
     const maxRetries = parseInt(process.env.GEMINI_MAX_RETRIES || '3');
     const retryDelay = parseInt(process.env.GEMINI_RETRY_DELAY_MS || '1000');
     const retryMultiplier = parseFloat(process.env.GEMINI_RETRY_MULTIPLIER || '2.0');
-    
+
     return new RetryHandler(maxRetries, retryDelay, retryMultiplier);
   }
 

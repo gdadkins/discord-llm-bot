@@ -116,7 +116,7 @@ export const ENV_VAR_SCHEMAS: Record<string, EnvVarSchema> = {
   // Gemini Model Configuration
   GEMINI_MODEL: {
     type: 'string',
-    defaultValue: 'gemini-2.0-flash-exp',
+    defaultValue: 'gemini-2.5-flash',
     pattern: /^gemini-/,
     description: 'Gemini AI model to use'
   },
@@ -427,10 +427,10 @@ export class ConfigurationValidator implements IConfigurationValidator {
   private configSchemas: Map<string, object> = new Map();
 
   constructor() {
-    this.ajv = new Ajv({ 
-      allErrors: true, 
+    this.ajv = new Ajv({
+      allErrors: true,
       verbose: true,
-      strict: false 
+      strict: false
     });
     this.initializeSchemas();
   }
@@ -495,7 +495,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
     // Validate all defined environment variables
     for (const [envVar, schema] of Object.entries(ENV_VAR_SCHEMAS)) {
       const value = process.env[envVar];
-      
+
       // Skip validation if not defined and not required
       if (!value && !schema.required) {
         continue;
@@ -529,7 +529,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
 
     // Cache the result
     this.validationCache.set('full_validation', result);
-    
+
     return result;
   }
 
@@ -543,11 +543,11 @@ export class ConfigurationValidator implements IConfigurationValidator {
     try {
       // Type validation
       const parsedValue = this.parseValue(value, schema.type);
-      
+
       // Range validation for numbers
       if (schema.type === 'number' || schema.type === 'integer') {
         const numValue = parsedValue as number;
-        
+
         if (schema.minValue !== undefined && numValue < schema.minValue) {
           errors.push({
             field: envVar,
@@ -556,7 +556,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
             expected: `Minimum: ${schema.minValue}`
           });
         }
-        
+
         if (schema.maxValue !== undefined && numValue > schema.maxValue) {
           errors.push({
             field: envVar,
@@ -614,7 +614,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
       // Validate roasting configuration
       const roastBase = config.ROAST_BASE_CHANCE as number || 0.3;
       const roastMax = config.ROAST_MAX_CHANCE as number || 0.8;
-      
+
       if (roastBase > roastMax) {
         errors.push({
           field: 'ROAST_BASE_CHANCE',
@@ -628,13 +628,13 @@ export class ConfigurationValidator implements IConfigurationValidator {
       const rpm = config.RATE_LIMIT_RPM as number || 15;
       const daily = config.RATE_LIMIT_DAILY as number || 1500;
       const burstSize = config.RATE_LIMIT_BURST as number || 5;
-      
+
       if (rpm > daily / 24) {
         warnings.push(
           `RPM limit (${rpm}) may exceed daily limit divided by 24 hours (${Math.floor(daily / 24)}). This may cause unexpected behavior.`
         );
       }
-      
+
       if (burstSize > rpm) {
         warnings.push(
           `Burst size (${burstSize}) is greater than RPM limit (${rpm}). This may cause unexpected behavior.`
@@ -644,7 +644,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
       // Validate context memory settings
       const maxMessages = config.CONTEXT_MAX_MESSAGES as number || 100;
       const maxChars = config.CONTEXT_MAX_CHARS as number || 75000;
-      
+
       if (maxMessages > 1000 && maxChars > 500000) {
         warnings.push(
           'Very high context limits may impact performance and memory usage'
@@ -664,37 +664,37 @@ export class ConfigurationValidator implements IConfigurationValidator {
    */
   private parseValue(value: string, type: EnvVarSchema['type']): string | number | boolean {
     switch (type) {
-    case 'string':
-      return value;
-        
-    case 'number': {
-      const num = parseFloat(value);
-      if (isNaN(num)) {
-        throw new Error(`Cannot parse "${value}" as number`);
+      case 'string':
+        return value;
+
+      case 'number': {
+        const num = parseFloat(value);
+        if (isNaN(num)) {
+          throw new Error(`Cannot parse "${value}" as number`);
+        }
+        return num;
       }
-      return num;
-    }
-        
-    case 'integer': {
-      const int = parseInt(value, 10);
-      if (isNaN(int) || !Number.isInteger(int)) {
-        throw new Error(`Cannot parse "${value}" as integer`);
+
+      case 'integer': {
+        const int = parseInt(value, 10);
+        if (isNaN(int) || !Number.isInteger(int)) {
+          throw new Error(`Cannot parse "${value}" as integer`);
+        }
+        return int;
       }
-      return int;
-    }
-        
-    case 'boolean': {
-      const lower = value.toLowerCase();
-      if (['true', '1', 'yes', 'on'].includes(lower)) {
-        return true;
+
+      case 'boolean': {
+        const lower = value.toLowerCase();
+        if (['true', '1', 'yes', 'on'].includes(lower)) {
+          return true;
+        }
+        if (['false', '0', 'no', 'off'].includes(lower)) {
+          return false;
+        }
+        throw new Error(`Cannot parse "${value}" as boolean`);
       }
-      if (['false', '0', 'no', 'off'].includes(lower)) {
-        return false;
-      }
-      throw new Error(`Cannot parse "${value}" as boolean`);
-    }
-    default:
-      throw new Error(`Unknown type: ${type}`);
+      default:
+        throw new Error(`Unknown type: ${type}`);
     }
   }
 
@@ -710,7 +710,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
 
     for (const [envVar, schema] of Object.entries(ENV_VAR_SCHEMAS)) {
       const value = process.env[envVar];
-      
+
       if (value) {
         try {
           config[envVar] = this.parseValue(value, schema.type);
@@ -763,7 +763,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
     }
 
     const value = process.env[envVar];
-    
+
     if (!value && schema.required) {
       return {
         isValid: false,
@@ -901,11 +901,11 @@ export class ConfigurationValidator implements IConfigurationValidator {
 
     // Ensure critical fields are preserved
     const criticalFields = ['discord.intents', 'gemini.safetySettings', 'rateLimiting'];
-    
+
     for (const fieldPath of criticalFields) {
       const fromValue = this.getNestedValue(fromConfig, fieldPath);
       const toValue = this.getNestedValue(toConfig, fieldPath);
-      
+
       if (JSON.stringify(fromValue) !== JSON.stringify(toValue)) {
         warnings.push(`Critical field '${fieldPath}' changed during migration`);
       }
@@ -954,7 +954,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
     }
 
     const messages: string[] = ['Environment validation failed:'];
-    
+
     for (const error of result.errors) {
       messages.push(`  • ${error.field}: ${error.message}`);
       if (error.expected) {
@@ -983,7 +983,7 @@ export class ConfigurationValidator implements IConfigurationValidator {
 export function validateEnvironment(): ValidationResult {
   const validator = ConfigurationValidator.getInstance();
   const result = validator.validateEnvironment();
-  
+
   if (!result.isValid) {
     const errorMessage = validator.formatValidationErrors(result);
     logger.error(errorMessage);
@@ -1018,7 +1018,7 @@ export function getConfigValueWithDefault<T>(envVar: string, fallback: T): T {
  */
 export function parseIntWithDefault(envVar: string, defaultValue: number, min?: number, max?: number): number {
   const value = getConfigValue<number>(envVar);
-  
+
   if (value === undefined) {
     return defaultValue;
   }
@@ -1041,7 +1041,7 @@ export function parseIntWithDefault(envVar: string, defaultValue: number, min?: 
  */
 export function parseFloatWithDefault(envVar: string, defaultValue: number, min?: number, max?: number): number {
   const value = getConfigValue<number>(envVar);
-  
+
   if (value === undefined) {
     return defaultValue;
   }

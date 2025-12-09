@@ -47,22 +47,22 @@ export class ContextCacheManager {
   private readonly DEFAULT_MAX_ENTRIES = 1000;
   private readonly DEFAULT_TTL = 3600000; // 1 hour
   private readonly CLEANUP_INTERVAL = 300000; // 5 minutes
-  
+
   // Cache storage
   private contextCache: Map<string, CacheEntry<RichContext>> = new Map();
   private cultureCache: Map<string, CacheEntry<ServerCulture>> = new Map();
   private stringCache: Map<string, CacheEntry<string>> = new Map();
-  
+
   // Cache statistics
   private hits = 0;
   private misses = 0;
   private evictions = 0;
-  
+
   // Configuration
   private maxSize: number;
   private maxEntries: number;
   private defaultTTL: number;
-  
+
   // Cleanup timer
   private cleanupTimer?: NodeJS.Timeout;
 
@@ -70,7 +70,7 @@ export class ContextCacheManager {
     this.maxSize = options.maxSize || this.DEFAULT_MAX_SIZE;
     this.maxEntries = options.maxEntries || this.DEFAULT_MAX_ENTRIES;
     this.defaultTTL = options.defaultTTL || this.DEFAULT_TTL;
-    
+
     // Start cleanup timer
     const cleanupInterval = options.cleanupInterval || this.CLEANUP_INTERVAL;
     this.cleanupTimer = setInterval(() => this.performCleanup(), cleanupInterval);
@@ -81,24 +81,24 @@ export class ContextCacheManager {
    */
   public getContext(key: string): RichContext | null {
     const entry = this.contextCache.get(key);
-    
+
     if (!entry) {
       this.misses++;
       return null;
     }
-    
+
     // Check TTL
     if (this.isExpired(entry)) {
       this.contextCache.delete(key);
       this.misses++;
       return null;
     }
-    
+
     // Update access stats
     entry.accessCount++;
     entry.lastAccessed = Date.now();
     this.hits++;
-    
+
     return entry.data;
   }
 
@@ -107,10 +107,10 @@ export class ContextCacheManager {
    */
   public setContext(key: string, context: RichContext, ttl?: number): void {
     const size = this.estimateContextSize(context);
-    
+
     // Check if we need to evict entries
     this.ensureCapacity(size);
-    
+
     const entry: CacheEntry<RichContext> = {
       data: context,
       timestamp: Date.now(),
@@ -118,12 +118,12 @@ export class ContextCacheManager {
       lastAccessed: Date.now(),
       size
     };
-    
+
     this.contextCache.set(key, entry);
-    
+
     // Set TTL if provided
     if (ttl) {
-      setTimeout(() => this.contextCache.delete(key), ttl);
+      // Expiration handled by periodic cleanup and lazy checks
     }
   }
 
@@ -132,24 +132,24 @@ export class ContextCacheManager {
    */
   public getCulture(key: string): ServerCulture | null {
     const entry = this.cultureCache.get(key);
-    
+
     if (!entry) {
       this.misses++;
       return null;
     }
-    
+
     // Check TTL
     if (this.isExpired(entry)) {
       this.cultureCache.delete(key);
       this.misses++;
       return null;
     }
-    
+
     // Update access stats
     entry.accessCount++;
     entry.lastAccessed = Date.now();
     this.hits++;
-    
+
     return entry.data;
   }
 
@@ -158,10 +158,10 @@ export class ContextCacheManager {
    */
   public setCulture(key: string, culture: ServerCulture, ttl?: number): void {
     const size = this.estimateCultureSize(culture);
-    
+
     // Check if we need to evict entries
     this.ensureCapacity(size);
-    
+
     const entry: CacheEntry<ServerCulture> = {
       data: culture,
       timestamp: Date.now(),
@@ -169,12 +169,12 @@ export class ContextCacheManager {
       lastAccessed: Date.now(),
       size
     };
-    
+
     this.cultureCache.set(key, entry);
-    
+
     // Set TTL if provided
     if (ttl || culture.ttl) {
-      setTimeout(() => this.cultureCache.delete(key), ttl || culture.ttl);
+      // Expiration handled by periodic cleanup and lazy checks
     }
   }
 
@@ -183,24 +183,24 @@ export class ContextCacheManager {
    */
   public getString(key: string): string | null {
     const entry = this.stringCache.get(key);
-    
+
     if (!entry) {
       this.misses++;
       return null;
     }
-    
+
     // Check TTL
     if (this.isExpired(entry)) {
       this.stringCache.delete(key);
       this.misses++;
       return null;
     }
-    
+
     // Update access stats
     entry.accessCount++;
     entry.lastAccessed = Date.now();
     this.hits++;
-    
+
     return entry.data;
   }
 
@@ -209,10 +209,10 @@ export class ContextCacheManager {
    */
   public setString(key: string, value: string, ttl?: number): void {
     const size = value.length * 2; // Approximate bytes (UTF-16)
-    
+
     // Check if we need to evict entries
     this.ensureCapacity(size);
-    
+
     const entry: CacheEntry<string> = {
       data: value,
       timestamp: Date.now(),
@@ -220,12 +220,12 @@ export class ContextCacheManager {
       lastAccessed: Date.now(),
       size
     };
-    
+
     this.stringCache.set(key, entry);
-    
+
     // Set TTL if provided
     if (ttl) {
-      setTimeout(() => this.stringCache.delete(key), ttl);
+      // Expiration handled by periodic cleanup and lazy checks
     }
   }
 
@@ -258,7 +258,7 @@ export class ContextCacheManager {
   public invalidatePattern(pattern: string | RegExp): number {
     let invalidated = 0;
     const regex = typeof pattern === 'string' ? new RegExp(pattern) : pattern;
-    
+
     // Invalidate context cache
     for (const key of this.contextCache.keys()) {
       if (regex.test(key)) {
@@ -266,7 +266,7 @@ export class ContextCacheManager {
         invalidated++;
       }
     }
-    
+
     // Invalidate culture cache
     for (const key of this.cultureCache.keys()) {
       if (regex.test(key)) {
@@ -274,7 +274,7 @@ export class ContextCacheManager {
         invalidated++;
       }
     }
-    
+
     // Invalidate string cache
     for (const key of this.stringCache.keys()) {
       if (regex.test(key)) {
@@ -282,7 +282,7 @@ export class ContextCacheManager {
         invalidated++;
       }
     }
-    
+
     return invalidated;
   }
 
@@ -305,15 +305,15 @@ export class ContextCacheManager {
     const totalRequests = this.hits + this.misses;
     const hitRate = totalRequests > 0 ? this.hits / totalRequests : 0;
     const missRate = totalRequests > 0 ? this.misses / totalRequests : 0;
-    
+
     let totalSize = 0;
     let totalAge = 0;
     let entryCount = 0;
     const now = Date.now();
-    
+
     // Calculate stats for all caches
     const allCaches = [this.contextCache, this.cultureCache, this.stringCache];
-    
+
     allCaches.forEach(cache => {
       cache.forEach(entry => {
         totalSize += entry.size;
@@ -321,9 +321,9 @@ export class ContextCacheManager {
         entryCount++;
       });
     });
-    
+
     const averageAge = entryCount > 0 ? totalAge / entryCount : 0;
-    
+
     return {
       hitRate,
       missRate,
@@ -354,7 +354,7 @@ export class ContextCacheManager {
         logger.error(`Failed to warmup cache for key ${key}:`, error);
       }
     });
-    
+
     await Promise.all(promises);
   }
 
@@ -367,12 +367,12 @@ export class ContextCacheManager {
 
   private ensureCapacity(requiredSize: number): void {
     const currentSize = this.getCurrentSize();
-    
+
     // Check total size limit
     if (currentSize + requiredSize > this.maxSize) {
       this.evictLRU(requiredSize);
     }
-    
+
     // Check entry count limit
     const totalEntries = this.contextCache.size + this.cultureCache.size + this.stringCache.size;
     if (totalEntries >= this.maxEntries) {
@@ -382,30 +382,30 @@ export class ContextCacheManager {
 
   private getCurrentSize(): number {
     let size = 0;
-    
+
     this.contextCache.forEach(entry => size += entry.size);
     this.cultureCache.forEach(entry => size += entry.size);
     this.stringCache.forEach(entry => size += entry.size);
-    
+
     return size;
   }
 
   private evictLRU(requiredSize: number): void {
     const allEntries: Array<[string, CacheEntry<any>, Map<string, any>]> = [];
-    
+
     // Collect all entries
     this.contextCache.forEach((entry, key) => allEntries.push([key, entry, this.contextCache]));
     this.cultureCache.forEach((entry, key) => allEntries.push([key, entry, this.cultureCache]));
     this.stringCache.forEach((entry, key) => allEntries.push([key, entry, this.stringCache]));
-    
+
     // Sort by last accessed (oldest first)
     allEntries.sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
-    
+
     // Evict until we have enough space
     let freedSize = 0;
     for (const [key, entry, cache] of allEntries) {
       if (freedSize >= requiredSize) break;
-      
+
       cache.delete(key);
       freedSize += entry.size;
       this.evictions++;
@@ -416,7 +416,7 @@ export class ContextCacheManager {
     let oldestKey: string | null = null;
     let oldestTime = Date.now();
     let targetCache: Map<string, CacheEntry<any>> | null = null;
-    
+
     // Find oldest entry across all caches
     this.contextCache.forEach((entry, key) => {
       if (entry.timestamp < oldestTime) {
@@ -425,7 +425,7 @@ export class ContextCacheManager {
         targetCache = this.contextCache as Map<string, CacheEntry<any>>;
       }
     });
-    
+
     this.cultureCache.forEach((entry, key) => {
       if (entry.timestamp < oldestTime) {
         oldestTime = entry.timestamp;
@@ -433,7 +433,7 @@ export class ContextCacheManager {
         targetCache = this.cultureCache as Map<string, CacheEntry<any>>;
       }
     });
-    
+
     this.stringCache.forEach((entry, key) => {
       if (entry.timestamp < oldestTime) {
         oldestTime = entry.timestamp;
@@ -441,7 +441,7 @@ export class ContextCacheManager {
         targetCache = this.stringCache as Map<string, CacheEntry<any>>;
       }
     });
-    
+
     if (oldestKey && targetCache) {
       (targetCache as any).delete(oldestKey);
       this.evictions++;
@@ -451,7 +451,7 @@ export class ContextCacheManager {
   private performCleanup(): void {
     const now = Date.now();
     let cleaned = 0;
-    
+
     // Clean expired entries from all caches
     const cleanCache = (cache: Map<string, CacheEntry<any>>) => {
       for (const [key, entry] of cache.entries()) {
@@ -461,11 +461,11 @@ export class ContextCacheManager {
         }
       }
     };
-    
+
     cleanCache(this.contextCache);
     cleanCache(this.cultureCache);
     cleanCache(this.stringCache);
-    
+
     if (cleaned > 0) {
       logger.debug(`Cache cleanup: removed ${cleaned} expired entries`);
     }
@@ -476,37 +476,37 @@ export class ContextCacheManager {
     if (Date.now() - context.lastSizeUpdate < 60000) {
       return context.approximateSize;
     }
-    
+
     // Otherwise estimate based on content
     let size = 0;
-    
+
     // Conversations
     context.conversations.forEach(msgs => {
       msgs.forEach(msg => size += msg.length * 2);
     });
-    
+
     // Code snippets
     context.codeSnippets.forEach(snippets => {
       snippets.forEach(snippet => size += snippet.content.length * 2);
     });
-    
+
     // Other items
     context.embarrassingMoments.forEach(item => size += item.content.length * 2);
     context.runningGags.forEach(item => size += item.content.length * 2);
     context.summarizedFacts.forEach(item => size += item.content.length * 2);
-    
+
     return size;
   }
 
   private estimateCultureSize(culture: ServerCulture): number {
     let size = 100; // Base overhead
-    
+
     // Estimate based on content
     size += culture.popularEmojis.length * 50;
     size += culture.activeVoiceChannels.length * 100;
     size += culture.recentEvents.length * 200;
     size += culture.topChannels.length * 100;
-    
+
     return size;
   }
 
@@ -525,7 +525,7 @@ export class ContextCacheManager {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
     }
-    
+
     this.clearAll();
   }
 }

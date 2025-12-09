@@ -21,6 +21,9 @@ export const TYPES = {
     GeminiService: Symbol.for('GeminiService'),
     UserAnalysisService: Symbol.for('UserAnalysisService'),
     ContextManager: Symbol.for('ContextManager'),
+    ContextStorageService: Symbol.for('ContextStorageService'),
+    BehaviorAnalysisService: Symbol.for('BehaviorAnalysisService'),
+    ContextSummarizer: Symbol.for('ContextSummarizer'),
     PersonalityManager: Symbol.for('PersonalityManager'),
     RoastingEngine: Symbol.for('RoastingEngine'),
     ConversationManager: Symbol.for('ConversationManager'),
@@ -31,5 +34,7 @@ export const TYPES = {
     // Handlers/Other
     GeminiAPIClient: Symbol.for('GeminiAPIClient'),
     GeminiContextProcessor: Symbol.for('GeminiContextProcessor'),
-    GeminiResponseHandler: Symbol.for('GeminiResponseHandler')
+    GeminiResponseHandler: Symbol.for('GeminiResponseHandler'),
+    GeminiConfigurationHandler: Symbol.for('GeminiConfigurationHandler'),
+    GeminiStructuredOutputHandler: Symbol.for('GeminiStructuredOutputHandler')
 };

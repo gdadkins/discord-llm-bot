@@ -1,3 +1,8 @@
+import * as crypto from 'crypto';
+import { EventEmitter } from 'events';
+import { logger } from '../../../utils/logger';
+import { IService, ServiceHealthStatus } from '../../interfaces';
+
 /**
  * SecretManager - Advanced Secrets Management for Production
  * 
@@ -7,18 +12,7 @@
  * - Secret rotation capabilities with event emission
  * - Timing-safe comparison to prevent timing attacks
  * - External secret store integration hooks
- * - Zero-knowledge architecture for sensitive data
  */
-
-import { EventEmitter } from 'events';
-import * as crypto from 'crypto';
-import { logger } from '../../../utils/logger';
-import { getConfigValue } from '../../../utils/ConfigurationValidator';
-import { BaseService } from '../../base/BaseService';
-import type { IService, ServiceHealthStatus } from '../../interfaces/CoreServiceInterfaces';
-
-// ============================================================================
-// Types and Interfaces
 // ============================================================================
 
 export interface SecretMetadata {
@@ -77,7 +71,7 @@ export class SecretManager extends EventEmitter implements IService {
   private rotationTimers: Map<string, NodeJS.Timeout> = new Map();
   private isInitialized: boolean = false;
   private lastError: Error | null = null;
-  
+
   // Encryption constants
   private static readonly ALGORITHM = 'aes-256-gcm';
   private static readonly KEY_LENGTH = 32; // 256 bits
@@ -85,7 +79,7 @@ export class SecretManager extends EventEmitter implements IService {
   private static readonly AUTH_TAG_LENGTH = 16; // 128 bits
   private static readonly SALT_LENGTH = 32; // 256 bits
   private static readonly PBKDF2_ITERATIONS = 100000;
-  
+
   // Service metadata
   private static readonly SERVICE_NAME = 'SecretManager';
   private static readonly SERVICE_VERSION = '1.0.0';
@@ -182,7 +176,7 @@ export class SecretManager extends EventEmitter implements IService {
 
       this.isInitialized = true;
       this.lastError = null;
-      
+
       logger.info('SecretManager initialized successfully');
       this.emit('initialized');
     } catch (error) {
@@ -206,7 +200,7 @@ export class SecretManager extends EventEmitter implements IService {
       // Clear sensitive data
       this.secrets.clear();
       this.rotationPolicies.clear();
-      
+
       // Zero out encryption key
       if (this.encryptionKey) {
         this.encryptionKey.fill(0);
@@ -214,7 +208,7 @@ export class SecretManager extends EventEmitter implements IService {
       }
 
       this.isInitialized = false;
-      
+
       logger.info('SecretManager shutdown completed');
       this.emit('shutdown');
     } catch (error) {
@@ -232,8 +226,8 @@ export class SecretManager extends EventEmitter implements IService {
    * Store a secret with encryption
    */
   public async setSecret(
-    name: string, 
-    value: string, 
+    name: string,
+    value: string,
     metadata?: Partial<SecretMetadata>
   ): Promise<void> {
     if (!this.isInitialized || !this.encryptionKey) {
@@ -260,7 +254,7 @@ export class SecretManager extends EventEmitter implements IService {
 
       // Encrypt the secret
       const encrypted = await this.encrypt(value);
-      
+
       // Store encrypted secret
       this.secrets.set(name, {
         ...encrypted,
@@ -331,7 +325,7 @@ export class SecretManager extends EventEmitter implements IService {
     try {
       const existed = this.secrets.has(name);
       this.secrets.delete(name);
-      
+
       // Remove rotation policy and timer
       this.rotationPolicies.delete(name);
       const timer = this.rotationTimers.get(name);
@@ -384,7 +378,7 @@ export class SecretManager extends EventEmitter implements IService {
    * Set rotation policy for a secret
    */
   public setRotationPolicy(
-    secretName: string, 
+    secretName: string,
     policy: SecretRotationPolicy
   ): void {
     if (!this.isInitialized) {
@@ -392,10 +386,10 @@ export class SecretManager extends EventEmitter implements IService {
     }
 
     this.rotationPolicies.set(secretName, policy);
-    
+
     // Restart rotation timer for this secret
     this.setupRotationTimer(secretName, policy);
-    
+
     logger.info(`Rotation policy set for secret: ${secretName}`);
     this.emit('rotation:policy:set', secretName, policy);
   }
@@ -417,7 +411,7 @@ export class SecretManager extends EventEmitter implements IService {
       // Get new value from rotation callback or parameter
       let rotatedValue = newValue;
       const policy = this.rotationPolicies.get(secretName);
-      
+
       if (!rotatedValue && policy?.rotationCallback) {
         rotatedValue = await policy.rotationCallback(secretName);
       }
@@ -501,7 +495,7 @@ export class SecretManager extends EventEmitter implements IService {
   public timingSafeEqual(a: string, b: string): boolean {
     const bufferA = Buffer.from(a);
     const bufferB = Buffer.from(b);
-    
+
     if (bufferA.length !== bufferB.length) {
       // Still need to be timing-safe even for different lengths
       const minLength = Math.min(bufferA.length, bufferB.length);
@@ -510,7 +504,7 @@ export class SecretManager extends EventEmitter implements IService {
       crypto.timingSafeEqual(sliceA, sliceB); // Constant time operation
       return false;
     }
-    
+
     return crypto.timingSafeEqual(bufferA, bufferB);
   }
 
@@ -584,7 +578,7 @@ export class SecretManager extends EventEmitter implements IService {
     return new Promise((resolve, reject) => {
       // Use a fixed salt for deterministic key derivation
       const salt = Buffer.from('SecretManager-v1-Salt-DoNotChange', 'utf-8');
-      
+
       crypto.pbkdf2(
         masterKey,
         salt,

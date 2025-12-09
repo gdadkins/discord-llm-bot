@@ -6,7 +6,7 @@
 
 import { Client, GatewayIntentBits } from 'discord.js';
 import { logger } from '../utils/logger';
-import { validateEnvironment as validateEnvWithValidator } from '../utils/ConfigurationValidator';
+import { ConfigurationValidator } from '../services/config/ConfigurationValidator';
 import { ServiceFactory } from '../services/interfaces/serviceFactory';
 import { ServiceRegistry } from '../services/interfaces/serviceRegistry';
 import { ConfigurationManager } from '../services/config/ConfigurationManager';
@@ -20,6 +20,12 @@ import { Container } from '../di/Container';
 import { TYPES } from '../di/tokens';
 import { AnalyticsManager } from '../services/analytics/AnalyticsManager';
 import { GeminiService } from '../services/gemini/GeminiService';
+import { GeminiAPIClient } from '../services/gemini/GeminiAPIClient';
+import { GeminiContextProcessor } from '../services/gemini/GeminiContextProcessor';
+import { GeminiResponseHandler } from '../services/gemini/GeminiResponseHandler';
+import { GeminiConfigurationHandler } from '../services/gemini/GeminiConfiguration';
+import { GeminiStructuredOutputHandler } from '../services/gemini/GeminiStructuredOutput';
+import type { IGeminiAPIClient, IGeminiContextProcessor, IGeminiResponseHandler } from '../services/gemini/interfaces';
 import { HealthMonitor } from '../services/health/HealthMonitor';
 import { RateLimiter } from '../services/rate-limiting/RateLimiter';
 import { ContextManager } from '../services/context/ContextManager';
@@ -37,6 +43,13 @@ import { ResponseProcessingService } from '../services/response/ResponseProcessi
 import { UserAnalysisService } from '../services/analytics/user/UserAnalysisService';
 import { MultimodalContentHandler } from '../services/multimodal/MultimodalContentHandler';
 import { LocalUserAnalyzer } from '../services/analytics/components/LocalUserAnalyzer';
+import { BehaviorAnalysisService } from '../services/context/components/BehaviorAnalysisService';
+import { ContextStorageService } from '../services/context/components/ContextStorageService';
+import { ContextSummarizer } from '../services/context/components/ContextSummarizer';
+import { MemoryOptimizationService } from '../services/context/MemoryOptimizationService';
+import { ConversationMemoryService } from '../services/context/ConversationMemoryService';
+import { ChannelContextService } from '../services/context/ChannelContextService';
+import { SocialDynamicsService } from '../services/context/SocialDynamicsService';
 import type {
   ICacheManager,
   IRateLimiter,
@@ -162,7 +175,26 @@ export async function initializeBotServices(client: Client): Promise<{ geminiSer
         // ServiceFactory adds it to registry. I should too.
 
         // Bind Domain Services
-        container.bind<IContextManager>(TYPES.ContextManager).toDynamicValue(() => new ContextManager());
+        // Bind ContextManager and its dependencies
+        container.bind<IContextManager>(TYPES.ContextManager).toDynamicValue(c => {
+          const behavior = new BehaviorAnalysisService();
+          const conversationMemory = new ConversationMemoryService();
+          const memoryOptimization = new MemoryOptimizationService(conversationMemory);
+          const storage = new ContextStorageService(memoryOptimization, conversationMemory);
+          const summarizer = new ContextSummarizer(memoryOptimization, conversationMemory, storage);
+          const channelContext = new ChannelContextService();
+          const socialDynamics = new SocialDynamicsService();
+
+          return new ContextManager(
+            behavior,
+            storage,
+            summarizer,
+            conversationMemory,
+            channelContext,
+            socialDynamics,
+            memoryOptimization
+          );
+        });
         container.bind<IPersonalityManager>(TYPES.PersonalityManager).toDynamicValue(() => new PersonalityManager());
         container.bind<IRoastingEngine>(TYPES.RoastingEngine).toDynamicValue(() => new RoastingEngine() as any);
         container.bind<ISystemContextBuilder>(TYPES.SystemContextBuilder).toDynamicValue(() => new SystemContextBuilder());
@@ -191,10 +223,71 @@ export async function initializeBotServices(client: Client): Promise<{ geminiSer
         container.bind<IUserAnalysisService>(TYPES.UserAnalysisService).toDynamicValue(c => {
           return new UserAnalysisService(new LocalUserAnalyzer());
         });
+        container.bind<GeminiConfigurationHandler>(TYPES.GeminiConfigurationHandler).toDynamicValue(c => {
+          return new GeminiConfigurationHandler(c.resolve<ICacheManager>(TYPES.CacheManager));
+        });
 
-        container.bind<IUserPreferenceService>(Symbol.for('UserPreferenceService')).toDynamicValue(() => new UserPreferenceManager());
-        container.bind<IHelpSystemService>(Symbol.for('HelpSystemService')).toDynamicValue(() => new HelpSystem());
-        container.bind<IBehaviorAnalyzer>(Symbol.for('BehaviorAnalyzer')).toDynamicValue(() => new BehaviorAnalyzer());
+        container.bind<IGeminiAPIClient>(TYPES.GeminiAPIClient).toDynamicValue(c => {
+          const conf = c.resolve<any>(TYPES.Config);
+          const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+          if (!apiKey) throw new Error('API Key missing');
+
+          return new GeminiAPIClient(
+            apiKey,
+            conf.gemini,
+            c.resolve<IGracefulDegradationService>(TYPES.GracefulDegradation),
+            c.resolve<IMultimodalContentHandler>(TYPES.MultimodalContentHandler)
+          );
+        });
+
+        container.bind<IGeminiContextProcessor>(TYPES.GeminiContextProcessor).toDynamicValue(c => {
+          const conf = c.resolve<any>(TYPES.Config);
+          const geminiConfig = conf.gemini;
+
+          return new GeminiContextProcessor(
+            c.resolve<IContextManager>(TYPES.ContextManager),
+            c.resolve<IPersonalityManager>(TYPES.PersonalityManager),
+            c.resolve<IConversationManager>(TYPES.ConversationManager),
+            c.resolve<ISystemContextBuilder>(TYPES.SystemContextBuilder),
+            c.resolve<IRateLimiter>(TYPES.RateLimiter),
+            c.resolve<IGracefulDegradationService>(TYPES.GracefulDegradation),
+            {
+              systemInstruction: geminiConfig.systemInstructions?.roasting || process.env.GEMINI_ROASTING_INSTRUCTION || 'You are a sarcastic AI that enjoys roasting users in a playful way.',
+              helpfulInstruction: geminiConfig.systemInstructions?.helpful || process.env.GEMINI_HELPFUL_INSTRUCTION || 'You are a helpful Discord bot. Answer any request directly and concisely.',
+              unfilteredMode: geminiConfig.unfilteredMode || false,
+              forceThinkingPrompt: geminiConfig.forceThinkingPrompt || false,
+              thinkingTrigger: geminiConfig.thinkingTrigger || '',
+              thinkingBudget: geminiConfig.thinkingBudget || 0,
+              includeThoughts: geminiConfig.includeThoughts || false
+            }
+          );
+        });
+
+        container.bind<IGeminiResponseHandler>(TYPES.GeminiResponseHandler).toDynamicValue(c => {
+          const conf = c.resolve<any>(TYPES.Config);
+          const geminiConfig = conf.gemini;
+
+          return new GeminiResponseHandler(
+            c.resolve<IResponseProcessingService>(TYPES.ResponseProcessingService),
+            {
+              includeThoughts: geminiConfig.includeThoughts || false,
+              thinkingBudget: geminiConfig.thinkingBudget || 0,
+              enableCodeExecution: geminiConfig.enableCodeExecution || false,
+              enableGoogleSearch: geminiConfig.enableGoogleSearch || false
+            }
+          );
+        });
+
+        container.bind<GeminiStructuredOutputHandler>(TYPES.GeminiStructuredOutputHandler).toDynamicValue(c => {
+          return new GeminiStructuredOutputHandler(
+            c.resolve<any>(TYPES.GeminiAPIClient), // cast as any to match concrete class expectation if interface mismatch
+            c.resolve<any>(TYPES.GeminiContextProcessor),
+            c.resolve<any>(TYPES.GeminiResponseHandler),
+            c.resolve<ICacheManager>(TYPES.CacheManager),
+            c.resolve<IRetryHandler>(TYPES.RetryHandler),
+            c.resolve<IRateLimiter>(TYPES.RateLimiter)
+          );
+        });
 
         // Bind Main AI Service (GeminiService)
         container.bind<IAIService>(TYPES.GeminiService).toDynamicValue(c => {
@@ -212,6 +305,14 @@ export async function initializeBotServices(client: Client): Promise<{ geminiSer
             multimodalContentHandler: c.resolve<IMultimodalContentHandler>(TYPES.MultimodalContentHandler)
           };
 
+          const components = {
+            apiClient: c.resolve<IGeminiAPIClient>(TYPES.GeminiAPIClient),
+            contextProcessor: c.resolve<IGeminiContextProcessor>(TYPES.GeminiContextProcessor),
+            responseHandler: c.resolve<IGeminiResponseHandler>(TYPES.GeminiResponseHandler),
+            configHandler: c.resolve<GeminiConfigurationHandler>(TYPES.GeminiConfigurationHandler),
+            structuredOutputHandler: c.resolve<GeminiStructuredOutputHandler>(TYPES.GeminiStructuredOutputHandler)
+          };
+
           // Get Config
           const conf = c.resolve<any>(TYPES.Config);
 
@@ -221,7 +322,8 @@ export async function initializeBotServices(client: Client): Promise<{ geminiSer
           const service = new GeminiService(
             apiKey,
             conf.gemini,
-            deps
+            deps,
+            components
           );
 
           const healthMonitor = c.resolve<IHealthMonitor>(TYPES.HealthMonitor);
@@ -415,14 +517,18 @@ export async function initializeBotServices(client: Client): Promise<{ geminiSer
  */
 export function validateEnvironment(): void {
   // Use the centralized ConfigurationValidator which includes all validation logic
-  validateEnvWithValidator();
+  const validator = ConfigurationValidator.getInstance();
+  const result = validator.validateEnvironment();
 
-  // Additional validation for Discord-specific requirements
-  const discordToken = process.env.DISCORD_TOKEN;
-  if (!discordToken) {
-    const error = 'DISCORD_TOKEN environment variable is required';
-    logger.error(error);
-    throw new Error(error);
+  if (!result.isValid) {
+    const errorMessages = result.errors.map(e => `${e.field}: ${e.message}`).join(', ');
+    logger.error(`Environment validation failed: ${errorMessages}`);
+    throw new Error(`Environment validation failed: ${errorMessages}`);
+  }
+
+  // Log any warnings
+  if (result.warnings.length > 0) {
+    result.warnings.forEach(w => logger.warn(w));
   }
 }
 

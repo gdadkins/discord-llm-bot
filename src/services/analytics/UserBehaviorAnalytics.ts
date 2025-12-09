@@ -11,7 +11,7 @@ import { Mutex } from 'async-mutex';
 import * as crypto from 'crypto-js';
 import { BaseService } from '../base/BaseService';
 import { logger } from '../../utils/logger';
-import type { 
+import type {
   IAnalyticsPrivacyManager,
   UserPrivacySettings,
   ExportData,
@@ -47,7 +47,7 @@ export interface IUserBehaviorAnalytics extends IAnalyticsPrivacyManager {
     serverId: string | null,
     eventType: 'command' | 'mention' | 'reaction'
   ): Promise<void>;
-  
+
   /**
    * Update user session information
    */
@@ -56,17 +56,17 @@ export interface IUserBehaviorAnalytics extends IAnalyticsPrivacyManager {
     serverHash: string,
     eventType: string
   ): Promise<void>;
-  
+
   /**
    * Get active sessions count
    */
   getActiveSessionsCount(): number;
-  
+
   /**
    * Clean up inactive sessions
    */
   cleanupInactiveSessions(): void;
-  
+
   /**
    * Hash identifier for privacy
    */
@@ -82,17 +82,17 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
   private database: Database.Database | null = null;
   private readonly sessionMutex = new Mutex();
   private readonly privacyMutex = new Mutex();
-  
+
   // Session tracking
   private activeSessions = new Map<string, SessionTracker>();
   private sessionTimeoutMs = 30 * 60 * 1000; // 30 minutes
-  
+
   // Privacy settings cache
   private privacySettings = new Map<string, UserPrivacySettings>();
-  
+
   // Timer for session cleanup
-  private sessionCleanupTimer: NodeJS.Timeout | null = null;
-  
+  // Timer is managed by BaseService
+
   // Configuration
   private retentionDays: number;
   private privacyMode: 'strict' | 'balanced' | 'full';
@@ -106,7 +106,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
     this.retentionDays = config.retentionDays;
     this.privacyMode = config.privacyMode;
   }
-  
+
   /**
    * Get service name
    */
@@ -120,7 +120,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
   protected async performInitialization(): Promise<void> {
     await this.loadPrivacySettings();
     this.startSessionCleanupTimer();
-    
+
     logger.info('UserBehaviorAnalytics initialized', {
       privacySettingsLoaded: this.privacySettings.size,
       retentionDays: this.retentionDays,
@@ -132,10 +132,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
    * Perform service-specific shutdown
    */
   protected async performShutdown(): Promise<void> {
-    if (this.sessionCleanupTimer) {
-      clearInterval(this.sessionCleanupTimer);
-      this.sessionCleanupTimer = null;
-    }
+    // BaseService clears all timers automatically
   }
 
   /**
@@ -178,9 +175,9 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
     try {
       const sessionKey = `${userHash}-${serverHash}`;
       const now = Date.now();
-      
+
       let session = this.activeSessions.get(sessionKey);
-      
+
       if (!session || (now - session.lastActivity) > this.sessionTimeoutMs) {
         // Start new session
         const sessionId = `${now}-${Math.random().toString(36).substr(2, 9)}`;
@@ -234,7 +231,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
   ): Promise<void> {
     const userHash = this.hashIdentifier(userId);
     const release = await this.privacyMutex.acquire();
-    
+
     try {
       const existing = this.privacySettings.get(userHash) || {
         userHash,
@@ -252,7 +249,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
       };
 
       this.privacySettings.set(userHash, updated);
-      
+
       // Update database
       if (this.database) {
         const stmt = this.database.prepare(`
@@ -260,7 +257,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
           (user_hash, opted_out, data_retention_days, allow_insights, last_updated)
           VALUES (?, ?, ?, ?, ?)
         `);
-        
+
         stmt.run(
           updated.userHash,
           updated.optedOut ? 1 : 0,
@@ -308,7 +305,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
       this.database.prepare('DELETE FROM command_usage WHERE user_hash = ?').run(userHash);
       this.database.prepare('DELETE FROM user_engagement WHERE user_hash = ?').run(userHash);
       this.database.prepare('DELETE FROM error_events WHERE user_hash = ?').run(userHash);
-      
+
       logger.info(`Deleted all data for user ${userHash.substring(0, 8)}...`);
     } finally {
       release();
@@ -400,7 +397,8 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
    */
   private startSessionCleanupTimer(): void {
     // Session cleanup (every 10 minutes)
-    this.sessionCleanupTimer = setInterval(() => {
+    // Session cleanup (every 10 minutes)
+    this.createInterval('session-cleanup', () => {
       this.cleanupInactiveSessions();
     }, 10 * 60 * 1000);
   }
@@ -411,7 +409,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
   protected isHealthy(): boolean {
     return !!this.database;
   }
-  
+
   /**
    * Get health errors
    */
@@ -422,7 +420,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
     }
     return errors;
   }
-  
+
   /**
    * Collect service metrics
    */
@@ -430,7 +428,7 @@ export class UserBehaviorAnalytics extends BaseService implements IUserBehaviorA
     return {
       activeSessions: this.activeSessions.size,
       privacySettingsLoaded: this.privacySettings.size,
-      sessionCleanupTimerActive: !!this.sessionCleanupTimer,
+      sessionCleanupTimerActive: this.hasTimer('session-cleanup'),
       retentionDays: this.retentionDays,
       privacyMode: this.privacyMode
     };

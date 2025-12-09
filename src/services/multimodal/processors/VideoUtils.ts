@@ -1,33 +1,28 @@
-/**
- * Video Processing Configuration
- * Centralized configuration for video processing capabilities
- */
-
 import { VIDEO_CONSTANTS } from '../../../utils/constants';
-import { getConfigValue } from '../../../utils/ConfigurationValidator';
+import { getConfigValue } from '../../config/ConfigurationValidator';
 
 export interface VideoConfiguration {
-  /** Enable/disable video processing entirely */
+  /** Enable/disable video support */
   videoSupportEnabled: boolean;
-  
+
   /** Maximum video duration in seconds */
   maxVideoDurationSeconds: number;
-  
+
   /** Token warning threshold for video processing */
   videoTokenWarningThreshold: number;
-  
+
   /** Enable/disable YouTube URL processing */
   youtubeUrlSupportEnabled: boolean;
-  
+
   /** Maximum video file size in MB */
   videoFileSizeLimitMB: number;
-  
+
   /** Require user confirmation before processing videos */
   requireVideoConfirmation: boolean;
-  
+
   /** Video processing timeout in seconds */
   videoProcessingTimeoutSeconds: number;
-  
+
   /** Supported video file formats */
   supportedVideoFormats: readonly string[];
 }
@@ -57,12 +52,12 @@ export class VideoProcessingEstimator {
     // Updated estimation: ~300 tokens per second of video
     const tokensPerSecond = 300;
     const estimatedTokens = Math.ceil(durationSeconds * tokensPerSecond);
-    
+
     // For videos under 83 seconds, return actual estimate
     // For longer videos, cap at 25k tokens
     return Math.min(estimatedTokens, 25000);
   }
-  
+
   /**
    * Estimate processing time for video
    */
@@ -70,23 +65,23 @@ export class VideoProcessingEstimator {
     const minutes = durationSeconds / 60;
     return Math.ceil(minutes * VIDEO_CONSTANTS.PROCESSING_TIME_PER_MINUTE);
   }
-  
+
   /**
    * Format duration for user display
    */
   static formatDuration(seconds: number): string {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
-    
+
     if (minutes === 0) {
       return `${remainingSeconds}s`;
     }
-    
-    return remainingSeconds === 0 
-      ? `${minutes}m` 
+
+    return remainingSeconds === 0
+      ? `${minutes}m`
       : `${minutes}m ${remainingSeconds}s`;
   }
-  
+
   /**
    * Check if video file is supported
    */
@@ -94,7 +89,7 @@ export class VideoProcessingEstimator {
     const extension = filename.toLowerCase().split('.').pop();
     return extension ? config.supportedVideoFormats.includes(extension) : false;
   }
-  
+
   /**
    * Validate video file size
    */
@@ -102,7 +97,7 @@ export class VideoProcessingEstimator {
     const fileSizeMB = fileSizeBytes / (1024 * 1024);
     return fileSizeMB <= config.videoFileSizeLimitMB;
   }
-  
+
   /**
    * Validate video duration
    */
@@ -120,20 +115,20 @@ export class VideoUXHelper {
    * Note: With automatic processing up to 25k tokens, this is rarely used
    */
   static generateConfirmationMessage(
-    durationSeconds: number, 
-    estimatedTokens: number, 
+    durationSeconds: number,
+    estimatedTokens: number,
     estimatedProcessingTime: number
   ): string {
     const duration = VideoProcessingEstimator.formatDuration(durationSeconds);
     const processingTime = VideoProcessingEstimator.formatDuration(estimatedProcessingTime);
-    
+
     return '🎥 **Video Processing Notice**\n\n' +
-           `📹 Video Duration: ${duration}\n` +
-           `🪙 Token Usage: ${estimatedTokens.toLocaleString()} tokens\n` +
-           `⏱️ Processing Time: ~${processingTime}\n\n` +
-           'Processing will begin automatically...';
+      `📹 Video Duration: ${duration}\n` +
+      `🪙 Token Usage: ${estimatedTokens.toLocaleString()} tokens\n` +
+      `⏱️ Processing Time: ~${processingTime}\n\n` +
+      'Processing will begin automatically...';
   }
-  
+
   /**
    * Generate processing status message
    */
@@ -141,57 +136,57 @@ export class VideoUXHelper {
     const duration = VideoProcessingEstimator.formatDuration(durationSeconds);
     const estimatedTime = VideoProcessingEstimator.estimateProcessingTime(durationSeconds);
     const formattedTime = VideoProcessingEstimator.formatDuration(estimatedTime);
-    
+
     return `🎬 **Processing Video** (${duration})\n\n` +
-           `Please wait approximately ${formattedTime}...\n` +
-           'Video analysis in progress...';
+      `Please wait approximately ${formattedTime}...\n` +
+      'Video analysis in progress...';
   }
-  
+
   /**
    * Generate error message for unsupported video
    */
   static generateUnsupportedFormatMessage(
-    filename: string, 
+    filename: string,
     config: VideoConfiguration
   ): string {
     const supportedFormats = config.supportedVideoFormats.join(', ').toUpperCase();
-    
+
     return '❌ **Unsupported Video Format**\n\n' +
-           `File: ${filename}\n` +
-           `Supported formats: ${supportedFormats}\n` +
-           `Maximum file size: ${config.videoFileSizeLimitMB}MB\n` +
-           `Maximum duration: ${VideoProcessingEstimator.formatDuration(config.maxVideoDurationSeconds)}`;
+      `File: ${filename}\n` +
+      `Supported formats: ${supportedFormats}\n` +
+      `Maximum file size: ${config.videoFileSizeLimitMB}MB\n` +
+      `Maximum duration: ${VideoProcessingEstimator.formatDuration(config.maxVideoDurationSeconds)}`;
   }
-  
+
   /**
    * Generate error message for video too large
    */
   static generateFileTooLargeMessage(
-    fileSizeMB: number, 
+    fileSizeMB: number,
     config: VideoConfiguration
   ): string {
     return '❌ **Video File Too Large**\n\n' +
-           `File size: ${fileSizeMB.toFixed(1)}MB\n` +
-           `Maximum allowed: ${config.videoFileSizeLimitMB}MB\n\n` +
-           'Please upload a smaller video file or trim the video duration.';
+      `File size: ${fileSizeMB.toFixed(1)}MB\n` +
+      `Maximum allowed: ${config.videoFileSizeLimitMB}MB\n\n` +
+      'Please upload a smaller video file or trim the video duration.';
   }
-  
+
   /**
    * Generate error message for video too long
    */
   static generateVideoTooLongMessage(
-    durationSeconds: number, 
+    durationSeconds: number,
     config: VideoConfiguration
   ): string {
     const duration = VideoProcessingEstimator.formatDuration(durationSeconds);
     const maxDuration = VideoProcessingEstimator.formatDuration(config.maxVideoDurationSeconds);
     const estimatedTokens = VideoProcessingEstimator.estimateTokenCost(durationSeconds);
-    
+
     return '⚠️ **Video Exceeds Token Limit**\n\n' +
-           `Video duration: ${duration}\n` +
-           `Maximum processable: ${maxDuration} (25k tokens)\n\n` +
-           `This video would require ~${estimatedTokens.toLocaleString()} tokens.\n` +
-           'I\'ll process the first 83 seconds of the video.';
+      `Video duration: ${duration}\n` +
+      `Maximum processable: ${maxDuration} (25k tokens)\n\n` +
+      `This video would require ~${estimatedTokens.toLocaleString()} tokens.\n` +
+      'I\'ll process the first 83 seconds of the video.';
   }
 }
 
@@ -200,38 +195,38 @@ export class VideoUXHelper {
  */
 export function getVideoConfigFromEnv(): Partial<VideoConfiguration> {
   const config: Partial<VideoConfiguration> = {};
-  
+
   // Use ConfigurationValidator for type-safe configuration parsing
   const videoSupportEnabled = getConfigValue<boolean>('VIDEO_SUPPORT_ENABLED');
   if (videoSupportEnabled !== undefined) {
     config.videoSupportEnabled = videoSupportEnabled;
   }
-  
+
   const maxVideoDurationSeconds = getConfigValue<number>('MAX_VIDEO_DURATION_SECONDS');
   if (maxVideoDurationSeconds !== undefined) {
     config.maxVideoDurationSeconds = maxVideoDurationSeconds;
   }
-  
+
   const videoTokenWarningThreshold = getConfigValue<number>('VIDEO_TOKEN_WARNING_THRESHOLD');
   if (videoTokenWarningThreshold !== undefined) {
     config.videoTokenWarningThreshold = videoTokenWarningThreshold;
   }
-  
+
   const youtubeUrlSupportEnabled = getConfigValue<boolean>('YOUTUBE_URL_SUPPORT_ENABLED');
   if (youtubeUrlSupportEnabled !== undefined) {
     config.youtubeUrlSupportEnabled = youtubeUrlSupportEnabled;
   }
-  
+
   const videoFileSizeLimitMB = getConfigValue<number>('VIDEO_FILE_SIZE_LIMIT_MB');
   if (videoFileSizeLimitMB !== undefined) {
     config.videoFileSizeLimitMB = videoFileSizeLimitMB;
   }
-  
+
   const requireVideoConfirmation = getConfigValue<boolean>('REQUIRE_VIDEO_CONFIRMATION');
   if (requireVideoConfirmation !== undefined) {
     config.requireVideoConfirmation = requireVideoConfirmation;
   }
-  
+
   return config;
 }
 

@@ -37,10 +37,10 @@ export class ChannelContextService {
       if (!data || typeof data !== 'object') return false;
       const d = data as Record<string, unknown>;
       return Array.isArray(d.cultures) &&
-             typeof d.lastUpdated === 'number' &&
-             typeof d.version === 'number';
+        typeof d.lastUpdated === 'number' &&
+        typeof d.version === 'number';
     };
-    
+
     this.cacheDataStore = new DataStore<ChannelCacheData>('./data/channel-cache.json', {
       validator,
       compressionEnabled: false, // Channel data is typically small
@@ -49,7 +49,7 @@ export class ChannelContextService {
       maxBackups: 3,
       enableDebugLogging: false
     });
-    
+
     // Load cache on initialization
     this.loadCacheFromDisk();
   }
@@ -59,30 +59,30 @@ export class ChannelContextService {
    */
   public buildServerCultureContext(guild: Guild): string {
     const guildId = guild.id;
-    
+
     // Check cache first
     const cached = this.serverCultureCache.get(guildId);
     if (cached && (Date.now() - cached.cachedAt) < this.SERVER_CULTURE_TTL) {
       this.cacheStats.hits++;
       return this.formatServerCultureAsString(cached);
     }
-    
+
     this.cacheStats.misses++;
-    
+
     // Build new server culture context
     const culture = this.buildServerCultureData(guild);
-    
+
     // Cache the culture data
     this.serverCultureCache.set(guildId, culture);
-    
+
     // Clean up old cache entries periodically
     if (this.serverCultureCache.size > this.MAX_SERVER_CULTURE_CACHE_ENTRIES) {
       this.cleanupServerCultureCache();
     }
-    
+
     // Save cache to disk periodically
     this.scheduleCachePersistence();
-    
+
     return this.formatServerCultureAsString(culture);
   }
 
@@ -104,7 +104,7 @@ export class ChannelContextService {
     culture.cachedAt = Date.now();
     culture.ttl = this.SERVER_CULTURE_TTL;
     this.serverCultureCache.set(guildId, culture);
-    
+
     // Clean up periodically
     if (this.serverCultureCache.size > this.MAX_SERVER_CULTURE_CACHE_ENTRIES) {
       this.cleanupServerCultureCache();
@@ -116,22 +116,22 @@ export class ChannelContextService {
    */
   private buildServerCultureData(guild: Guild): ServerCulture {
     const now = Date.now();
-    
+
     // Extract popular emojis (custom emojis from the guild)
     const popularEmojis = guild.emojis.cache
       .filter(emoji => !emoji.animated) // Focus on static emojis for consistency
       .map(emoji => ({ emoji: emoji.toString(), count: 1 })) // Default count since we don't track usage
       .slice(0, 10); // Limit to 10 most recent
-    
+
     // Extract active voice channels
     const activeVoiceChannels = guild.channels.cache
       .filter(channel => channel.isVoiceBased() && channel.members && channel.members.size > 0)
       .map(channel => channel.name)
       .slice(0, 5); // Limit to 5 active channels
-    
+
     // Extract recent events (server boosts, member milestones)
-    const recentEvents: Array<{name: string, date: Date}> = [];
-    
+    const recentEvents: Array<{ name: string, date: Date }> = [];
+
     // Add server boost information as an event
     if (guild.premiumSubscriptionCount && guild.premiumSubscriptionCount > 0) {
       recentEvents.push({
@@ -139,7 +139,7 @@ export class ChannelContextService {
         date: new Date(now - 24 * 60 * 60 * 1000) // Approximate recent boost
       });
     }
-    
+
     // Add member milestone events
     const memberCount = guild.memberCount;
     if (memberCount >= 100) {
@@ -152,7 +152,7 @@ export class ChannelContextService {
         });
       }
     }
-    
+
     // Extract top channels by type and activity
     const topChannels = guild.channels.cache
       .filter(channel => channel.isTextBased() && !channel.isThread())
@@ -161,7 +161,7 @@ export class ChannelContextService {
         messageCount: 1 // Default since we don't track message counts
       }))
       .slice(0, 5); // Limit to 5 top channels
-    
+
     return {
       guildId: guild.id,
       popularEmojis,
@@ -180,38 +180,38 @@ export class ChannelContextService {
    */
   private formatServerCultureAsString(culture: ServerCulture): string {
     const parts: string[] = ['SERVER CULTURE CONTEXT:\n'];
-    
+
     // Popular emojis
     if (culture.popularEmojis.length > 0) {
       const emojiList = culture.popularEmojis.slice(0, 5).map(e => e.emoji).join(' ');
       parts.push(`Popular Emojis: ${emojiList}`);
     }
-    
+
     // Active voice channels
     if (culture.activeVoiceChannels.length > 0) {
       parts.push(`Active Voice: ${culture.activeVoiceChannels.length} channels (${culture.activeVoiceChannels.slice(0, 3).join(', ')})`);
     } else {
       parts.push('Active Voice: No active voice channels');
     }
-    
+
     // Recent events
     if (culture.recentEvents.length > 0) {
       const eventNames = culture.recentEvents.slice(0, 3).map(e => e.name).join(', ');
       parts.push(`Recent Events: ${eventNames}`);
     }
-    
+
     // Boost level
     parts.push(`Boost Level: ${culture.boostLevel}`);
-    
+
     // Top channels
     if (culture.topChannels.length > 0) {
       const channelNames = culture.topChannels.slice(0, 3).map(c => `#${c.name}`).join(', ');
       parts.push(`Top Channels: ${channelNames}`);
     }
-    
+
     // Language preference
     parts.push(`Language: ${culture.preferredLocale}`);
-    
+
     return parts.join('\n') + '\n';
   }
 
@@ -221,30 +221,30 @@ export class ChannelContextService {
   private cleanupServerCultureCache(): void {
     const now = Date.now();
     const entriesToDelete: string[] = [];
-    
+
     // First, remove expired entries
     for (const [guildId, culture] of this.serverCultureCache.entries()) {
       if (now - culture.cachedAt > this.SERVER_CULTURE_TTL) {
         entriesToDelete.push(guildId);
       }
     }
-    
+
     // If still over limit, use LRU eviction
     if (this.serverCultureCache.size - entriesToDelete.length > this.MAX_SERVER_CULTURE_CACHE_ENTRIES) {
       const sortedEntries = Array.from(this.serverCultureCache.entries())
         .sort((a, b) => a[1].cachedAt - b[1].cachedAt);
-      
+
       const toRemove = sortedEntries.length - this.MAX_SERVER_CULTURE_CACHE_ENTRIES + entriesToDelete.length;
       for (let i = 0; i < toRemove; i++) {
         entriesToDelete.push(sortedEntries[i][0]);
       }
     }
-    
+
     entriesToDelete.forEach(guildId => {
       this.serverCultureCache.delete(guildId);
       this.cacheStats.evictions++;
     });
-    
+
     if (entriesToDelete.length > 0) {
       logger.info(`Cleaned up ${entriesToDelete.length} server culture cache entries (LRU eviction)`);
     }
@@ -257,13 +257,13 @@ export class ChannelContextService {
     cacheEntries: number;
     estimatedSizeBytes: number;
     estimatedSizeMB: number;
-    } {
+  } {
     let totalSize = 0;
-    
+
     this.serverCultureCache.forEach(culture => {
       totalSize += JSON.stringify(culture).length;
     });
-    
+
     return {
       cacheEntries: this.serverCultureCache.size,
       estimatedSizeBytes: totalSize,
@@ -275,6 +275,10 @@ export class ChannelContextService {
    * Clear all caches
    */
   public cleanup(): void {
+    if (this.saveCacheTimer) {
+      clearTimeout(this.saveCacheTimer);
+      this.saveCacheTimer = null;
+    }
     this.serverCultureCache.clear();
     logger.info('ChannelContextService cleanup completed');
   }
@@ -289,7 +293,7 @@ export class ChannelContextService {
         const now = Date.now();
         let loadedCount = 0;
         let expiredCount = 0;
-        
+
         for (const entry of data.cultures) {
           if (now - entry.culture.cachedAt < this.SERVER_CULTURE_TTL) {
             this.serverCultureCache.set(entry.guildId, entry.culture);
@@ -298,7 +302,7 @@ export class ChannelContextService {
             expiredCount++;
           }
         }
-        
+
         this.cacheStats.persistenceLoads++;
         logger.info(`Loaded ${loadedCount} server culture entries from cache (${expiredCount} expired)`);
       }
@@ -317,16 +321,16 @@ export class ChannelContextService {
         culture,
         addedAt: culture.cachedAt,
       }));
-      
+
       const data: ChannelCacheData = {
         cultures,
         lastUpdated: Date.now(),
         version: 1,
       };
-      
+
       await this.cacheDataStore.save(data);
       this.cacheStats.persistenceSaves++;
-      
+
       logger.debug(`Saved ${cultures.length} server culture entries to cache`);
     } catch (error) {
       logger.error('Failed to save channel cache to disk:', error);
@@ -334,7 +338,7 @@ export class ChannelContextService {
   }
 
   private saveCacheTimer: NodeJS.Timeout | null = null;
-  
+
   /**
    * Schedule cache persistence with debouncing
    */
@@ -343,7 +347,7 @@ export class ChannelContextService {
     if (this.saveCacheTimer) {
       clearTimeout(this.saveCacheTimer);
     }
-    
+
     // Schedule save after 5 seconds of inactivity
     this.saveCacheTimer = setTimeout(() => {
       this.saveCacheToDisk();
@@ -362,11 +366,11 @@ export class ChannelContextService {
     persistenceSaves: number;
     cacheSize: number;
     memorySizeMB: number;
-    } {
+  } {
     const totalRequests = this.cacheStats.hits + this.cacheStats.misses;
     const hitRate = totalRequests > 0 ? (this.cacheStats.hits / totalRequests) * 100 : 0;
     const storageStats = this.getStorageStats();
-    
+
     return {
       hits: this.cacheStats.hits,
       misses: this.cacheStats.misses,

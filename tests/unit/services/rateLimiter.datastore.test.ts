@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { RateLimiter } from '../../../src/services/rateLimiter';
+import { RateLimiter } from '../../../src/services/rate-limiting/RateLimiter';
 import { DataStore } from '../../../src/utils/DataStore';
 
 // Mock the DataStore
@@ -34,20 +34,20 @@ jest.mock('../../../src/utils/logger', () => ({
 describe('RateLimiter DataStore Integration', () => {
   let rateLimiter: RateLimiter;
   let mockDataStore: any;
-  
+
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
-    
+
     // Get the mock instance
     const DataStoreMock = require('../../../src/utils/DataStore');
     mockDataStore = DataStoreMock.createJsonDataStore();
-    
+
     // Setup default mock behaviors
     mockDataStore.load.mockResolvedValue(null);
     mockDataStore.save.mockResolvedValue(undefined);
     mockDataStore.exists.mockResolvedValue(false);
-    
+
     rateLimiter = new RateLimiter(60, 1000); // 60 RPM, 1000 daily
   });
 
@@ -59,7 +59,7 @@ describe('RateLimiter DataStore Integration', () => {
   describe('DataStore initialization', () => {
     it('should create DataStore with proper configuration', () => {
       const DataStoreMock = require('../../../src/utils/DataStore');
-      
+
       expect(DataStoreMock.createJsonDataStore).toHaveBeenCalledWith(
         './data/rate-limit.json',
         expect.any(Function), // validator function
@@ -75,7 +75,7 @@ describe('RateLimiter DataStore Integration', () => {
       const DataStoreMock = require('../../../src/utils/DataStore');
       const validatorCall = DataStoreMock.createJsonDataStore.mock.calls[0];
       const validator = validatorCall[1];
-      
+
       // Test valid state
       const validState = {
         requestsThisMinute: 10,
@@ -84,7 +84,7 @@ describe('RateLimiter DataStore Integration', () => {
         dayWindowStart: Date.now(),
       };
       expect(validator(validState)).toBe(true);
-      
+
       // Test invalid states
       expect(validator({})).toBe(false);
       expect(validator(null)).toBe(false);
@@ -105,13 +105,13 @@ describe('RateLimiter DataStore Integration', () => {
         minuteWindowStart: Date.now() - 30000, // 30 seconds ago
         dayWindowStart: Date.now() - 3600000, // 1 hour ago
       };
-      
+
       mockDataStore.load.mockResolvedValue(savedState);
-      
+
       await rateLimiter.initialize();
-      
+
       expect(mockDataStore.load).toHaveBeenCalled();
-      
+
       // Check rate limit reflects loaded state
       const result = await rateLimiter.checkAndIncrement();
       expect(result.remaining.minute).toBe(54 - 25 - 1); // 90% of 60 - loaded - increment
@@ -120,11 +120,11 @@ describe('RateLimiter DataStore Integration', () => {
 
     it('should start fresh when DataStore returns null', async () => {
       mockDataStore.load.mockResolvedValue(null);
-      
+
       await rateLimiter.initialize();
-      
+
       expect(mockDataStore.load).toHaveBeenCalled();
-      
+
       // Should start with zero counts
       const result = await rateLimiter.checkAndIncrement();
       expect(result.remaining.minute).toBe(54 - 1); // 90% of 60 - 1
@@ -133,10 +133,10 @@ describe('RateLimiter DataStore Integration', () => {
 
     it('should handle DataStore load errors gracefully', async () => {
       mockDataStore.load.mockRejectedValue(new Error('DataStore read error'));
-      
+
       // Should log error but continue with fresh state
       await rateLimiter.initialize();
-      
+
       const logger = require('../../../src/utils/logger').logger;
       expect(logger.info).toHaveBeenCalledWith(
         'No persisted rate limit state found, starting fresh'
@@ -155,10 +155,10 @@ describe('RateLimiter DataStore Integration', () => {
       await rateLimiter.checkAndIncrement();
       await rateLimiter.checkAndIncrement();
       await rateLimiter.checkAndIncrement();
-      
+
       // Force flush
       await rateLimiter.shutdown();
-      
+
       expect(mockDataStore.save).toHaveBeenCalledWith(
         expect.objectContaining({
           requestsThisMinute: 3,
@@ -174,13 +174,13 @@ describe('RateLimiter DataStore Integration', () => {
       for (let i = 0; i < 10; i++) {
         await rateLimiter.checkAndIncrement();
       }
-      
+
       // Should not save immediately
       expect(mockDataStore.save).not.toHaveBeenCalled();
-      
+
       // Advance timer to trigger flush
       jest.advanceTimersByTime(10000); // 10 second flush interval
-      
+
       // Should save after flush interval
       expect(mockDataStore.save).toHaveBeenCalledTimes(1);
       expect(mockDataStore.save).toHaveBeenCalledWith(
@@ -193,12 +193,12 @@ describe('RateLimiter DataStore Integration', () => {
 
     it('should handle DataStore save errors', async () => {
       mockDataStore.save.mockRejectedValue(new Error('DataStore write error'));
-      
+
       await rateLimiter.checkAndIncrement();
-      
+
       // Force flush
       jest.advanceTimersByTime(10000);
-      
+
       // Should log error but not crash
       const logger = require('../../../src/utils/logger').logger;
       expect(logger.error).toHaveBeenCalledWith(
@@ -217,23 +217,26 @@ describe('RateLimiter DataStore Integration', () => {
         minuteWindowStart: oneMinuteAgo,
         dayWindowStart: Date.now() - 3600000,
       };
-      
+
       mockDataStore.load.mockResolvedValue(savedState);
       await rateLimiter.initialize();
-      
+
       // Make a request - should reset minute window
       await rateLimiter.checkAndIncrement();
-      
+
       // Force flush
       await rateLimiter.shutdown();
-      
+
       expect(mockDataStore.save).toHaveBeenCalledWith(
         expect.objectContaining({
           requestsThisMinute: 1, // Reset
           requestsToday: 501, // Continued from saved state
-          minuteWindowStart: expect.not.objectContaining(oneMinuteAgo),
+          minuteWindowStart: expect.any(Number),
         })
       );
+      // Ensure it's not the old value
+      const call = (mockDataStore.save as jest.Mock).mock.calls[0][0] as any;
+      expect(call.minuteWindowStart).not.toBe(oneMinuteAgo);
     });
 
     it('should reset daily window and persist to DataStore', async () => {
@@ -244,23 +247,26 @@ describe('RateLimiter DataStore Integration', () => {
         minuteWindowStart: Date.now() - 30000,
         dayWindowStart: oneDayAgo,
       };
-      
+
       mockDataStore.load.mockResolvedValue(savedState);
       await rateLimiter.initialize();
-      
+
       // Make a request - should reset daily window
       await rateLimiter.checkAndIncrement();
-      
+
       // Force flush
       await rateLimiter.shutdown();
-      
+
       expect(mockDataStore.save).toHaveBeenCalledWith(
         expect.objectContaining({
           requestsThisMinute: 6, // Continued
           requestsToday: 1, // Reset
-          dayWindowStart: expect.not.objectContaining(oneDayAgo),
+          dayWindowStart: expect.any(Number),
         })
       );
+
+      const call = (mockDataStore.save as jest.Mock).mock.calls[0][0] as any;
+      expect(call.dayWindowStart).not.toBe(oneDayAgo);
     });
   });
 
@@ -268,21 +274,21 @@ describe('RateLimiter DataStore Integration', () => {
     it('should handle concurrent requests with atomic DataStore saves', async () => {
       mockDataStore.load.mockResolvedValue(null);
       await rateLimiter.initialize();
-      
+
       // Make concurrent requests
-      const requests = Array(20).fill(null).map(() => 
+      const requests = Array(20).fill(null).map(() =>
         rateLimiter.checkAndIncrement()
       );
-      
+
       const results = await Promise.all(requests);
-      
+
       // All requests should be counted
       const allowedCount = results.filter(r => r.allowed).length;
       expect(allowedCount).toBe(20);
-      
+
       // Force flush
       await rateLimiter.shutdown();
-      
+
       // DataStore should save final state with all requests
       expect(mockDataStore.save).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -301,16 +307,16 @@ describe('RateLimiter DataStore Integration', () => {
         minuteWindowStart: Date.now() - 30000,
         dayWindowStart: Date.now() - 3600000,
       };
-      
+
       mockDataStore.load.mockResolvedValue(savedState);
       await rateLimiter.initialize();
-      
+
       // Update configuration
       await rateLimiter.updateConfiguration({
         rpmLimit: 100, // Increase from 60
         dailyLimit: 2000, // Increase from 1000
       });
-      
+
       // State should be preserved
       const result = await rateLimiter.checkAndIncrement();
       expect(result.remaining.minute).toBe(90 - 10 - 1); // 90% of 100 - existing - increment
@@ -322,14 +328,14 @@ describe('RateLimiter DataStore Integration', () => {
     it('should force final save on shutdown', async () => {
       mockDataStore.load.mockResolvedValue(null);
       await rateLimiter.initialize();
-      
+
       // Make some requests
       await rateLimiter.checkAndIncrement();
       await rateLimiter.checkAndIncrement();
-      
+
       // Shutdown should force save even if flush interval hasn't passed
       await rateLimiter.shutdown();
-      
+
       expect(mockDataStore.save).toHaveBeenCalledWith(
         expect.objectContaining({
           requestsThisMinute: 2,
@@ -341,11 +347,11 @@ describe('RateLimiter DataStore Integration', () => {
     it('should clear flush timer on shutdown', async () => {
       mockDataStore.load.mockResolvedValue(null);
       await rateLimiter.initialize();
-      
+
       const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');
-      
+
       await rateLimiter.shutdown();
-      
+
       expect(clearTimeoutSpy).toHaveBeenCalled();
     });
   });
@@ -354,9 +360,9 @@ describe('RateLimiter DataStore Integration', () => {
     it('should handle corrupted state by starting fresh', async () => {
       // DataStore validator will reject this, causing load to fail
       mockDataStore.load.mockRejectedValue(new Error('Invalid state data'));
-      
+
       await rateLimiter.initialize();
-      
+
       // Should start with fresh state
       const result = await rateLimiter.checkAndIncrement();
       expect(result.allowed).toBe(true);
@@ -368,22 +374,22 @@ describe('RateLimiter DataStore Integration', () => {
       mockDataStore.load.mockResolvedValue(null);
       const rateLimiter1 = new RateLimiter(60, 1000);
       await rateLimiter1.initialize();
-      
+
       await rateLimiter1.checkAndIncrement();
       await rateLimiter1.checkAndIncrement();
       await rateLimiter1.shutdown();
-      
+
       // Capture saved state
       const savedState = mockDataStore.save.mock.calls[0][0];
-      
+
       // Second instance loads saved state
       mockDataStore.load.mockResolvedValue(savedState);
       const rateLimiter2 = new RateLimiter(60, 1000);
       await rateLimiter2.initialize();
-      
+
       const result = await rateLimiter2.checkAndIncrement();
       expect(result.remaining.minute).toBe(54 - 2 - 1); // Previous requests counted
-      
+
       await rateLimiter2.shutdown();
     });
   });

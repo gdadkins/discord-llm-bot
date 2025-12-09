@@ -12,7 +12,7 @@ import { BaseService } from '../base/BaseService';
 import { logger } from '../../utils/logger';
 import { dataStoreFactory, DataStoreRegistryEntry } from '../../utils/DataStoreFactory';
 import { DataStoreMetrics } from '../../utils/DataStore';
-import type { 
+import type {
   IAnalyticsReporter,
   AnalyticsReport,
   UsageStatistics,
@@ -160,7 +160,7 @@ export interface IReportGenerationService extends IAnalyticsReporter {
     startDate: Date,
     endDate: Date
   ): Promise<DataStoreDashboard | null>;
-  
+
   /**
    * Generate recommendations based on analytics
    */
@@ -179,13 +179,12 @@ export interface IReportGenerationService extends IAnalyticsReporter {
 export class ReportGenerationService extends BaseService implements IReportGenerationService {
   private database: Database.Database | null = null;
   private readonly mutex = new Mutex();
-  
+
   // Configuration
   private config: AnalyticsConfig;
-  
+
   // Dependencies
   private metricsService: IMetricsCollectionService;
-  private reportTimer: NodeJS.Timeout | null = null;
 
   constructor(
     database: Database.Database | null,
@@ -197,7 +196,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
     this.config = config;
     this.metricsService = metricsService;
   }
-  
+
   /**
    * Get service name
    */
@@ -210,7 +209,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
    */
   protected async performInitialization(): Promise<void> {
     this.startReportTimer();
-    
+
     logger.info('ReportGenerationService initialized', {
       reportingEnabled: this.config.reportingEnabled,
       reportSchedule: this.config.reportSchedule
@@ -221,10 +220,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
    * Perform service-specific shutdown
    */
   protected async performShutdown(): Promise<void> {
-    if (this.reportTimer) {
-      clearInterval(this.reportTimer);
-      this.reportTimer = null;
-    }
+    // BaseService clears all timers automatically
   }
 
   /**
@@ -255,23 +251,23 @@ export class ReportGenerationService extends BaseService implements IReportGener
 
     const now = new Date();
     const startDate = new Date();
-    
+
     switch (period) {
-    case 'daily':
-      startDate.setDate(now.getDate() - 1);
-      break;
-    case 'weekly':
-      startDate.setDate(now.getDate() - 7);
-      break;
-    case 'monthly':
-      startDate.setMonth(now.getMonth() - 1);
-      break;
+      case 'daily':
+        startDate.setDate(now.getDate() - 1);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'monthly':
+        startDate.setMonth(now.getMonth() - 1);
+        break;
     }
 
     const usage = await this.getUsageStatistics(startDate, now);
     const errors = await this.metricsService.getErrorStatistics(startDate, now);
     const performance = await this.metricsService.getPerformanceStatistics(startDate, now);
-    
+
     return {
       period,
       startDate: startDate.toISOString(),
@@ -354,12 +350,12 @@ export class ReportGenerationService extends BaseService implements IReportGener
           AND (metric LIKE 'datastore_%' OR metric IN ('datastore_save_time', 'datastore_load_time'))
         GROUP BY metric, context
       `;
-      
+
       const perfResults = this.database.prepare(perfQuery).all(
-        startDate.getTime(), 
+        startDate.getTime(),
         endDate.getTime()
       ) as ExtendedPerformanceRow[];
-      
+
       // Get error metrics by store type
       const errorQuery = `
         SELECT 
@@ -370,16 +366,16 @@ export class ReportGenerationService extends BaseService implements IReportGener
           AND metric = 'datastore_error_rate'
         GROUP BY context
       `;
-      
+
       const errorResults = this.database.prepare(errorQuery).all(
-        startDate.getTime(), 
+        startDate.getTime(),
         endDate.getTime()
       ) as Array<{ error_count: number; context: string }>;
-      
+
       // Get current DataStore metrics from factory registry
       const registeredStores = dataStoreFactory.getRegisteredStores();
       const currentTime = Date.now();
-      
+
       const factoryMetrics = {
         totalStores: registeredStores.length,
         storesByType: registeredStores.reduce((acc: Record<string, number>, store: DataStoreRegistryEntry) => {
@@ -420,7 +416,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
           };
         })
       };
-      
+
       // Calculate capacity utilization trends
       const capacityQuery = `
         SELECT 
@@ -433,16 +429,16 @@ export class ReportGenerationService extends BaseService implements IReportGener
         GROUP BY hour
         ORDER BY hour
       `;
-      
+
       const capacityTrends = this.database.prepare(capacityQuery).all(
-        startDate.getTime(), 
+        startDate.getTime(),
         endDate.getTime()
       ) as Array<{
         hour: string;
         total_bytes: number;
         active_stores: number;
       }>;
-      
+
       // Calculate hourly trends by operation type
       const hourlyQuery = `
         SELECT 
@@ -458,9 +454,9 @@ export class ReportGenerationService extends BaseService implements IReportGener
         GROUP BY hour, metric
         ORDER BY hour
       `;
-      
+
       const hourlyTrends = this.database.prepare(hourlyQuery).all(
-        startDate.getTime(), 
+        startDate.getTime(),
         endDate.getTime()
       ) as Array<{
         hour: string;
@@ -470,17 +466,17 @@ export class ReportGenerationService extends BaseService implements IReportGener
         max_value: number;
         count: number;
       }>;
-      
+
       // Calculate performance insights
       const insights = this.calculateDataStoreInsights(perfResults, errorResults, factoryMetrics);
-      
+
       return {
         summary: {
           totalStores: factoryMetrics.totalStores,
           storesByType: factoryMetrics.storesByType,
           totalOperations: factoryMetrics.totalOperations,
           totalErrors: factoryMetrics.totalErrors,
-          errorRate: factoryMetrics.totalOperations > 0 ? 
+          errorRate: factoryMetrics.totalOperations > 0 ?
             (factoryMetrics.totalErrors / factoryMetrics.totalOperations) * 100 : 0,
           avgLatency: {
             save: factoryMetrics.avgSaveLatency,
@@ -522,7 +518,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
         this.config.reportSchedule === 'weekly' ? 7 * 24 * 60 * 60 * 1000 :
           30 * 24 * 60 * 60 * 1000;
 
-      this.reportTimer = setInterval(async () => {
+      this.createInterval('report-generation', async () => {
         try {
           const report = await this.generateReport(this.config.reportSchedule);
           logger.info('Generated analytics report', { period: this.config.reportSchedule, summary: report.summary });
@@ -544,7 +540,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
       const metrics = store.instance.getMetrics();
       const value = metrics[metricKey] || 0;
       const weight = metrics[weightKey] || 0;
-      
+
       if (weight > 0) {
         totalWeightedValue += value * weight;
         totalWeight += weight;
@@ -607,11 +603,11 @@ export class ReportGenerationService extends BaseService implements IReportGener
   } {
     const totalBytes = factoryMetrics.totalBytesProcessed;
     const totalOperations = factoryMetrics.totalOperations;
-    
+
     // Define capacity thresholds
     const warningThreshold = 75 * 1024 * 1024; // 75MB
     const criticalThreshold = 100 * 1024 * 1024; // 100MB
-    
+
     let status = 'healthy';
     if (totalBytes > criticalThreshold) {
       status = 'critical';
@@ -636,8 +632,8 @@ export class ReportGenerationService extends BaseService implements IReportGener
    * Generate DataStore performance insights
    */
   private calculateDataStoreInsights(
-    perfResults: ExtendedPerformanceRow[], 
-    errorResults: Array<{ error_count: number; context: string }>, 
+    perfResults: ExtendedPerformanceRow[],
+    errorResults: Array<{ error_count: number; context: string }>,
     factoryMetrics: DataStoreFactoryMetrics
   ): DataStoreInsights {
     const insights: DataStoreInsights = {
@@ -727,7 +723,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
     const errorStores = factoryMetrics.storeDetails
       .filter((store: DataStoreDetail) => {
         const totalOperations = store.metrics.operations;
-        const errorRate = totalOperations > 0 ? 
+        const errorRate = totalOperations > 0 ?
           (store.metrics.errors / totalOperations) * 100 : 0;
         return errorRate > 5; // 5% error rate threshold
       });
@@ -837,7 +833,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
   protected isHealthy(): boolean {
     return this.config.enabled && !!this.database;
   }
-  
+
   /**
    * Get health errors
    */
@@ -851,7 +847,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
     }
     return errors;
   }
-  
+
   /**
    * Collect service metrics
    */
@@ -859,7 +855,7 @@ export class ReportGenerationService extends BaseService implements IReportGener
     return {
       reportingEnabled: this.config.reportingEnabled,
       reportSchedule: this.config.reportSchedule,
-      reportTimerActive: !!this.reportTimer,
+      reportTimerActive: this.hasTimer('report-generation'),
       databaseAvailable: !!this.database
     };
   }

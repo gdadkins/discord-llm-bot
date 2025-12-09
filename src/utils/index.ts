@@ -14,18 +14,18 @@ export { RaceConditionManager } from './raceConditionManager';
 export { formatThinkingResponse } from './thinkingFormatter';
 
 // Large context handling
-export { 
-  LargeContextHandler, 
+export {
+  LargeContextHandler,
   largeContextHandler,
   type ChunkProcessorCallback,
-  type LargeContextOptions 
+  type LargeContextOptions
 } from './largeContextHandler';
 
-export { 
-  ContextAnalyzer, 
+export {
+  ContextAnalyzer,
   contextAnalyzer,
   type ConversationAnalysis,
-  type ConversationPattern 
+  type ConversationPattern
 } from './contextAnalyzer';
 
 // Large context examples and utilities
@@ -36,22 +36,7 @@ export * from './messageSplitter';
 // Validation utilities
 export * from './validation';
 
-// Configuration validation
-export {
-  ConfigurationValidator,
-  validateEnvironment,
-  getConfigValue,
-  getConfigValueWithDefault,
-  parseIntWithDefault,
-  parseFloatWithDefault,
-  parseBooleanWithDefault,
-  getStringWithDefault,
-  ENV_VAR_SCHEMAS,
-  type ValidationError,
-  type ValidationResult,
-  type EnvVarSchema,
-  type ParsedConfig
-} from './ConfigurationValidator';
+
 
 // Standardized error handling utilities (legacy)
 export {
@@ -157,18 +142,18 @@ export { ConnectionPool, getGlobalConnectionPool, pooledRequest } from './Connec
 export { TimerManagerMixin, TimerPriority } from './TimerManagerMixin';
 
 // Async optimization utilities
-export { 
-  PromisePool, 
-  globalPools, 
-  shutdownAllPools, 
-  type PromisePoolOptions, 
-  type PoolMetrics 
+export {
+  PromisePool,
+  globalPools,
+  shutdownAllPools,
+  type PromisePoolOptions,
+  type PoolMetrics
 } from './PromisePool';
 
-export { 
-  RequestCoalescer, 
-  globalCoalescers, 
-  shutdownAllCoalescers, 
-  type CoalescerOptions, 
-  type CoalescerMetrics 
+export {
+  RequestCoalescer,
+  globalCoalescers,
+  shutdownAllCoalescers,
+  type CoalescerOptions,
+  type CoalescerMetrics
 } from './RequestCoalescer';

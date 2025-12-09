@@ -84,7 +84,7 @@ export interface IAggregatorService {
     value: number,
     metadata?: Record<string, unknown>
   ): void;
-  
+
   /**
    * Get aggregation results for a time range
    */
@@ -93,22 +93,22 @@ export interface IAggregatorService {
     endTime: number,
     eventType?: string
   ): AggregationResult[];
-  
+
   /**
    * Force close current windows and return results
    */
   closeWindows(): AggregationResult[];
-  
+
   /**
    * Update aggregation configuration
    */
   updateConfig(config: Partial<AggregationConfig>): void;
-  
+
   /**
    * Get current configuration
    */
   getConfig(): AggregationConfig;
-  
+
   /**
    * Clear all aggregation data
    */
@@ -122,13 +122,13 @@ export interface IAggregatorService {
  */
 export class EventAggregatorService extends BaseService implements IAggregatorService {
   private readonly mutex = new Mutex();
-  
+
   // Active aggregation windows
   private windows: Map<string, AggregationWindow> = new Map();
-  
+
   // Completed aggregation results
   private results: AggregationResult[] = [];
-  
+
   // Configuration
   private config: AggregationConfig = {
     windowSizeMs: 60000, // 1 minute
@@ -137,17 +137,14 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
     enablePatternDetection: true,
     patternThreshold: 0.8
   };
-  
-  // Window cleanup timer
-  private cleanupTimer: NodeJS.Timeout | null = null;
-  
+
   // Pattern detection state
   private recentPatterns: Map<string, number[]> = new Map();
-  
+
   constructor() {
     super();
   }
-  
+
   /**
    * Get service name
    */
@@ -170,11 +167,6 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
    * Perform service-specific shutdown
    */
   protected async performShutdown(): Promise<void> {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
-    
     // Close all active windows
     this.closeWindows();
   }
@@ -183,9 +175,11 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
    * Start cleanup timer
    */
   private startCleanupTimer(): void {
-    this.cleanupTimer = setInterval(() => {
+    const interval = this.config.windowSizeMs / 2;
+    // Use managed interval for automatic cleanup on shutdown
+    this.createInterval('window-cleanup', () => {
       this.cleanupExpiredWindows();
-    }, this.config.windowSizeMs / 2); // Check twice per window
+    }, interval);
   }
 
   /**
@@ -199,19 +193,19 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
   ): void {
     const now = Date.now();
     const windowKey = this.getWindowKey(eventType, eventKey, now);
-    
+
     let window = this.windows.get(windowKey);
     if (!window) {
       window = this.createWindow(eventType, eventKey, now);
       this.windows.set(windowKey, window);
     }
-    
+
     // Update aggregation
     window.count++;
     window.sum += value;
     window.min = Math.min(window.min, value);
     window.max = Math.max(window.max, value);
-    
+
     // Store value for percentile calculations if under limit
     if (window.values.length < this.config.maxValuesPerWindow) {
       window.values.push(value);
@@ -222,7 +216,7 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
         window.values[randomIndex] = value;
       }
     }
-    
+
     // Merge metadata
     if (metadata) {
       Object.assign(window.metadata, metadata);
@@ -263,30 +257,30 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
   private cleanupExpiredWindows(): void {
     const now = Date.now();
     const expiredWindows: string[] = [];
-    
+
     for (const [key, window] of this.windows) {
       if (window.endTime < now) {
         expiredWindows.push(key);
       }
     }
-    
+
     for (const key of expiredWindows) {
       const window = this.windows.get(key)!;
       this.windows.delete(key);
-      
+
       // Convert to result
       const result = this.windowToResult(window);
       this.results.push(result);
-      
+
       // Detect patterns if enabled
       if (this.config.enablePatternDetection) {
         result.patterns = this.detectPatterns(window);
       }
-      
+
       // Maintain recent patterns for comparison
       this.updateRecentPatterns(window);
     }
-    
+
     // Clean up old results (keep last 24 hours)
     const cutoff = now - 24 * 60 * 60 * 1000;
     this.results = this.results.filter(r => r.startTime > cutoff);
@@ -298,16 +292,16 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
   private windowToResult(window: AggregationWindow): AggregationResult {
     const avg = window.count > 0 ? window.sum / window.count : 0;
     const sortedValues = [...window.values].sort((a, b) => a - b);
-    
+
     // Calculate percentiles
     const percentiles: Record<number, number> = {};
     for (const p of this.config.percentilesToCalculate) {
       percentiles[p] = this.calculatePercentile(sortedValues, p);
     }
-    
+
     // Calculate standard deviation
     const stdDev = this.calculateStdDev(window.values, avg);
-    
+
     return {
       windowId: window.id,
       eventType: window.eventType,
@@ -331,16 +325,16 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
    */
   private calculatePercentile(sortedValues: number[], percentile: number): number {
     if (sortedValues.length === 0) return 0;
-    
+
     const index = (percentile / 100) * (sortedValues.length - 1);
     const lower = Math.floor(index);
     const upper = Math.ceil(index);
     const weight = index % 1;
-    
+
     if (lower === upper) {
       return sortedValues[lower];
     }
-    
+
     return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
   }
 
@@ -349,12 +343,12 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
    */
   private calculateStdDev(values: number[], mean: number): number {
     if (values.length < 2) return 0;
-    
+
     const sumSquaredDiff = values.reduce((sum, val) => {
       const diff = val - mean;
       return sum + diff * diff;
     }, 0);
-    
+
     return Math.sqrt(sumSquaredDiff / (values.length - 1));
   }
 
@@ -365,12 +359,12 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
     const patterns: PatternMatch[] = [];
     const patternKey = `${window.eventType}:${window.eventKey}`;
     const recentValues = this.recentPatterns.get(patternKey) || [];
-    
+
     if (recentValues.length >= 3) {
       // Spike detection
       const recentAvg = recentValues.reduce((a, b) => a + b, 0) / recentValues.length;
       const currentAvg = window.count > 0 ? window.sum / window.count : 0;
-      
+
       if (currentAvg > recentAvg * 2) {
         patterns.push({
           type: 'spike',
@@ -380,7 +374,7 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
           endTime: window.endTime
         });
       }
-      
+
       // Drop detection
       if (currentAvg < recentAvg * 0.5) {
         patterns.push({
@@ -391,13 +385,13 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
           endTime: window.endTime
         });
       }
-      
+
       // Anomaly detection using standard deviation
       if (window.values.length > 10) {
         const avg = window.sum / window.count;
         const stdDev = this.calculateStdDev(window.values, avg);
         const anomalies = window.values.filter(v => Math.abs(v - avg) > 3 * stdDev);
-        
+
         if (anomalies.length > 0) {
           patterns.push({
             type: 'anomaly',
@@ -409,7 +403,7 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
         }
       }
     }
-    
+
     return patterns;
   }
 
@@ -419,15 +413,15 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
   private updateRecentPatterns(window: AggregationWindow): void {
     const patternKey = `${window.eventType}:${window.eventKey}`;
     const recentValues = this.recentPatterns.get(patternKey) || [];
-    
+
     const avg = window.count > 0 ? window.sum / window.count : 0;
     recentValues.push(avg);
-    
+
     // Keep last 10 windows for pattern detection
     if (recentValues.length > 10) {
       recentValues.shift();
     }
-    
+
     this.recentPatterns.set(patternKey, recentValues);
   }
 
@@ -451,18 +445,18 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
    */
   closeWindows(): AggregationResult[] {
     const closedResults: AggregationResult[] = [];
-    
+
     for (const [key, window] of this.windows) {
       const result = this.windowToResult(window);
-      
+
       if (this.config.enablePatternDetection) {
         result.patterns = this.detectPatterns(window);
       }
-      
+
       closedResults.push(result);
       this.results.push(result);
     }
-    
+
     this.windows.clear();
     return closedResults;
   }
@@ -472,13 +466,13 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
    */
   updateConfig(config: Partial<AggregationConfig>): void {
     this.config = { ...this.config, ...config };
-    
+
     // Restart cleanup timer if window size changed
-    if (config.windowSizeMs && this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
+    if (config.windowSizeMs && this.hasTimer('window-cleanup')) {
+      this.clearTimer('window-cleanup');
       this.startCleanupTimer();
     }
-    
+
     logger.info('Aggregation configuration updated', this.config);
   }
 
@@ -503,20 +497,20 @@ export class EventAggregatorService extends BaseService implements IAggregatorSe
    * Check if service is healthy
    */
   protected isHealthy(): boolean {
-    return !!this.cleanupTimer;
+    return this.hasTimer('window-cleanup');
   }
-  
+
   /**
    * Get health errors
    */
   protected getHealthErrors(): string[] {
     const errors: string[] = [];
-    if (!this.cleanupTimer) {
+    if (!this.hasTimer('window-cleanup')) {
       errors.push('Cleanup timer not running');
     }
     return errors;
   }
-  
+
   /**
    * Collect service metrics
    */
